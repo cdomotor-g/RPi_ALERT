@@ -78,6 +78,7 @@ class WebServer {
   wire() {
     const a = this.agent;
     a.on('reading', (r) => this.broadcast('reading', r));
+    a.on('token-request', (t) => this.broadcast('token-request', t));
     a.on('burst', (b) => this.broadcast('burst', b));
     a.on('tick', () => this.broadcast('tick', { t: Date.now() }));
     let devTimer = null;
@@ -176,6 +177,11 @@ class WebServer {
       try { return this.json(res, 200, await a.uplink.testToken(token, payload)); }
       catch (e) { return this.json(res, 200, { ok: false, error: 'Could not reach MegaNet: ' + e.message }); }
     }
+    // Ask MegaNet for a token (0048): the answer is the request's status — its
+    // code, and the link its QR code carries. Asking again while one waits
+    // answers the one that waits.
+    if (p === '/api/token/request' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.request());
+    if (p === '/api/token/request/cancel' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.cancel());
     if (p === '/api/send-now' && req.method === 'POST') { a.uplink.sendNow(); return this.json(res, 200, { ok: true }); }
     if (p === '/api/stations/refresh' && req.method === 'POST') { a.stations.refresh(); return this.json(res, 200, { ok: true }); }
     if (p === '/api/devices/rescan' && req.method === 'POST') { a.devices.scan(); return this.json(res, 200, { ok: true }); }

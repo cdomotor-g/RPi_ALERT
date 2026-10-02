@@ -19,6 +19,7 @@ const { Config } = require('./config');
 const { State, KINDS, DATA_DIR } = require('./state');
 const { Clock } = require('./clock');
 const { Uplink } = require('./uplink');
+const { TokenRequest } = require('./token-request');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -43,6 +44,9 @@ class Agent extends EventEmitter {
     this.clock = new Clock({ log: this.log.child('clock'), assumeSynced: opts.assumeClock,
       setSystemTime: (ms) => system.priv('set-time', String(Math.floor(ms / 1000))).then(r => { if (r.code) throw new Error(r.stderr.trim() || 'failed'); }) });
     this.uplink = new Uplink({ config: this.config, clock: this.clock, log: this.log.child('meganet'), dataDir: this.dataDir }).load();
+    // Asking MegaNet for a token instead of having one typed in (0048).
+    this.tokenRequest = new TokenRequest({ config: this.config, api: this.uplink.api, dataDir: this.dataDir, log: this.log.child('token'),
+      describe: () => this.tokenRequestPayload() }).load();
     this.stations = new Stations({ dataDir: this.dataDir, log: this.log.child('stations'), getUrls: () => this.config.get().meganet.stationsUrls }).load();
     this.audio = new Audio({ log: this.log.child('audio'), getCfg: () => this.config.get().audio });
     this.devices = new DeviceManager(this);
@@ -58,6 +62,8 @@ class Agent extends EventEmitter {
     this.log.info('RPi ALERT ' + pkg.version + ' on ' + (this.board.model || os.hostname()) + ' (' + this.board.cores + ' cores, ' + this.board.memMb + ' MB), node ' + process.version);
     this.clock.start();
     this.uplink.start();
+    this.tokenRequest.start();
+    this.tokenRequest.on('change', () => this.emit('token-request', this.tokenRequest.status()));
     this.stations.start();
     this.devices.start();
     this.devices.on('change', () => this.emit('devices'));
@@ -77,6 +83,7 @@ class Agent extends EventEmitter {
   async stop() {
     this.timers.forEach(clearInterval);
     await this.devices.stop();
+    this.tokenRequest.stop();
     this.uplink.stop();
     this.stations.stop();
     this.clock.stop();
@@ -183,6 +190,22 @@ class Agent extends EventEmitter {
     return p;
   }
 
+  // What a token request tells MegaNet about this Pi (0048): the name it will
+  // post under, and enough for an administrator to recognise it — the board,
+  // the host name, what is plugged in. The station it sits at, when the
+  // operator said one, as a suggestion for the token's host station.
+  tokenRequestPayload() {
+    const loc = this.location();
+    const rx = this.devices.all().filter(s => s.kind === 'sdr' || (s.type && s.type !== 'gps'))
+      .map(s => ({ kind: s.kind === 'sdr' ? 'rtl-sdr' : s.type, name: s.name() })).slice(0, 8);
+    const p = {
+      label: this.baseName(),
+      detail: { app: 'RPi ALERT', version: pkg.version, host: os.hostname(), board: this.board.model || undefined, receivers: rx },
+    };
+    if (loc.station) p.host_station_id = loc.station;
+    return p;
+  }
+
   // Where this base station is: a GPS fix when there is one (and GPS is
   // allowed), else the fixed location from the settings, else nowhere.
   location() {
@@ -263,7 +286,7 @@ class Agent extends EventEmitter {
   async status() {
     return {
       version: pkg.version, name: this.baseName(), startedAt: this.startedAt, hostId: this.state.data.hostId,
-      clock: this.clock.status(), meganet: this.uplink.status(), stations: this.stations.status(),
+      clock: this.clock.status(), meganet: this.uplink.status(), tokenRequest: this.tokenRequest.status(), stations: this.stations.status(),
       location: Object.assign(this.location(), { configured: this.config.get().location.source }),
       devices: this.devices.status(), audio: this.audio.status(), counts: this.counts,
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),

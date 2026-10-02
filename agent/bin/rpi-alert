@@ -6,7 +6,11 @@
 //   rpi-alert status                 what is connected, what is being heard, is MegaNet getting it
 //   rpi-alert top                    the same, live, until Ctrl+C
 //   rpi-alert setup                  questions for the essentials: token, name, location, radio
-//   rpi-alert token [mgn_…]          set (or check) the MegaNet ingest token
+//   rpi-alert request-token          ask MegaNet for this Pi's token: shows a code and a QR code,
+//                                    an administrator approves it on MegaNet's Admin tab, and it
+//                                    is saved by itself (--cancel stops asking; --invert for a
+//                                    terminal with a light background)
+//   rpi-alert token [mgn_…]          set (or check) the MegaNet ingest token by hand
 //   rpi-alert config get [key]       print settings (e.g. receivers.sdr.freqHz)
 //   rpi-alert config set key value   change one (value as JSON, or plain text)
 //   rpi-alert password               set the web page password
@@ -35,6 +39,7 @@ async function main() {
     case 'top': return top();
     case 'setup': return setup();
     case 'token': return token(argv[1]);
+    case 'request-token': case 'pair': return requestToken({ cancel: argv.includes('--cancel'), invert: argv.includes('--invert') });
     case 'config': return config(argv[1], argv[2], argv.slice(3).join(' '));
     case 'password': return password();
     case 'readings': return readings(Number(argv[1]) || 20);
@@ -115,11 +120,16 @@ function render(s, readingsList) {
   const out = [];
   const m = s.meganet;
   out.push(C.b + 'RPi ALERT ' + s.version + C.x + '  ' + s.name + C.d + '  (' + s.system.hostname + ', ' + (s.system.addresses || []).map(a => a.address).join(' ') + ')' + C.x);
-  const up = m.tokenRefused ? C.r + 'token refused' : !m.tokenSet ? C.y + 'no token set (rpi-alert token)' : !m.enabled ? C.y + 'sending off'
+  const tr = s.tokenRequest || {};
+  const up = tr.state === 'pending' ? C.y + 'waiting for an administrator to approve this Pi\'s token'
+    : m.tokenRefused ? C.r + 'token refused (rpi-alert request-token)' : !m.tokenSet ? C.y + 'no token set (rpi-alert request-token)' : !m.enabled ? C.y + 'sending off'
     : m.lastError ? C.y + 'retrying' : C.g + 'ok';
   out.push('MegaNet   ' + up + C.x + C.d + (m.label ? '  as "' + m.label + '"' : '') + C.x + '  stored ' + m.accepted + ', dup ' + m.duplicates + ', refused ' + m.rejected
     + ', waiting ' + m.queued + (m.waitingForClock ? ' (+' + m.waitingForClock + ' for the clock)' : '') + (m.lastOkAt ? C.d + ', last ' + ago(Date.now() - m.lastOkAt) + C.x : ''));
-  if (m.lastError) out.push('          ' + C.y + m.lastError + C.x);
+  if (tr.state === 'pending') {
+    out.push('          code ' + C.b + tr.code + C.x + ' — on MegaNet: Admin → Ingest tokens → Approve (expires in ' + Math.max(1, Math.round(tr.expiresInS / 60)) + ' min; QR code: rpi-alert request-token)');
+  } else if (tr.last && tr.last.status !== 'approved' && Date.now() - tr.last.at < 3600000) out.push('          ' + C.y + tr.last.message + C.x);
+  if (m.lastError && tr.state !== 'pending') out.push('          ' + C.y + m.lastError + C.x);
   out.push('Clock     ' + (s.clock.trusted ? C.g + 'ok (' + s.clock.source + ')' : C.y + 'not yet trusted — readings are held until NTP or GPS sets it') + C.x + C.d + '  ' + s.clock.now + ' ' + s.clock.timezone + C.x);
   const loc = s.location;
   out.push('Location  ' + (loc.source === 'none' ? C.y + 'not set' + C.x : loc.source + (loc.lat != null ? ' ' + loc.lat.toFixed(5) + ', ' + loc.lon.toFixed(5) : '')));
@@ -203,8 +213,9 @@ async function ask(rl, q, def) {
 async function token(t) {
   if (!t) {
     const rl = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stdout });
-    t = await ask(rl, 'MegaNet ingest token (mgn_…; an administrator mints one on MegaNet\'s Admin tab → Ingest tokens)', '');
+    t = await ask(rl, 'MegaNet ingest token (mgn_… from MegaNet\'s Admin tab → Ingest tokens; or press Enter and this Pi asks MegaNet for one)', '');
     rl.close();
+    if (!t) return requestToken({});
   }
   if (!t) return;
   const check = await post('/api/token/test', { token: t });
@@ -227,8 +238,9 @@ async function setup() {
   const c = (await api('/api/config')).config;
   console.log(C.b + 'RPi ALERT setup' + C.x + ' — Enter keeps the value in [brackets].\n');
   const name = await ask(rl, 'Name for this base station in MegaNet', c.name || '');
-  console.log('\nThe MegaNet ingest token: one per base station, from MegaNet\'s Admin tab → Ingest tokens.');
-  const tok = await ask(rl, 'Ingest token' + (c.meganet.tokenSet ? ' (one is set: ' + c.meganet.token + ')' : ''), '');
+  console.log('\nThe MegaNet ingest token: one per base station. Paste one from MegaNet\'s Admin tab → Ingest tokens,');
+  console.log('or press Enter and this Pi asks MegaNet for one — an administrator approves it from their phone.');
+  const tok = await ask(rl, 'Ingest token' + (c.meganet.tokenSet ? ' (one is set: ' + c.meganet.token + ' — Enter keeps it)' : ' (Enter: ask MegaNet)'), '');
   console.log('\nWhere is it? Type "lat, lon" (e.g. -27.4698, 153.0251), a station number or name, or leave blank.');
   console.log('A USB GPS, when one is plugged in, is used instead automatically.');
   const where = await ask(rl, 'Location', c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '');
@@ -256,6 +268,48 @@ async function setup() {
   const s = await api('/api/status');
   if (!s.passwordSet) console.log('\nSet a web page password too: rpi-alert password');
   console.log('\nCheck it with: rpi-alert status');
+  // Last, because it waits for an administrator.
+  if (!tok && !c.meganet.tokenSet) await requestToken({});
+}
+
+// Ask MegaNet for this Pi's token (MegaNet 0048): show the code and a QR code
+// of the link to the request, then wait for an administrator. Ctrl+C stops the
+// waiting here, not the asking: the agent goes on asking, and saves the token
+// when it is approved.
+async function requestToken(o) {
+  if (o.cancel) {
+    const r = await post('/api/token/request/cancel', {});
+    console.log(r.last ? r.last.message : 'Nothing was waiting.');
+    return;
+  }
+  const before = await api('/api/status');
+  if (before.meganet.tokenSet && !before.meganet.tokenRefused && (before.tokenRequest || {}).state !== 'pending') {
+    console.log(C.d + 'This Pi has a working token already' + (before.meganet.label ? ' ("' + before.meganet.label + '")' : '') + '; an approved request replaces it.' + C.x);
+  }
+  const t = await post('/api/token/request', {});
+  if (t.state !== 'pending') {
+    console.log(C.r + ((t.last && t.last.message) || 'MegaNet did not take the request.') + C.x);
+    process.exitCode = 1;
+    return;
+  }
+  const QR = require(path.join(__dirname, '..', 'web', 'qr.js'));
+  console.log('\n' + C.b + 'MegaNet has been asked for this Pi\'s token' + C.x + ' (as "' + t.label + '"). The code is\n');
+  console.log('      ' + C.b + t.code + C.x + '\n');
+  try { QR.text(t.link, { invert: o.invert }).forEach(l => console.log('  ' + l)); } catch (_) {}
+  console.log('\nOn a phone or computer signed in to MegaNet as an administrator, scan the QR code');
+  console.log('or open ' + t.link.split('#')[0] + ' → Admin → Ingest tokens. Check the request shows');
+  console.log(t.code + ', then press Approve. It expires in ' + Math.max(1, Math.round(t.expiresInS / 60)) + ' min.\n');
+  console.log(C.d + 'Waiting… (Ctrl+C stops watching; the Pi goes on asking — rpi-alert request-token --cancel stops it)' + C.x);
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    let tr;
+    try { tr = (await api('/api/status')).tokenRequest || {}; } catch (_) { continue; }
+    if (tr.state === 'pending' || tr.state === 'asking') continue;
+    const last = tr.last || {};
+    console.log((last.status === 'approved' ? C.g : C.y) + (last.message || 'The request has ended.') + C.x);
+    if (last.status !== 'approved') process.exitCode = 1;
+    return;
+  }
 }
 
 async function readings(n) {

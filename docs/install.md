@@ -11,9 +11,11 @@ walks through the first two and writes the card's settings for you.
   receiver firmware (USB-C cable), or an ELPRO ERT-A2 (USB-serial cable to its RS-232 port,
   or its USB port).
 - A network (Ethernet or Wi-Fi) for MegaNet — it can come and go; nothing is lost while it is away.
-- A MegaNet **ingest token** for this base station: an administrator mints one on
-  MegaNet's **Admin** tab → **Ingest tokens** → *Create token* (label it for the place, e.g.
-  *Bench Pi*). It is shown once. One token per Pi covers every receiver on it.
+- Someone who is a MegaNet **administrator**, signed in to MegaNet on a phone or computer — to
+  approve this Pi's **ingest token** when it asks for one (below). Nothing has to be copied to
+  the Pi, and nobody signs in on it. One token per Pi covers every receiver on it.
+  (Or the old way: an administrator mints one on MegaNet's **Admin** tab → **Ingest tokens** →
+  *Create token* and you paste it in. It is shown once.)
 
 ## Route 1 — Raspberry Pi Imager with the RPi ALERT repository
 
@@ -89,14 +91,29 @@ and writes what it did to `rpi-alert-boot.log` on the same drive.
 3. Open **http://rpi-alert.local/** (or the hostname you chose) from a computer on the same
    network. If `.local` names do not resolve there (some corporate networks), use the address
    your router lists for the Pi, or plug in a monitor: the console shows it.
-4. **Settings → MegaNet**: paste the ingest token, press *Check token* (it says which ingest
-   point MegaNet knows it as), name the base station, *Save*. **Settings → Location**: set where it is.
+4. **Get the token — press *Request a token*** (the banner on the dashboard, or **Settings →
+   MegaNet**). The Pi shows a code such as `WDJB-MJHT` and a QR code. On a phone or computer
+   signed in to MegaNet as an administrator, **scan the QR code** (or open MegaNet → **Admin** →
+   **Ingest tokens**), check the request shows the same code, and press **Approve** — rename it
+   there if you like. Within five seconds the Pi has its token and sends everything it has kept.
+   A request lasts half an hour; *Stop asking* withdraws it. Set the base station's **name** in
+   Settings → MegaNet first and it asks under that name.
+   (Pasting a token instead still works: paste it, press *Check token*, *Save*.)
+   **Settings → Location**: set where it is.
 5. **Dashboard**: each receiver appears within seconds of being plugged in; readings appear as they
    are heard, with the station each address belongs to.
 6. **Settings → Web page password**: set one, so others on the network cannot change things.
 
 Over SSH instead: `ssh <user>@rpi-alert.local`, then `rpi-alert setup` (questions for the
-essentials) and `rpi-alert status`.
+essentials — press Enter at the token question and the Pi asks MegaNet for one) and
+`rpi-alert status`. `rpi-alert request-token` asks on its own: it prints the code and a QR code
+in the terminal (PuTTY shows it), waits, and says when an administrator has approved it.
+
+**A Pi nobody will stand at:** put `request_token = yes` (and a `name`) in its `rpi-alert.conf`
+— the set-up page does when you leave the token empty. With no token it asks MegaNet at boot,
+asks again each time a request runs out, and stops once one is approved or an administrator
+turns it down. The request appears on MegaNet's Admin tab under that name; its code is on
+`http://<pi>.local/` and in `rpi-alert status` if you want to match it before approving.
 
 ## Updating
 

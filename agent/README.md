@@ -17,11 +17,12 @@ lib/devices/sdr.js         rtl_sdr supervisor;  sdr-worker.js: AlertDsp.Pipeline
 lib/serial/port.js         a serial port with no native module (non-blocking fd + stty)
 lib/serial/scan.js         ports, USB ids and RTL-SDR sticks from sysfs
 lib/uplink.js, meganet.js  the queue on disk; ingest_http / report_ingest_point / report_receptions
+lib/token-request.js       asking MegaNet for the token: a code, approved on MegaNet's Admin tab (0048)
 lib/clock.js               is the time trustworthy (NTP, GPS); monotonic holding
 lib/stations.js            MegaNet's register, for names
 lib/audio.js               live SDR audio, re-synthesised bursts, beeps — via aplay
 lib/bootconf.js            /boot/firmware/rpi-alert.conf
-lib/web/server.js, web/    the dashboard, API and SSE
+lib/web/server.js, web/    the dashboard, API and SSE; web/qr.js draws QR codes (page and CLI)
 ```
 
 ## Running it on a development machine

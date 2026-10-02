@@ -31,6 +31,7 @@
 <main>
   <!-- ── Dashboard ─────────────────────────────────────────────── -->
   <section id="tab-dash" class="tab">
+    <div id="pair-dash"></div>
     <div class="stats" id="stats"></div>
     <div class="grid2">
       <div class="card">
@@ -67,7 +68,9 @@
   <section id="tab-settings" class="tab" hidden>
     <form id="f-meganet" class="card form">
       <h2>MegaNet</h2>
-      <p class="hint">This Pi is an <em>ingest point</em>: one MegaNet token covers every receiver plugged into it. An administrator mints one on MegaNet's <b>Admin</b> tab → <b>Ingest tokens</b>; it is shown once.</p>
+      <p class="hint">This Pi is an <em>ingest point</em>: one MegaNet token covers every receiver plugged into it.</p>
+      <div id="pair-settings"></div>
+      <p class="hint">Or paste one an administrator made on MegaNet's <b>Admin</b> tab → <b>Ingest tokens</b> (it is shown once):</p>
       <label>Ingest token <input name="token" type="password" autocomplete="off" spellcheck="false" placeholder="mgn_…"></label>
       <div class="row-actions"><button type="button" id="token-test" class="ghost">Check token</button><span id="token-result" class="small"></span></div>
       <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Bench Pi, Mt Stuart base"></label>
@@ -202,6 +205,7 @@
 </dialog>
 
 <footer class="dim small"><span id="foot"></span></footer>
+<script src="qr.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

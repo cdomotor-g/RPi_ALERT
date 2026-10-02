@@ -70,8 +70,9 @@
       <form id="conf" class="form" autocomplete="off">
         <fieldset>
           <legend>MegaNet</legend>
-          <label>Ingest token <input name="token" placeholder="mgn_…" spellcheck="false"><span class="small">One per base station: MegaNet → Admin → Ingest tokens → Create token. It is shown once.</span></label>
           <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Mt Stuart base"></label>
+          <label class="check"><input type="checkbox" name="request_token" checked> No token? <b>The Pi asks MegaNet for one</b> when it starts, under this name. Approve it on a phone signed in to MegaNet as an administrator: Admin → Ingest tokens → Waiting for approval. Nothing to copy.</label>
+          <label>…or an ingest token made already <input name="token" placeholder="mgn_… (optional)" spellcheck="false"><span class="small">MegaNet → Admin → Ingest tokens → Create token. It is shown once.</span></label>
         </fieldset>
         <fieldset>
           <legend>Where it is</legend>

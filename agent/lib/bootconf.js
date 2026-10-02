@@ -7,6 +7,8 @@
 // it for you), put the card in the Pi. Plain "key = value" lines, # comments:
 //
 //   token = mgn_…                     MegaNet ingest token
+//   request_token = yes               …or none: ask MegaNet for one at boot, and keep asking
+//                                     until an administrator approves it on the Admin tab
 //   name = Bench Pi                   what MegaNet calls this base station
 //   latitude = -27.4698               where it is (approximate unless a GPS says otherwise)
 //   longitude = 153.0251
@@ -71,6 +73,7 @@ function toPatch(kv) {
   for (const [k, v] of Object.entries(kv)) {
     switch (k) {
       case 'token': case 'meganet_token': case 'ingest_token': set('meganet.token', v.trim()); break;
+      case 'request_token': case 'ask_for_token': set('meganet.autoRequest', yes(v)); break;
       case 'name': case 'station_name': case 'base_station_name': set('name', v); break;
       case 'meganet': case 'send_to_meganet': set('meganet.enabled', !no(v)); break;
       case 'send_receptions': case 'receptions': set('meganet.receptions', !no(v)); break;

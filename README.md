@@ -25,6 +25,7 @@ itself after an unplug or a power cut.
 | **ALERT and ALERT2** | Each device is recognised from what it sends and every reading is tagged with its protocol: legacy **ALERT** (300-baud AFSK — ALERT Binary, Enhanced iFLOWS, ASCII) from SDRs and radios, **ALERT2** from the ERT-A2. |
 | **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. |
 | **MegaNet** | Posts through `ingest_http()` with one ingest token per Pi, one receiver id per device (`serial-monitor/rpi-<host>-qs1`), describes each receiver through `report_ingest_point()` and every frame heard through `report_receptions()` (the Reception Map) — the contract MegaNet's Serial Monitor already uses. Falls back from the floodwarning.net proxy to Supabase directly. |
+| **Its token, without typing it** | Press **Request a token** on the Pi (or `rpi-alert request-token`, or `request_token = yes` on the SD card): it shows a code and a QR code, an administrator signed in to MegaNet on their phone approves it on the Admin tab, and the Pi starts sending within seconds. Nobody signs in on the Pi and nothing is copied: the Pi makes the token and MegaNet keeps only its hash. |
 | **Never loses a reading** | A queue on disk survives restarts and power cuts. No internet: kept and sent later. No clock yet (a Pi has no RTC): held on the monotonic clock and stamped once NTP or GPS sets the time. |
 | **Reconnects** | USB ports are rescanned every 2 s; a device that hangs up is reopened when it returns (under any `/dev` name); `rtl_sdr` is restarted if it stalls or exits; the Quansheng's DTR is toggled when it goes quiet; systemd restarts the agent; the hardware watchdog reboots a hung Pi. |
 | **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it. |
@@ -47,8 +48,10 @@ itself after an unplug or a power cut.
    curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash
    ```
 
-Then open **http://rpi-alert.local/** (or the Pi's own screen), paste the MegaNet ingest
-token, set the location. Details: [docs/install.md](docs/install.md).
+Then open **http://rpi-alert.local/** (or the Pi's own screen), press **Request a token**,
+and approve it from your phone on MegaNet's **Admin** tab after checking the code matches —
+scanning the QR code on the Pi opens the request. Set the location. Details:
+[docs/install.md](docs/install.md).
 
 > **Why not flash from the web page?** No browser can write a whole SD card — WebUSB
 > refuses USB storage and the File System Access API cannot open raw disks, by design.
@@ -75,9 +78,9 @@ Hardware notes, including the RTL-SDR V4 and power supplies: [docs/hardware.md](
 ```
 agent/            the RPi ALERT agent (Node.js, no npm dependencies)
   bin/rpi-alert     daemon + command line (status, top, setup, token, config, …)
-  lib/              devices (serial ports, sniffing, drivers, SDR), uplink, clock, web server
+  lib/              devices (serial ports, sniffing, drivers, SDR), uplink, token request, clock, web server
   vendor/meganet/   MegaNet's decoders, verbatim (see SOURCE; scripts/sync-meganet.sh)
-  web/              the dashboard and settings page
+  web/              the dashboard and settings page (and qr.js, its QR codes)
   test/             node --test: real off-air vector, protocol vectors, MegaNet stand-in,
                     pty receivers, a fake rtl_sdr, the whole agent end to end
   scripts/          simulate.sh (a base station with no hardware), sync-meganet.sh
@@ -92,7 +95,7 @@ docs/             install, configuration, hardware, how it works, research, road
 
 ```sh
 cd agent
-node --test test/*.test.js       # 35 tests; the pty and end-to-end ones need socat
+node --test test/*.test.js       # 47 tests; the pty and end-to-end ones need socat
 scripts/simulate.sh              # a simulated base station on http://localhost:8099/
 ```
 

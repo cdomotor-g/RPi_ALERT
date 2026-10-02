@@ -7,18 +7,24 @@ run on a real Pi with real receivers yet**. This is that run.
 
 ## 0. Before you start
 
-- A MegaNet ingest token for the bench Pi (Admin → Ingest tokens → *Bench Pi*).
+- A phone (or computer) signed in to MegaNet as an administrator — the bench Pi asks for its own
+  ingest token and you approve it there. (Or a token made beforehand: Admin → Ingest tokens →
+  *Bench Pi*.)
 - Decide: **reflash** with the RPi ALERT image (clean, what a new site gets), or **install over**
   the Raspberry Pi OS already on it (keeps what is there). Either is fine; reflashing tests the image.
 
 ## 1. Get RPi ALERT on it
 
 - **Reflash**: <https://cdomotor-g.github.io/RPi_ALERT/> → Pi 4 (or whichever it is) → Imager with
-  the RPi ALERT repository, customisation on (user, Wi-Fi, SSH) → write the card's settings (token,
-  name *Bench Pi*, the bench's coordinates) → boot.
+  the RPi ALERT repository, customisation on (user, Wi-Fi, SSH) → write the card's settings (name
+  *Bench Pi*, the bench's coordinates, token left empty so it asks MegaNet for one) → boot.
 - **Install over**: SSH in, then
   `curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash`,
-  then `rpi-alert token mgn_…` and `rpi-alert setup`.
+  then `rpi-alert setup` (press Enter at the token question).
+- **The token**: `rpi-alert request-token` (or *Request a token* on the dashboard) shows a code and
+  a QR code. Scan it with the phone, check the code on MegaNet's Admin tab matches, press
+  *Approve*. Expect the Pi to say *Approved* within five seconds. Then on the Admin tab the token
+  is listed as *Bench Pi*, made by you, and — once a receiver is plugged in — the receivers behind it.
 
 Expect: `http://<hostname>.local/` shows the dashboard; `rpi-alert status` shows MegaNet **ok** with
 the token's label, the clock **ok (ntp)**, and the location.

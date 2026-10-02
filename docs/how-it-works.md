@@ -114,6 +114,31 @@ and every 15 minutes): its point id `rpi-<host>-<qs|ert|sdr><n>`, name, kind, de
 bit-flip shadows, undecoded bursts — goes to `report_receptions` with RSSI or level and position:
 the raw material of MegaNet's Reception Map.
 
+## Getting the token
+
+A base station needs an ingest token before MegaNet will take its readings, and it **asks for
+one** rather than having one typed into it (MegaNet's device grant, its migration `0048` — the
+way a television signs in to a streaming service):
+
+1. *Request a token* (dashboard, `rpi-alert request-token`, or `request_token = yes` on the SD
+   card): the agent draws `mgn_` + 64 hex characters from the kernel's random number generator and
+   sends them to `request_ingest_token` in `X-Ingest-Token` — the header every later call carries
+   — with the base station's name and what is plugged in. MegaNet keeps only the hash and answers
+   with a code, `WDJB-MJHT`, good for half an hour.
+2. The Pi shows the code and a QR code of `https://floodwarning.net/#pair=WDJB-MJHT`, which opens
+   MegaNet's Admin tab on that request.
+3. An administrator signed in to MegaNet anywhere checks the code and presses *Approve*. The agent
+   asks `ingest_token_request_status` every five seconds; on `approved` the token it made becomes
+   `meganet.token`, and the queue goes. On `denied` or `expired` it says so (and, asked to keep
+   asking, makes a new token and a new request). With no answer at all it keeps asking, slower —
+   only MegaNet can say a request is over.
+
+The token never leaves the Pi except in the header it always travels in, nothing secret is shown
+or typed, and the code only says which request is this one — which is why the administrator
+checks it: anyone can ask, and the code is how they know they are approving the Pi in front of
+them. Until approval the token waits in `/var/lib/rpi-alert/token-request.json` (0600), so a
+restart carries on asking.
+
 ## Clock
 
 A Pi has no battery clock (a Pi 5 can have one) and boots at the time it last shut down. The agent
@@ -126,6 +151,7 @@ GPS week-rollover bugs). The Quansheng radio's own clock is set from the Pi's on
 
 - The agent is not root. Root actions go through one helper with a fixed verb list.
 - The ingest token lives in a 0600 file owned by the agent and is never sent back out by the API.
+  It is made on the Pi (when it asks MegaNet for one) and MegaNet only ever stores its hash.
 - The web page: the Pi's own screen and shell are trusted; from the network, a password once set
   (scrypt-hashed; sessions are HttpOnly SameSite=Strict cookies; changes must be JSON — which a
   cross-site form cannot send — and same-origin; login attempts are rate-limited). It is plain HTTP

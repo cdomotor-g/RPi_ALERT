@@ -13,9 +13,13 @@
 # Pi's web page (http://rpi-alert.local/) or with `rpi-alert setup` over SSH.
 
 # ── MegaNet ─────────────────────────────────────────────────────────────────
-# The ingest token for this base station: one per Pi, from MegaNet's Admin tab
-# → Ingest tokens (shown once — paste it here).
+# The ingest token for this base station: one per Pi. Easiest: leave token out
+# and say request_token = yes — at boot the Pi asks MegaNet for one, and an
+# administrator approves it on MegaNet's Admin tab → Ingest tokens (on their
+# phone; the code to check is on http://rpi-alert.local/ and in
+# `rpi-alert status`). Or paste one made there (shown once):
 #token = mgn_xxxxxxxxxxxxxxxxxxxxxxxx
+request_token = yes
 
 # What MegaNet calls this base station.
 #name = Bench Pi

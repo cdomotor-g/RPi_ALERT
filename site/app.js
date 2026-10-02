@@ -59,6 +59,9 @@ function confText() {
     '# Applied at the next boot, then renamed rpi-alert.conf.applied with the secrets removed.', ''];
   const put = (k, val) => { if (val !== '' && val != null) lines.push(k + ' = ' + val); };
   put('token', v('token'));
+  // With no token, the Pi asks MegaNet for one at boot (MegaNet 0048); an
+  // administrator approves the request on the Admin tab.
+  if (!v('token') && f.elements.request_token.checked) put('request_token', 'yes');
   put('name', v('name'));
   if (pickedStation && v('station') === pickedStation.name) {
     put('location_station', pickedStation.id); put('location_station_name', pickedStation.name);

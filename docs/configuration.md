@@ -22,6 +22,13 @@ mode 0600 because it holds the ingest token):
   join, hostname), web password, time zone, restart/reboot/shut down, update check.
 - **Log** — the agent's log, live.
 
+**Getting the token.** *Request a token* (Settings → MegaNet, or the banner while there is none)
+makes a token on the Pi and asks MegaNet to approve it; the Pi shows a code and a QR code, an
+administrator signed in to MegaNet anywhere approves the request on MegaNet's **Admin** tab →
+**Ingest tokens**, and the token is saved by itself. The token being asked about waits in
+`/var/lib/rpi-alert/token-request.json` (0600) so a restart carries on asking; it becomes
+`meganet.token` only once approved. Pasting a token still works.
+
 **Who may change settings.** The Pi's own screen and the `rpi-alert` command (both on the Pi
 itself) always may. From other computers: anyone, until a web password is set — the page says so
 in a banner — then only someone who has logged in. The ingest token is never sent back out, to
@@ -34,6 +41,8 @@ from visitors who are not logged in.
 rpi-alert status                 receivers, MegaNet, clock, location, latest readings
 rpi-alert top                    the same, live
 rpi-alert setup                  questions for the essentials
+rpi-alert request-token          ask MegaNet for the token: a code and a QR code, approved by an
+                                 administrator on MegaNet's Admin tab (--cancel stops asking)
 rpi-alert token [mgn_…]          check a token against MegaNet and save it
 rpi-alert config get [key]       e.g. rpi-alert config get receivers.sdr
 rpi-alert config set key value   e.g. rpi-alert config set receivers.sdr.freqHz 151525000
@@ -52,6 +61,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | Key | Value | Setting |
 |---|---|---|
 | `token` | `mgn_…` | `meganet.token` |
+| `request_token` | yes / no | `meganet.autoRequest` — with no token, ask MegaNet for one at boot and keep asking until an administrator approves it |
 | `name` | text | `name` — what MegaNet calls this base station |
 | `latitude`, `longitude` | decimal degrees | `location` (approximate) |
 | `location_station` (+ `location_station_name`) | MegaNet station id, with `latitude`/`longitude` | `location.source = station` |
@@ -79,6 +89,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `name` | `RPi ALERT <hostname>` | Base station name; each receiver reports as "name — receiver" |
 | `meganet.enabled` | true | Send to MegaNet at all |
 | `meganet.token` | — | The ingest token |
+| `meganet.autoRequest` | false | With no token, ask MegaNet for one by itself and keep a request open (a new one each time one runs out). Turns itself off once a token is approved, when an administrator turns a request down, or on *Stop asking* |
 | `meganet.endpoints` | floodwarning.net `/api/db` proxy, then the Supabase project | Tried in order; the one that works is remembered |
 | `meganet.receptions` | true | Also post every frame heard to `report_receptions` (Reception Map) |
 | `meganet.stationsUrls` | floodwarning.net, then GitHub Pages `stations.json` | The register used to name stations (daily, cached) |

@@ -54,8 +54,9 @@ function renderHeader() {
   $('#name').textContent = s.name;
   const addr = (s.system.addresses || []).map(a => a.address).join(' · ');
   $('#host').textContent = s.system.hostname + '.local' + (addr ? ' · ' + addr : '') + ' · ' + (s.system.model || '');
-  const m = s.meganet, chips = [];
-  if (!m.tokenSet) chips.push(['warn', 'MegaNet: no token']);
+  const m = s.meganet, chips = [], tr = s.tokenRequest || {};
+  if (tr.state === 'pending') chips.push(['warn', 'MegaNet: waiting for approval · ' + tr.code]);
+  else if (!m.tokenSet) chips.push(['warn', 'MegaNet: no token']);
   else if (m.tokenRefused) chips.push(['bad', 'MegaNet: token refused']);
   else if (!m.enabled) chips.push(['warn', 'MegaNet: sending off']);
   else if (m.lastError) chips.push(['warn', 'MegaNet: retrying']);
@@ -70,16 +71,114 @@ function renderHeader() {
   $('#chips').innerHTML = chips.map(([c, t]) => '<span class="chip ' + c + '">' + esc(t) + '</span>').join('');
 
   const banners = [];
-  if (!m.tokenSet) banners.push(['', 'No MegaNet ingest token yet — readings are decoded and kept here, and sent once one is set. <a href="#settings">Settings → MegaNet</a>']);
-  if (m.tokenRefused) banners.push(['bad', esc(m.lastError) + ' <a href="#settings">Settings → MegaNet</a>']);
+  const ask = '<button type="button" data-act="token-request"' + (tr.state === 'asking' ? ' disabled' : '') + '>Request a token</button>';
+  // Waiting: the card on the Dashboard and in Settings says it, larger; the
+  // other tabs get a line pointing back to it.
+  if (tr.state === 'pending') {
+    if (S.tab !== 'dash' && S.tab !== 'settings') banners.push(['', 'Waiting for an administrator to approve this base station — code <b class="mono">'
+      + esc(tr.code) + '</b>. <a href="#dash">Show the QR code</a>']);
+  } else if (!m.tokenSet) banners.push(['', 'No MegaNet ingest token yet — readings are decoded and kept here, and sent once one is set. ' + ask
+    + ' <span class="dim">— an administrator approves it from their phone. Or paste one in <a href="#settings">Settings → MegaNet</a>.</span>']);
+  if (m.tokenRefused && tr.state !== 'pending') banners.push(['bad', esc(m.lastError) + ' ' + ask.replace('Request a token', 'Request a new token') + ' <a href="#settings">Settings → MegaNet</a>']);
   if (s.system.power && (s.system.power.underVoltageNow || s.system.power.underVoltageSinceBoot)) banners.push(['bad', 'The Pi has seen under-voltage. A weak power supply makes USB receivers drop out — use the official supply (5 V 3 A, or 5 A for a Pi 5).']);
   if (s.auth && !s.auth.passwordSet && !s.auth.local) banners.push(['', 'No web page password is set, so anyone on this network can change these settings. <a href="#settings">Set one</a>.']);
   const b = $('#banner');
   b.hidden = !banners.length;
   b.className = 'banner' + (banners.some(x => x[0] === 'bad') ? ' bad' : '');
-  b.innerHTML = banners.map(x => '<div>' + x[1] + '</div>').join('');
+  // Drawn again only when it says something new: it holds a button, and a
+  // button replaced between press and release never sees the click.
+  const html = banners.map(x => '<div>' + x[1] + '</div>').join('');
+  if (b.dataset.html !== html) { b.innerHTML = html; b.dataset.html = html; }
+  renderPair();
   $('#foot').textContent = 'RPi ALERT ' + s.version + ' · up ' + ago(s.system.uptimeS * 1000).replace(' ago', '') + ' · ' + s.system.os + ' · node ' + s.system.node;
 }
+
+// ── asking MegaNet for a token (0048) ───────────────────────────────────────
+// The code and a QR code of MegaNet's link to the request, while an
+// administrator is asked to approve it; what happened, after. The card is drawn
+// again only when the request changes — the countdown is a text update — so its
+// buttons can be pressed.
+
+function untilText(sec) {
+  if (sec == null) return '';
+  return sec <= 60 ? 'under a minute' : Math.round(sec / 60) + ' min';
+}
+
+function pairCardHtml(tr, where) {
+  let qr = '';
+  try { qr = typeof QR !== 'undefined' ? QR.svg(tr.link, { ecl: 'M', label: 'QR code: open MegaNet\'s Admin tab on this request' }) : ''; } catch (_) {}
+  return '<div class="card pair" role="status">'
+    + '<h2>Waiting for an administrator to approve this base station</h2>'
+    + '<div class="pair-body">'
+    + (qr ? '<div class="pair-qr">' + qr + '</div>' : '')
+    + '<div class="pair-text">'
+    + '<div class="dim small">The code</div><div class="pair-code" aria-label="' + esc(tr.code.split('').join(' ')) + '">' + esc(tr.code) + '</div>'
+    + '<ol class="pair-steps">'
+    + '<li>On a phone or computer signed in to MegaNet as an administrator, ' + (qr ? 'scan this QR code, or ' : '') + 'open MegaNet → <b>Admin</b> → <b>Ingest tokens</b>.</li>'
+    + '<li>Check the request shows <b class="mono">' + esc(tr.code) + '</b>, then press <b>Approve</b>.</li>'
+    + '<li>This Pi starts sending by itself within a few seconds — nothing to type here.</li></ol>'
+    + '<div class="dim small">Asking as “' + esc(tr.label || '') + '” · expires in <span data-expires>' + esc(untilText(tr.expiresInS)) + '</span>'
+    + (tr.auto ? ' · asked by itself (request_token = yes)' : '') + '</div>'
+    + '<div class="row-actions"><button type="button" class="ghost" data-act="token-cancel">Stop asking</button>'
+    + (where === 'dash' ? '' : '<a class="small" href="' + esc(tr.link) + '" target="_blank" rel="noopener">Open MegaNet</a>') + '</div>'
+    + '</div></div></div>';
+}
+
+function lastHtml(last) {
+  if (!last) return '';
+  const cls = last.status === 'approved' ? 'ok' : last.status === 'withdrawn' ? '' : 'bad';
+  return '<p class="small status ' + cls + '">' + esc(last.message) + '</p>';
+}
+
+function renderPair() {
+  const s = S.status;
+  if (!s) return;
+  const tr = s.tokenRequest || { state: 'idle' }, m = s.meganet;
+  const recent = tr.last && Date.now() - tr.last.at < 10 * 60 * 1000 && tr.last.status !== 'withdrawn';
+  const dash = tr.state === 'pending' ? pairCardHtml(tr, 'dash') : recent && tr.last.status !== 'busy' ? '<div class="card">' + lastHtml(tr.last) + '</div>' : '';
+  let set;
+  if (tr.state === 'pending') set = pairCardHtml(tr, 'settings');
+  else {
+    // With a token that works, asking for another is the exception (a token
+    // lost or revoked), so the button steps back.
+    const working = m.tokenSet && !m.tokenRefused;
+    set = '<div class="pair-ask"><div class="row-actions"><button type="button"' + (working ? ' class="ghost"' : '') + ' data-act="token-request"'
+      + (tr.state === 'asking' ? ' disabled' : '') + '>'
+      + (tr.state === 'asking' ? 'Asking MegaNet…' : m.tokenSet ? 'Request a new token' : 'Request a token') + '</button></div>'
+      + (working
+        ? '<p class="hint">This Pi has a token that works. Ask for a new one only if it has been revoked or lost — once approved, the new one replaces it here, '
+          + 'and the administrator can revoke the old one as they approve.</p>'
+        : '<p class="hint">Easiest: this Pi asks MegaNet for its token and shows a code; an administrator signed in to MegaNet on any device — '
+          + 'their phone — checks the code and approves it on the <b>Admin</b> tab. Nothing to copy or type, and nobody signs in here.</p>')
+      + lastHtml(tr.last) + '</div>';
+  }
+  for (const [id, html] of [['#pair-dash', dash], ['#pair-settings', set]]) {
+    const el = $(id);
+    if (el && el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  }
+  // The countdown moves on every refresh without redrawing the buttons.
+  $$('[data-expires]').forEach(e => { e.textContent = untilText(tr.expiresInS); });
+}
+
+async function tokenAction(act) {
+  try {
+    if (act === 'token-request') S.status.tokenRequest = await api('/api/token/request', { method: 'POST', body: {} });
+    else if (act === 'token-cancel') S.status.tokenRequest = await api('/api/token/request/cancel', { method: 'POST', body: {} });
+  } catch (e) { alert(e.message); }
+  // Drawn again even if the answer reads the same as before (MegaNet still
+  // unreachable, say): the button pressed was disabled, and only a redraw
+  // gives it back.
+  for (const id of ['#banner', '#pair-dash', '#pair-settings']) { const el = $(id); if (el) el.dataset.html = ''; }
+  refresh();
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-act]');
+  if (!b || b.disabled) return;
+  e.preventDefault();
+  b.disabled = true;
+  tokenAction(b.dataset.act);
+});
 
 // ── dashboard ───────────────────────────────────────────────────────────────
 
@@ -516,12 +615,19 @@ function connectEvents() {
   es.addEventListener('burst', (e) => { S.bursts.unshift(JSON.parse(e.data)); if (S.bursts.length > 300) S.bursts.length = 300; renderBursts(); });
   es.addEventListener('tick', () => refresh());
   es.addEventListener('devices', () => refresh());
+  // Approved: the settings page shows the token as set, without a reload.
+  es.addEventListener('token-request', (e) => {
+    let t = null; try { t = JSON.parse(e.data); } catch (_) {}
+    refresh();
+    if (t && t.last && t.last.status === 'approved' && S.tab === 'settings') loadConfig().catch(() => {});
+  });
   es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') renderLog(); });
   es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
 }
 
 function showTab(t) {
   S.tab = t;
+  renderHeader();
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'rx') renderRxFull();
