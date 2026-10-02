@@ -100,8 +100,8 @@ scripts/simulate.sh              # a simulated base station on http://localhost:
 ```
 
 Building an image needs Linux with root, `qemu-user-static` (binfmt), `fdisk`, `xz` and
-`python3`: `sudo build/build-image.sh [--arch armhf]`. CI builds both on a `v*` tag and
-publishes them as a release ([.github/workflows](.github/workflows)).
+`python3`: `sudo build/build-image.sh [--arch armhf]`. CI builds both and publishes them as a release on a `v*` tag, or from
+**Actions → build-image → Run workflow** with a release tag ([.github/workflows](.github/workflows)).
 
 <img src="docs/images/receivers.png" width="49%" alt="The Receivers page: each device's state, port, firmware, levels and spectrum"> <img src="docs/images/setup-page.png" width="49%" alt="The set-up page: pick the Pi, write the card, write its settings">
 
