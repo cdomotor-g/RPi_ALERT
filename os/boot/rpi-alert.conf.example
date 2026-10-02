@@ -1,0 +1,61 @@
+# RPi ALERT — settings applied when the Pi boots.
+#
+# To use: copy this file to rpi-alert.conf (same folder: the SD card's "bootfs"
+# partition, next to config.txt), fill in what you need, delete the rest, and
+# put the card back in the Pi. On the next boot the settings are applied, this
+# file is renamed rpi-alert.conf.applied with the secrets blanked out, and what
+# happened is written to rpi-alert-boot.log beside it.
+#
+# The flasher page writes this file for you:
+#   https://cdomotor-g.github.io/RPi_ALERT/
+#
+# Lines starting with # are ignored. Everything can also be set later on the
+# Pi's web page (http://rpi-alert.local/) or with `rpi-alert setup` over SSH.
+
+# ── MegaNet ─────────────────────────────────────────────────────────────────
+# The ingest token for this base station: one per Pi, from MegaNet's Admin tab
+# → Ingest tokens (shown once — paste it here).
+#token = mgn_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# What MegaNet calls this base station.
+#name = Bench Pi
+
+# ── Where it is ─────────────────────────────────────────────────────────────
+# Decimal degrees. Recorded in MegaNet as approximate; a USB GPS fix, when one
+# is plugged in, is used instead and recorded as exact.
+#latitude = -27.4698
+#longitude = 153.0251
+#use_gps = yes
+
+# ── RTL-SDR ─────────────────────────────────────────────────────────────────
+#sdr_frequency_mhz = 151.5
+# binary (the 151.5 MHz networks) | enhanced_iflows (an ERT-A2 set to it) | ascii
+#sdr_format = binary
+# A number in dB, or auto
+#sdr_gain_db = 29.7
+#sdr_ppm = 0
+# 4.5 V on the antenna socket, for an LNA that wants it
+#sdr_bias_tee = no
+
+# ── Audio: hear each ALERT burst on a speaker in the audio jack ────────────
+# auto | live | synth | beep | off
+#audio = auto
+#audio_volume = 80
+
+# ── Screen ──────────────────────────────────────────────────────────────────
+# auto (dashboard on a connected monitor) | on | off (text console only)
+#kiosk = auto
+
+# ── Web page password (stored hashed; removed from the card) ───────────────
+#web_password = choose-something
+
+# ── The Pi ──────────────────────────────────────────────────────────────────
+#timezone = Australia/Brisbane
+#hostname = rpi-alert
+#ssh = on
+
+# A Wi-Fi network to join. Raspberry Pi Imager's "customisation" can do this
+# too (and set the user and password) — use one or the other.
+#wifi_country = AU
+#wifi_ssid = MyNetwork
+#wifi_password = its-password

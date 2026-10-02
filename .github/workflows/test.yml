@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # 18: Bookworm's nodejs; 20: Trixie's.
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Tools the tests use (socat for pseudo-terminal receivers)
+        run: sudo apt-get update -q && sudo apt-get install -y -q socat
+      - name: Syntax
+        run: |
+          for f in $(git ls-files 'agent/*.js' 'site/*.js') agent/bin/rpi-alert agent/test/helpers/fake-rtl_sdr; do node --check "$f"; done
+      - name: Tests
+        working-directory: agent
+        run: node --test test/*.test.js
+
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+      - run: shellcheck os/install.sh os/bootstrap.sh os/libexec/* build/build-image.sh os/files/profile/rpi-alert.sh agent/scripts/*.sh

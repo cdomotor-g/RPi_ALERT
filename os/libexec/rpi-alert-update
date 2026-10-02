@@ -1,0 +1,44 @@
+#!/bin/bash
+# rpi-alert-update — check for, or install, a newer RPi ALERT.
+#
+#   rpi-alert-update --check          compare this Pi with the latest release
+#   sudo rpi-alert-update             install the latest release
+#   sudo rpi-alert-update --ref main  install the current main branch (testing)
+#
+# Settings (/etc/rpi-alert), the queue and the receiver ids (/var/lib/rpi-alert)
+# are kept: install.sh never overwrites them.
+set -euo pipefail
+REPO=${RPI_ALERT_REPO:-cdomotor-g/RPi_ALERT}
+CHECK=0; REF=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK=1 ;;
+    --ref) REF=$2; shift ;;
+    *) echo "usage: rpi-alert-update [--check] [--ref <tag|branch>]" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+current=$(node -p "require('/opt/rpi-alert/package.json').version" 2>/dev/null || echo unknown)
+latest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)
+
+if [ "$CHECK" = 1 ]; then
+  echo "This Pi runs RPi ALERT $current."
+  if [ -z "$latest" ]; then echo "No published release found (or no internet). To follow main: sudo /opt/rpi-alert/libexec/rpi-alert-update --ref main"
+  elif [ "$latest" = "$current" ]; then echo "That is the latest release."
+  else echo "Release $latest is available. Install it over SSH with: sudo /opt/rpi-alert/libexec/rpi-alert-update"; fi
+  exit 0
+fi
+
+[ "$(id -u)" = 0 ] || { echo "run as root: sudo $0 $*" >&2; exit 1; }
+if [ -z "$REF" ]; then
+  [ -n "$latest" ] || { echo "no release found; use --ref main" >&2; exit 1; }
+  REF="v$latest"
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+url="https://github.com/$REPO/archive/$REF.tar.gz"
+echo "Downloading $url"
+curl -fsSL --max-time 300 "$url" | tar -xz -C "$tmp" --strip-components=1
+bash "$tmp/os/install.sh" --upgrade
+echo "RPi ALERT is now $(node -p "require('/opt/rpi-alert/package.json').version")."

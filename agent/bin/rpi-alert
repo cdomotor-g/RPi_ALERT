@@ -1,0 +1,273 @@
+#!/usr/bin/env node
+'use strict';
+// rpi-alert — the RPi ALERT agent, and the command to look at and set it up.
+//
+//   rpi-alert daemon                 run the agent (systemd does this: rpi-alert.service)
+//   rpi-alert status                 what is connected, what is being heard, is MegaNet getting it
+//   rpi-alert top                    the same, live, until Ctrl+C
+//   rpi-alert setup                  questions for the essentials: token, name, location, radio
+//   rpi-alert token [mgn_…]          set (or check) the MegaNet ingest token
+//   rpi-alert config get [key]       print settings (e.g. receivers.sdr.freqHz)
+//   rpi-alert config set key value   change one (value as JSON, or plain text)
+//   rpi-alert password               set the web page password
+//   rpi-alert readings [n]           the last n readings
+//   rpi-alert log [n]                the agent's recent log (journalctl -u rpi-alert for all of it)
+//   rpi-alert test-audio [alert|alert2|beep]
+//   rpi-alert send-now               retry MegaNet now (skip any back-off)
+//   rpi-alert import-boot-config     apply /boot/firmware/rpi-alert.conf (root; done at every boot)
+//   rpi-alert version
+//
+// Everything but `daemon` and `import-boot-config` talks to the running agent
+// on http://127.0.0.1 — over SSH (PuTTY on Windows) that is all a headless
+// base station needs.
+
+const path = require('node:path');
+const lib = path.join(__dirname, '..', 'lib');
+const pkg = require('../package.json');
+
+const argv = process.argv.slice(2);
+const cmd = argv[0] || 'help';
+
+async function main() {
+  switch (cmd) {
+    case 'daemon': return daemon();
+    case 'status': return status(argv.includes('--json'));
+    case 'top': return top();
+    case 'setup': return setup();
+    case 'token': return token(argv[1]);
+    case 'config': return config(argv[1], argv[2], argv.slice(3).join(' '));
+    case 'password': return password();
+    case 'readings': return readings(Number(argv[1]) || 20);
+    case 'log': case 'logs': return showLog(Number(argv[1]) || 60);
+    case 'test-audio': return post('/api/audio/test', { kind: argv[1] || 'alert' }).then(() => console.log('Playing a test chirp.'));
+    case 'send-now': return post('/api/send-now', {}).then(() => console.log('Retrying MegaNet now.'));
+    case 'import-boot-config': return require(path.join(lib, 'bootconf')).main(argv.slice(1));
+    case 'version': case '--version': case '-v': console.log(pkg.version); return;
+    default: return help();
+  }
+}
+
+function help() {
+  const src = require('node:fs').readFileSync(__filename, 'utf8').split('\n');
+  const start = src.findIndex(l => l.includes('rpi-alert daemon'));
+  console.log('RPi ALERT ' + pkg.version + '\n');
+  for (let i = start; i < src.length && src[i].startsWith('//'); i++) console.log(src[i].replace(/^\/\/ ?/, ''));
+}
+
+// ── the daemon ───────────────────────────────────────────────────────────────
+
+function daemon() {
+  const { Agent } = require(path.join(lib, 'agent'));
+  const { WebServer } = require(path.join(lib, 'web', 'server'));
+  const agent = new Agent().start();
+  const web = new WebServer(agent).start();
+  let stopping = false;
+  const stop = async (sig) => {
+    if (stopping) return;
+    stopping = true;
+    agent.log.info('stopping (' + sig + ')');
+    web.stop();
+    try { await agent.stop(); } catch (_) {}
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('uncaughtException', (e) => { agent.log.error('uncaught: ' + (e && e.stack || e)); try { agent.uplink.persistNow(); } catch (_) {} process.exit(1); });
+  process.on('unhandledRejection', (e) => { agent.log.error('unhandled rejection: ' + (e && e.stack || e)); });
+}
+
+// ── talking to the running agent ─────────────────────────────────────────────
+
+const PORTS = process.env.RPI_ALERT_PORT ? [Number(process.env.RPI_ALERT_PORT)] : [80, 8080];
+let base = null;
+
+async function api(p, opts) {
+  const tryOne = async (port) => {
+    const res = await fetch('http://127.0.0.1:' + port + p, Object.assign({ signal: AbortSignal.timeout(15000) }, opts || {}));
+    const text = await res.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch (_) {}
+    if (!body) throw Object.assign(new Error('not the RPi ALERT agent on port ' + port), { notAgent: true });
+    if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+    return body;
+  };
+  if (base) return tryOne(base);
+  let last;
+  for (const port of PORTS) {
+    try { const b = await tryOne(port); base = port; return b; } catch (e) { last = e; if (!(e.notAgent || (e.cause && e.cause.code === 'ECONNREFUSED'))) throw e; }
+  }
+  throw new Error('the agent is not running (sudo systemctl status rpi-alert; sudo journalctl -u rpi-alert -e)' + (last ? ' — ' + (last.cause && last.cause.code || last.message) : ''));
+}
+function post(p, body) { return api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+
+// ── status ───────────────────────────────────────────────────────────────────
+
+const C = process.stdout.isTTY ? { b: '\x1b[1m', d: '\x1b[2m', g: '\x1b[32m', y: '\x1b[33m', r: '\x1b[31m', c: '\x1b[36m', x: '\x1b[0m' }
+  : { b: '', d: '', g: '', y: '', r: '', c: '', x: '' };
+
+function ago(ms) {
+  if (ms == null) return '—';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago';
+}
+
+function render(s, readingsList) {
+  const out = [];
+  const m = s.meganet;
+  out.push(C.b + 'RPi ALERT ' + s.version + C.x + '  ' + s.name + C.d + '  (' + s.system.hostname + ', ' + (s.system.addresses || []).map(a => a.address).join(' ') + ')' + C.x);
+  const up = m.tokenRefused ? C.r + 'token refused' : !m.tokenSet ? C.y + 'no token set (rpi-alert token)' : !m.enabled ? C.y + 'sending off'
+    : m.lastError ? C.y + 'retrying' : C.g + 'ok';
+  out.push('MegaNet   ' + up + C.x + C.d + (m.label ? '  as "' + m.label + '"' : '') + C.x + '  stored ' + m.accepted + ', dup ' + m.duplicates + ', refused ' + m.rejected
+    + ', waiting ' + m.queued + (m.waitingForClock ? ' (+' + m.waitingForClock + ' for the clock)' : '') + (m.lastOkAt ? C.d + ', last ' + ago(Date.now() - m.lastOkAt) + C.x : ''));
+  if (m.lastError) out.push('          ' + C.y + m.lastError + C.x);
+  out.push('Clock     ' + (s.clock.trusted ? C.g + 'ok (' + s.clock.source + ')' : C.y + 'not yet trusted — readings are held until NTP or GPS sets it') + C.x + C.d + '  ' + s.clock.now + ' ' + s.clock.timezone + C.x);
+  const loc = s.location;
+  out.push('Location  ' + (loc.source === 'none' ? C.y + 'not set' + C.x : loc.source + (loc.lat != null ? ' ' + loc.lat.toFixed(5) + ', ' + loc.lon.toFixed(5) : '')));
+  if (s.system.power && (s.system.power.underVoltageNow || s.system.power.underVoltageSinceBoot)) out.push(C.r + 'Power     under-voltage detected — use a proper 5 V supply; USB receivers drop out on a weak one' + C.x);
+  out.push('');
+  out.push(C.b + 'Receivers' + C.x);
+  const devs = [...s.devices.ports, ...s.devices.sdrs];
+  if (!devs.length) out.push('  ' + C.y + 'none found — plug in an RTL-SDR, a Quansheng radio (USB-C), an ERT-A2 (USB-serial) or a GPS' + C.x);
+  for (const d of devs) {
+    const col = d.state === 'running' ? C.g : d.state === 'identifying' || d.state === 'starting' ? C.c : C.y;
+    let line = '  ' + col + d.state.padEnd(12) + C.x + ' ' + d.name.padEnd(22) + ' ' + (d.protocol ? (d.protocol === 'alert2' ? 'ALERT2' : 'ALERT ') : '      ');
+    if (d.kind === 'sdr') line += C.d + ' ' + (d.freqHz / 1e6).toFixed(4) + ' MHz ' + d.format + (d.tuner ? ' ' + d.tuner : '') + (d.level ? ' ch ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' : '') + ', bursts ' + d.counts.bursts + ', decodes ' + d.counts.decodes + C.x;
+    else {
+      line += C.d + ' ' + d.port.dev + (d.port.baud ? ' @' + d.port.baud : '') + (d.how ? ' — ' + d.how : '') + C.x;
+      const q = d.detail || {};
+      if (d.kind === 'quansheng' && q.battery) line += C.d + ', batt ' + q.battery.pct + '%, nf ' + q.nf_dbm + ' dBm' + C.x;
+      if (d.kind === 'gps') line += C.d + (q.fix ? ', fix ' + (q.fix.lat != null ? q.fix.lat.toFixed(5) + ', ' + q.fix.lon.toFixed(5) : '(hidden)') + ' ±' + q.fix.accuracy_m + ' m, ' + q.sats + ' sats' : ', no fix') + C.x;
+    }
+    if (d.error) line += ' ' + C.y + d.error + C.x;
+    out.push(line);
+  }
+  if (readingsList) {
+    out.push('');
+    out.push(C.b + 'Latest readings' + C.x);
+    if (!readingsList.length) out.push('  ' + C.d + 'nothing heard yet' + C.x);
+    for (const r of readingsList) {
+      out.push('  ' + new Date(r.t).toLocaleTimeString() + '  ' + (r.protocol === 'alert2' ? 'ALERT2' : 'ALERT ') + ' ' + String(r.fmt || '').padEnd(6) + String(r.alert_id).padStart(5)
+        + ' = ' + String(r.eng).padEnd(10) + ' ' + ((r.station && r.station.name) || '').slice(0, 28).padEnd(28) + C.d + ' ' + r.receiver + (r.rssi_dbm != null ? ' ' + r.rssi_dbm + ' dBm' : '') + (r.votes != null ? ' ' + r.votes + ' votes' : '') + (r.timed ? '' : ' (waiting for clock)') + C.x);
+    }
+  }
+  return out.join('\n');
+}
+
+async function status(json) {
+  const s = await api('/api/status');
+  if (json) { console.log(JSON.stringify(s, null, 2)); return; }
+  const r = await api('/api/readings?limit=10');
+  console.log(render(s, r.readings));
+  if (!s.passwordSet) console.log('\n' + C.y + 'No web password yet: anyone on this network can change settings at http://' + s.system.hostname + '.local/ — set one with: rpi-alert password' + C.x);
+}
+
+async function top() {
+  const draw = async () => {
+    try {
+      const [s, r] = await Promise.all([api('/api/status'), api('/api/readings?limit=' + Math.max(5, (process.stdout.rows || 40) - 20))]);
+      process.stdout.write('\x1b[H\x1b[2J' + render(s, r.readings) + '\n\n' + C.d + 'Ctrl+C to quit' + C.x + '\n');
+    } catch (e) { process.stdout.write('\x1b[H\x1b[2J' + e.message + '\n'); }
+  };
+  await draw();
+  setInterval(draw, 2000);
+}
+
+// ── settings ─────────────────────────────────────────────────────────────────
+
+function getPath(o, p) { return !p ? o : p.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o); }
+function patchFor(p, v) { const out = {}; let cur = out; const ks = p.split('.'); ks.slice(0, -1).forEach(k => { cur = cur[k] = {}; }); cur[ks[ks.length - 1]] = v; return out; }
+
+async function config(sub, key, value) {
+  if (sub === 'get' || !sub) {
+    const c = (await api('/api/config')).config;
+    const v = getPath(c, key);
+    console.log(typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v));
+    return;
+  }
+  if (sub === 'set') {
+    if (!key) throw new Error('rpi-alert config set <key> <value>');
+    let v = value;
+    try { v = JSON.parse(value); } catch (_) {}
+    const r = await post('/api/config', { config: patchFor(key, v) });
+    console.log(r.changed.length ? 'Saved: ' + r.changed.join(', ') : 'Unchanged.');
+    return;
+  }
+  throw new Error('rpi-alert config get [key] | set <key> <value>');
+}
+
+async function ask(rl, q, def) {
+  const a = (await rl.question(q + (def != null && def !== '' ? ' [' + def + ']' : '') + ': ')).trim();
+  return a === '' ? def : a;
+}
+
+async function token(t) {
+  if (!t) {
+    const rl = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stdout });
+    t = await ask(rl, 'MegaNet ingest token (mgn_…; an administrator mints one on MegaNet\'s Admin tab → Ingest tokens)', '');
+    rl.close();
+  }
+  if (!t) return;
+  const check = await post('/api/token/test', { token: t });
+  if (!check.ok) { console.log(C.r + 'Not saved: ' + check.error + C.x); process.exitCode = 1; return; }
+  await post('/api/config', { config: { meganet: { token: t, enabled: true } } });
+  console.log(C.g + 'Saved.' + C.x + (check.label ? ' MegaNet knows this token as "' + check.label + '".' : '') + (check.note ? ' ' + check.note : ''));
+}
+
+async function password() {
+  const rl = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const pw = await ask(rl, 'New web page password (6+ characters; blank to cancel)', '');
+  rl.close();
+  if (!pw) return;
+  await post('/api/password', { password: pw });
+  console.log('Saved. The web page will ask for it from other computers; this Pi\'s own screen does not.');
+}
+
+async function setup() {
+  const rl = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stdout });
+  const c = (await api('/api/config')).config;
+  console.log(C.b + 'RPi ALERT setup' + C.x + ' — Enter keeps the value in [brackets].\n');
+  const name = await ask(rl, 'Name for this base station in MegaNet', c.name || '');
+  console.log('\nThe MegaNet ingest token: one per base station, from MegaNet\'s Admin tab → Ingest tokens.');
+  const tok = await ask(rl, 'Ingest token' + (c.meganet.tokenSet ? ' (one is set: ' + c.meganet.token + ')' : ''), '');
+  console.log('\nWhere is it? Type "lat, lon" (e.g. -27.4698, 153.0251), a station number or name, or leave blank.');
+  console.log('A USB GPS, when one is plugged in, is used instead automatically.');
+  const where = await ask(rl, 'Location', c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '');
+  console.log('\nRTL-SDR: the ALERT channel, and the frame format the network sends (binary for the 151.5 MHz network; enhanced_iflows for an ERT-A2 set to it).');
+  const mhz = await ask(rl, 'Frequency, MHz', (c.receivers.sdr.freqHz / 1e6).toString());
+  const fmt = await ask(rl, 'Format (binary / enhanced_iflows / ascii)', c.receivers.sdr.format.toLowerCase());
+  const audio = await ask(rl, 'Audio (auto / live / synth / beep / off)', c.audio.mode);
+  rl.close();
+  const patch = { name, receivers: { sdr: { freqHz: Math.round(Number(mhz) * 1e6), format: String(fmt).toUpperCase() } }, audio: { mode: audio } };
+  if (where && where !== (c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '')) {
+    const m = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(where);
+    if (m) {
+      let lat = Number(m[1]), lon = Number(m[2]);
+      if (Math.abs(lat) > 90 && Math.abs(lon) <= 90) [lat, lon] = [lon, lat];
+      patch.location = { source: 'manual', lat, lon };
+    } else {
+      const hits = (await api('/api/stations/search?q=' + encodeURIComponent(where))).stations;
+      if (hits.length === 1 && hits[0].lat != null) patch.location = { source: 'station', station: hits[0].id, stationName: hits[0].name, lat: hits[0].lat, lon: hits[0].lon };
+      else console.log(C.y + 'Location not set: ' + (hits.length ? hits.length + ' stations match "' + where + '" — be more specific' : 'no station matches "' + where + '"') + C.x);
+    }
+  }
+  const r = await post('/api/config', { config: patch });
+  console.log('\nSaved' + (r.changed.length ? ': ' + r.changed.join(', ') : ' (nothing changed)') + '.');
+  if (tok) await token(tok);
+  const s = await api('/api/status');
+  if (!s.passwordSet) console.log('\nSet a web page password too: rpi-alert password');
+  console.log('\nCheck it with: rpi-alert status');
+}
+
+async function readings(n) {
+  const r = await api('/api/readings?limit=' + n);
+  for (const x of r.readings.slice().reverse()) {
+    console.log(new Date(x.t).toISOString() + ' ' + x.protocol + ' ' + (x.fmt || '-') + ' ' + x.alert_id + '=' + x.value_raw + ' (' + x.eng + ') ' + ((x.station && x.station.name) || '') + ' [' + x.receiver + ']');
+  }
+}
+
+async function showLog(n) {
+  const r = await api('/api/log?n=' + n);
+  for (const l of r.lines) console.log(new Date(l.t).toISOString() + ' ' + l.level.toUpperCase().padEnd(5) + ' [' + l.tag + '] ' + l.msg);
+}
+
+main().catch((e) => { console.error('rpi-alert: ' + (e && e.message || e)); process.exit(1); });

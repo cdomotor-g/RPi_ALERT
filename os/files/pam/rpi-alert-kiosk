@@ -1,0 +1,6 @@
+# PAM session for the RPi ALERT screen kiosk (rpi-alert-kiosk.service): a
+# logind session on tty7, which is what gives cage the display and input.
+auth     required pam_unix.so nullok
+account  required pam_unix.so
+session  required pam_unix.so
+session  required pam_systemd.so

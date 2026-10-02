@@ -1,0 +1,113 @@
+# RPi ALERT
+
+A Raspberry Pi operating system for **ALERT flood-warning base stations**. Plug in a
+receiver, give the Pi power and a network, and every ALERT or ALERT2 burst it hears is
+decoded and posted to [MegaNet](https://github.com/cdomotor-g/MegaNet)
+(floodwarning.net). It starts by itself, finds its receivers by itself, and reconnects by
+itself after an unplug or a power cut.
+
+```
+ field stations ──VHF──▶  RTL-SDR stick ─────────┐
+                          Quansheng UV-K5/K1 ─────┤  USB   Raspberry Pi            HTTPS
+                          ELPRO ERT-A2 ───────────┤ ────▶  RPi ALERT agent  ────────────▶  MegaNet
+                          USB GPS (optional) ─────┘        dashboard · speaker · queue      ingest_http()
+```
+
+**→ Set up a base station: <https://cdomotor-g.github.io/RPi_ALERT/>** — pick your Pi, write the card, write its settings.
+
+![The dashboard: four receivers (RTL-SDR, Quansheng radio, ERT-A2, GPS) and readings tagged ALERT and ALERT2](docs/images/dashboard.png)
+
+## What it does
+
+| | |
+|---|---|
+| **Receivers** | **RTL-SDR** sticks (Blog V2, V3, V4, any RTL2832U) decoding off the air · **Quansheng** UV-K5 V3 / UV-K1 on the [ALERT receiver firmware](https://github.com/cdomotor-g/quansheng_alert_v3) (USB-C, schema 2) and the older [DP32G030 firmware](https://github.com/cdomotor-g/quansheng_alert) (programming cable, 38400) · **ELPRO ERT-A2** (RS-232 ALERT2 ASCII at 9600, or its USB binary framing) · any **NMEA GPS** |
+| **ALERT and ALERT2** | Each device is recognised from what it sends and every reading is tagged with its protocol: legacy **ALERT** (300-baud AFSK — ALERT Binary, Enhanced iFLOWS, ASCII) from SDRs and radios, **ALERT2** from the ERT-A2. |
+| **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. |
+| **MegaNet** | Posts through `ingest_http()` with one ingest token per Pi, one receiver id per device (`serial-monitor/rpi-<host>-qs1`), describes each receiver through `report_ingest_point()` and every frame heard through `report_receptions()` (the Reception Map) — the contract MegaNet's Serial Monitor already uses. Falls back from the floodwarning.net proxy to Supabase directly. |
+| **Never loses a reading** | A queue on disk survives restarts and power cuts. No internet: kept and sent later. No clock yet (a Pi has no RTC): held on the monotonic clock and stamped once NTP or GPS sets the time. |
+| **Reconnects** | USB ports are rescanned every 2 s; a device that hangs up is reopened when it returns (under any `/dev` name); `rtl_sdr` is restarted if it stalls or exits; the Quansheng's DTR is toggled when it goes quiet; systemd restarts the agent; the hardware watchdog reboots a hung Pi. |
+| **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it. |
+| **Headless** | The same dashboard on `http://rpi-alert.local/` from any computer on the network, `rpi-alert setup` / `status` / `top` over SSH (PuTTY), or an `rpi-alert.conf` file dropped on the SD card's boot partition. |
+| **Chirps** | A speaker on the audio jack plays each burst: an SDR's real demodulated audio, or a re-synthesised ALERT burst for radios and ERT-A2s. |
+| **GPS** | A USB GPS, when there is one, becomes the base station's location (the only one MegaNet records as exact) and its clock when there is no internet. Until then, a fixed location. |
+
+## Three ways to install
+
+1. **Raspberry Pi Imager** with the RPi ALERT repository (Imager customisation — user,
+   Wi-Fi, SSH — works as normal):
+   ```
+   rpi-imager --repo https://cdomotor-g.github.io/RPi_ALERT/os_list.json
+   ```
+2. **Download the image** from [Releases](https://github.com/cdomotor-g/RPi_ALERT/releases) and
+   write it with Imager's *Use custom* or balenaEtcher.
+3. **On a Pi already running Raspberry Pi OS** (Trixie or Bookworm, Lite or Desktop) —
+   no reflash:
+   ```
+   curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash
+   ```
+
+Then open **http://rpi-alert.local/** (or the Pi's own screen), paste the MegaNet ingest
+token, set the location. Details: [docs/install.md](docs/install.md).
+
+> **Why not flash from the web page?** No browser can write a whole SD card — WebUSB
+> refuses USB storage and the File System Access API cannot open raw disks, by design.
+> So the web page does everything around it: picks the image, starts Imager with this
+> repository, and writes the card's settings file straight onto its boot partition (Chrome
+> and Edge). A Pi 4/5 with no other computer can use Raspberry Pi's *network install*
+> (hold Shift at boot) to flash Raspberry Pi OS Lite, then run the one-line installer.
+> More in [docs/research.md](docs/research.md).
+
+## Supported Raspberry Pis
+
+| Pi | Image | RTL-SDR decoding | Screen dashboard | Audio jack |
+|---|---|---|---|---|
+| 5, 500, CM5 | 64-bit | ✓ (960 ksps) | ✓ | — use HDMI or USB audio |
+| **4, 400, CM4** (recommended) | 64-bit | ✓ (960 ksps) | ✓ | ✓ |
+| 3, 3+, CM3 | 64-bit | ✓ (960 ksps) | ✓ (1 GB) | ✓ |
+| Zero 2 W | 64-bit | ✓ (240 ksps) | — (512 MB) | — USB audio |
+| 1, 2, Zero, Zero W | 32-bit | — too slow; radios and ERT-A2 only | — | Pi 1/2 ✓ |
+
+Hardware notes, including the RTL-SDR V4 and power supplies: [docs/hardware.md](docs/hardware.md).
+
+## The repository
+
+```
+agent/            the RPi ALERT agent (Node.js, no npm dependencies)
+  bin/rpi-alert     daemon + command line (status, top, setup, token, config, …)
+  lib/              devices (serial ports, sniffing, drivers, SDR), uplink, clock, web server
+  vendor/meganet/   MegaNet's decoders, verbatim (see SOURCE; scripts/sync-meganet.sh)
+  web/              the dashboard and settings page
+  test/             node --test: real off-air vector, protocol vectors, MegaNet stand-in,
+                    pty receivers, a fake rtl_sdr, the whole agent end to end
+  scripts/          simulate.sh (a base station with no hardware), sync-meganet.sh
+os/               install.sh (Pi or image chroot), bootstrap.sh, systemd units, udev,
+                  sudoers, the root helper, kiosk, updater, boot-partition files
+build/            build-image.sh — Raspberry Pi OS Lite + install.sh in a qemu chroot
+site/             the GitHub Pages set-up page (and the Imager repository, os_list.json)
+docs/             install, configuration, hardware, how it works, research, roadmap, bench test
+```
+
+## Developing
+
+```sh
+cd agent
+node --test test/*.test.js       # 35 tests; the pty and end-to-end ones need socat
+scripts/simulate.sh              # a simulated base station on http://localhost:8099/
+```
+
+Building an image needs Linux with root, `qemu-user-static` (binfmt), `fdisk`, `xz` and
+`python3`: `sudo build/build-image.sh [--arch armhf]`. CI builds both on a `v*` tag and
+publishes them as a release ([.github/workflows](.github/workflows)).
+
+<img src="docs/images/receivers.png" width="49%" alt="The Receivers page: each device's state, port, firmware, levels and spectrum"> <img src="docs/images/setup-page.png" width="49%" alt="The set-up page: pick the Pi, write the card, write its settings">
+
+How it fits together: [docs/how-it-works.md](docs/how-it-works.md) ·
+Settings reference: [docs/configuration.md](docs/configuration.md) ·
+What is next: [docs/roadmap.md](docs/roadmap.md) ·
+First test on the bench Pi: [docs/bench-test.md](docs/bench-test.md)
+
+## Licence
+
+MIT. The vendored decoders are MegaNet's (MIT); the off-air decoder is a port of
+[agmurf/sdr-alert-decoder](https://github.com/agmurf/sdr-alert-decoder) (MIT).

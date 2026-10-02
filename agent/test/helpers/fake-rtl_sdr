@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+'use strict';
+// A stand-in for rtl_sdr: takes the same arguments, says on stderr what a real
+// RTL-SDR Blog V4 says, and streams u8 IQ to stdout in real time — noise, with
+// an ALERT Binary burst (two frames) at the requested channel every few
+// seconds. The channel is RPI_ALERT_FAKE_CHANNEL_HZ (default 151.5 MHz).
+//
+//   RPI_ALERT_FAKE_FRAMES="2088:143,2089:12"   what the bursts carry
+//   RPI_ALERT_FAKE_FORMAT=BINARY|ENHANCED_IFLOWS
+//   RPI_ALERT_FAKE_EXIT_AFTER_S=5               exit (as an unplug would) after this long
+
+const path = require('node:path');
+const D = require(path.join(__dirname, '..', '..', 'vendor', 'meganet', 'alert-dsp.js'));
+
+const a = process.argv.slice(2);
+const arg = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
+const rate = Number(arg('-s', 2048000));
+const center = Number(arg('-f', 100e6));
+const channel = Number(process.env.RPI_ALERT_FAKE_CHANNEL_HZ || 151.5e6);
+const fmt = process.env.RPI_ALERT_FAKE_FORMAT || 'BINARY';
+const frames = (process.env.RPI_ALERT_FAKE_FRAMES || '2088:143,2089:12').split(',').map(p => p.split(':').map(Number)).map(([id, v]) => D.encodeFrame(D[fmt], id, v));
+
+process.stderr.write('Found 1 device(s):\n  0:  RTLSDRBlog, Blog V4, SN: 00000001\n\nUsing device 0: Generic RTL2832U OEM\nFound Rafael Micro R828D tuner\nRTL-SDR Blog V4 Detected\nSampling at ' + rate + ' S/s.\nTuned to ' + center + ' Hz.\nReading samples in async mode...\n');
+
+const seconds = 6;
+const offset = channel - center;
+const loop = D.synthIq({ fs: rate, seconds, snrDb: 28, seed: 7, bursts: [{ startSec: 2.0, frames, cfoHz: offset, amp: 40, polarity: 'NEG' }] });
+
+const chunk = Math.round(rate / 20) * 2;   // 50 ms
+let pos = 0;
+const t0 = Date.now();
+let sent = 0;
+const exitAfter = Number(process.env.RPI_ALERT_FAKE_EXIT_AFTER_S || 0);
+function pump() {
+  if (exitAfter && Date.now() - t0 > exitAfter * 1000) { process.stderr.write('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); }
+  const due = ((Date.now() - t0) / 1000) * rate * 2;
+  while (sent < due) {
+    const end = Math.min(loop.length, pos + chunk);
+    // write() takes the chunk even when it answers false (Node 18 answers
+    // false for any chunk over the high-water mark): count it either way.
+    const ok = process.stdout.write(Buffer.from(loop.subarray(pos, end)));
+    sent += end - pos;
+    pos = end >= loop.length ? 0 : end;
+    if (!ok) { process.stdout.once('drain', pump); return; }
+  }
+  setTimeout(pump, 25);
+}
+process.stdout.on('error', () => process.exit(0));
+process.on('SIGTERM', () => { process.stderr.write('Signal caught, exiting!\n'); process.exit(0); });
+pump();

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>RPi ALERT</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><use href="icon.svg#mark"/></svg>
+    <div>
+      <div class="title" id="name">RPi ALERT</div>
+      <div class="sub" id="host">connecting…</div>
+    </div>
+  </div>
+  <div class="chips" id="chips" aria-live="polite"></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="dash" aria-selected="true">Dashboard</button>
+    <button role="tab" data-tab="rx">Receivers</button>
+    <button role="tab" data-tab="settings">Settings</button>
+    <button role="tab" data-tab="log">Log</button>
+  </nav>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main>
+  <!-- ── Dashboard ─────────────────────────────────────────────── -->
+  <section id="tab-dash" class="tab">
+    <div class="stats" id="stats"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Receivers</h2>
+        <div id="rx-mini" class="rx-mini"></div>
+      </div>
+      <div class="card">
+        <h2>Bursts heard <span class="dim" id="burst-count"></span></h2>
+        <canvas id="burst-canvas" height="110" aria-label="Bursts over the last 30 minutes"></canvas>
+        <div class="dim small">Last 30 minutes. Height: signal level. Green: decoded.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Readings <span class="dim" id="read-count"></span></h2>
+      <div class="table-wrap">
+        <table class="readings">
+          <thead><tr><th>Time</th><th>Protocol</th><th>Address</th><th>Station</th><th class="num">Value</th><th>Signal</th><th>Receiver</th></tr></thead>
+          <tbody id="readings"><tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Receivers ─────────────────────────────────────────────── -->
+  <section id="tab-rx" class="tab" hidden>
+    <div class="row-actions">
+      <button id="rescan" class="ghost">Look for devices now</button>
+      <span class="dim small">Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut.</span>
+    </div>
+    <div id="rx-full"></div>
+  </section>
+
+  <!-- ── Settings ──────────────────────────────────────────────── -->
+  <section id="tab-settings" class="tab" hidden>
+    <form id="f-meganet" class="card form">
+      <h2>MegaNet</h2>
+      <p class="hint">This Pi is an <em>ingest point</em>: one MegaNet token covers every receiver plugged into it. An administrator mints one on MegaNet's <b>Admin</b> tab → <b>Ingest tokens</b>; it is shown once.</p>
+      <label>Ingest token <input name="token" type="password" autocomplete="off" spellcheck="false" placeholder="mgn_…"></label>
+      <div class="row-actions"><button type="button" id="token-test" class="ghost">Check token</button><span id="token-result" class="small"></span></div>
+      <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Bench Pi, Mt Stuart base"></label>
+      <label class="check"><input type="checkbox" name="enabled"> Send readings to MegaNet</label>
+      <label class="check"><input type="checkbox" name="receptions"> Also send every frame heard, good and bad (MegaNet's Reception Map)</label>
+      <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="send-now">Send now</button><span class="status small"></span></div>
+    </form>
+
+    <form id="f-location" class="card form">
+      <h2>Location</h2>
+      <p class="hint">Where the receivers are. Anything but a GPS fix is recorded in MegaNet as approximate.</p>
+      <div class="radios">
+        <label class="check"><input type="radio" name="source" value="none"> Not given</label>
+        <label class="check"><input type="radio" name="source" value="manual"> Coordinates</label>
+        <label class="check"><input type="radio" name="source" value="station"> At a station</label>
+        <label class="check"><input type="radio" name="source" value="gps"> GPS only</label>
+      </div>
+      <div class="when when-manual">
+        <label>Latitude, longitude <input name="latlon" placeholder="-27.4698, 153.0251"></label>
+        <button type="button" class="ghost" id="geo">Use this browser's location</button>
+      </div>
+      <div class="when when-station">
+        <label>Station (name or number) <input name="stationq" list="station-list" placeholder="start typing…" autocomplete="off"></label>
+        <datalist id="station-list"></datalist>
+        <div class="small dim" id="station-picked"></div>
+      </div>
+      <label class="check"><input type="checkbox" name="useGps"> When a USB GPS has a fix, use it instead (exact)</label>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
+    <form id="f-sdr" class="card form">
+      <h2>RTL-SDR</h2>
+      <p class="hint">Every RTL-SDR stick plugged in listens on this channel. ALERT Binary is what the 151.5 MHz networks send; Enhanced iFLOWS is what an ERT-A2 set to it sends. One format at a time, on purpose.</p>
+      <div class="cols">
+        <label>Frequency, MHz <input name="freq" type="number" step="0.0001" min="24" max="1766"></label>
+        <label>Frame format
+          <select name="format"><option value="BINARY">ALERT Binary</option><option value="ENHANCED_IFLOWS">Enhanced iFLOWS</option><option value="ASCII">ALERT ASCII</option></select></label>
+        <label>Gain, dB <input name="gain" placeholder="auto" title="Blank for the tuner's AGC"></label>
+        <label>Sample rate
+          <select name="rate"><option value="0">Automatic</option><option value="240000">240 ksps (light)</option><option value="960000">960 ksps</option><option value="1920000">1.92 Msps</option><option value="2400000">2.4 Msps</option></select></label>
+        <label>Frequency correction, ppm <input name="ppm" type="number" step="1" min="-200" max="200"></label>
+        <label>Squelch, dB over the noise floor <input name="squelch" type="number" step="1" min="2" max="40"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label>
+      <label class="check"><input type="checkbox" name="biasTee"> Bias tee (4.5 V on the antenna socket — only for an LNA that wants it)</label>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
+    <form id="f-ports" class="card form">
+      <h2>Serial devices</h2>
+      <p class="hint">Quansheng radios, ERT-A2 receivers and GPS units are recognised from what they send. Set a port's type here only if it is not.</p>
+      <label class="check"><input type="checkbox" name="autoDetect"> Recognise serial devices automatically</label>
+      <div id="port-overrides"></div>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
+    <form id="f-audio" class="card form">
+      <h2>Audio</h2>
+      <p class="hint">Plug a speaker into the audio jack (or use HDMI or a USB sound card) to hear each ALERT burst.</p>
+      <div class="cols">
+        <label>Play
+          <select name="mode">
+            <option value="auto">Automatic — the SDR's real audio, a re-made burst for radios</option>
+            <option value="live">Only an SDR's real audio</option>
+            <option value="synth">A re-made burst for every reading</option>
+            <option value="beep">A beep for every reading</option>
+            <option value="off">Nothing</option>
+          </select></label>
+        <label>Output <select name="device"></select></label>
+        <label>Volume <input name="volume" type="range" min="0" max="100"></label>
+      </div>
+      <div class="row-actions"><button>Save</button>
+        <button type="button" class="ghost" data-test="alert">Test ALERT chirp</button>
+        <button type="button" class="ghost" data-test="alert2">Test ALERT2</button>
+        <span class="status small"></span></div>
+    </form>
+
+    <form id="f-display" class="card form">
+      <h2>Screen</h2>
+      <p class="hint">With a monitor plugged in, the Pi shows this page full-screen. It starts when a monitor is connected and stops when it is unplugged.</p>
+      <label>Full-screen dashboard
+        <select name="kiosk"><option value="auto">Automatic (when a monitor is connected, 1 GB+ RAM)</option><option value="on">Always when a monitor is connected</option><option value="off">Never — text console only</option></select></label>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
+    <div class="card form" id="f-network">
+      <h2>Network</h2>
+      <pre id="net-status" class="mono small">…</pre>
+      <div class="row-actions"><button type="button" class="ghost" id="wifi-scan">Find Wi-Fi networks</button></div>
+      <div id="wifi-list"></div>
+      <label>Hostname <input id="hostname" pattern="[a-z0-9-]+" placeholder="rpi-alert"></label>
+      <div class="row-actions"><button type="button" class="ghost" id="hostname-save">Set hostname</button><span class="status small" id="hostname-status"></span></div>
+    </div>
+
+    <div class="card form" id="f-security">
+      <h2>Web page password</h2>
+      <p class="hint" id="pw-state"></p>
+      <label>New password <input id="pw1" type="password" autocomplete="new-password" minlength="6"></label>
+      <div class="row-actions"><button type="button" id="pw-save">Set password</button><span class="status small" id="pw-status"></span></div>
+    </div>
+
+    <form id="f-system" class="card form">
+      <h2>System</h2>
+      <label>Time zone (ALERT2 frame times are local) <input name="timezone" placeholder="Australia/Brisbane"></label>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+      <div class="row-actions">
+        <button type="button" class="ghost" data-power="restart-agent">Restart the agent</button>
+        <button type="button" class="ghost" data-power="reboot">Reboot</button>
+        <button type="button" class="ghost danger" data-power="poweroff">Shut down</button>
+        <button type="button" class="ghost" id="update">Check for updates</button>
+      </div>
+      <pre id="update-out" class="mono small" hidden></pre>
+    </form>
+  </section>
+
+  <!-- ── Log ───────────────────────────────────────────────────── -->
+  <section id="tab-log" class="tab" hidden>
+    <div class="card">
+      <h2>Agent log <span class="dim small">(everything: <code>journalctl -u rpi-alert</code>)</span></h2>
+      <pre id="log" class="mono log"></pre>
+    </div>
+  </section>
+</main>
+
+<dialog id="login">
+  <form method="dialog" id="login-form">
+    <h2>Log in</h2>
+    <p class="hint">This base station has a web page password.</p>
+    <label>Password <input type="password" id="login-pw" autocomplete="current-password"></label>
+    <div class="row-actions"><button id="login-go" value="go">Log in</button><span class="status small" id="login-status"></span></div>
+  </form>
+</dialog>
+
+<footer class="dim small"><span id="foot"></span></footer>
+<script src="app.js"></script>
+</body>
+</html>

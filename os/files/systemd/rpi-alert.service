@@ -1,0 +1,32 @@
+[Unit]
+Description=RPi ALERT receiver agent (ALERT / ALERT2 to MegaNet)
+Documentation=https://github.com/cdomotor-g/RPi_ALERT
+# Not network-online: a base station with no network still receives, decodes
+# and queues; it sends when the network comes.
+After=network.target sound.target rpi-alert-boot-config.service
+Wants=rpi-alert-boot-config.service
+
+[Service]
+Type=simple
+User=rpi-alert
+Group=rpi-alert
+SupplementaryGroups=dialout plugdev audio video
+ExecStart=/usr/bin/node /opt/rpi-alert/bin/rpi-alert daemon
+WorkingDirectory=/var/lib/rpi-alert
+Environment=NODE_ENV=production UV_THREADPOOL_SIZE=8
+# The web page on port 80 without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+# Restart on any exit, quickly: receivers are reopened, the queue is on disk.
+Restart=always
+RestartSec=3
+# The DSP worker wants the CPU when a burst arrives.
+Nice=-5
+StateDirectory=rpi-alert
+StateDirectoryMode=0750
+# Not NoNewPrivileges: the agent asks root for a fixed list of things through
+# sudo and /opt/rpi-alert/libexec/rpi-alert-priv (the kiosk, Wi-Fi, reboot).
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

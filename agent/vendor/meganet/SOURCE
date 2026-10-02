@@ -1,0 +1,14 @@
+These files are verbatim copies from https://github.com/cdomotor-g/MegaNet (MIT, see LICENSE here).
+Do not edit them: change them in MegaNet and run agent/scripts/sync-meganet.sh, so the Pi decodes
+exactly what floodwarning.net decodes.
+
+repository: https://github.com/cdomotor-g/MegaNet
+commit:     2299acc0c89445ce27d78e1999a0f733d457a63e (2026-10-01)
+
+alert-dsp.js    off-air ALERT decoder (Binary / Enhanced iFLOWS / ASCII), a port of agmurf/sdr-alert-decoder (MIT)
+quansheng.js    serial codec for the Quansheng UV-K5 V3 / UV-K1 ALERT receiver firmware (schema 2)
+alert2.js       ELPRO ERT-A2 ALERT2 parser (RS232 ASCII lines and USB binary frames)
+serial-gps.js   NMEA 0183 parser (GGA / RMC / GST)
+
+The test vector agent/test/fixtures/testrig_burst_240k.iq8 is MegaNet's test/fixtures/sdr copy of
+agmurf/sdr-alert-decoder's real off-air capture of the 4078 ERT-A2 test rig (MIT).

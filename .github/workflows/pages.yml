@@ -1,0 +1,60 @@
+name: pages
+
+# The "set up a base station" site (site/) on GitHub Pages, with os_list.json —
+# the Raspberry Pi Imager repository — assembled from the latest release's
+# os-list-*.json assets.
+#
+# One-time setting: repository Settings → Pages → Source: "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [build-image]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: os_list.json from the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p _site && cp -a site/. _site/
+          mkdir -p rel
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern 'os-list-*.json' --dir rel 2>/dev/null; then
+            python3 - <<'PY'
+          import json, glob
+          entries = [json.load(open(f)) for f in sorted(glob.glob('rel/os-list-*.json'))]
+          entries.sort(key=lambda e: 0 if 'arm64' in e['url'] else 1)
+          json.dump({"os_list": entries}, open('_site/os_list.json', 'w'), indent=2)
+          print('os_list.json:', [e['name'] for e in entries])
+          PY
+          else
+            echo '{"os_list": []}' > _site/os_list.json
+            echo "no release yet — empty os_list.json"
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

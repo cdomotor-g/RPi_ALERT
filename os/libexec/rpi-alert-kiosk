@@ -1,0 +1,27 @@
+#!/bin/bash
+# The RPi ALERT dashboard, full screen, run by cage as user rpi-alert-kiosk
+# (rpi-alert-kiosk.service). Chromium in app/kiosk mode, nothing else.
+PORT=80
+# shellcheck disable=SC1091
+[ -r /etc/default/rpi-alert-kiosk ] && . /etc/default/rpi-alert-kiosk
+URL="http://localhost:${PORT}/?kiosk=1"
+
+for b in chromium chromium-browser; do
+  if command -v "$b" >/dev/null 2>&1; then BROWSER=$b; break; fi
+done
+[ -n "${BROWSER:-}" ] || { echo "no chromium installed" >&2; exit 1; }
+
+# Wait for the agent's web page (it starts alongside).
+i=0
+while [ $i -lt 60 ] && ! (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; do sleep 1; i=$((i+1)); done
+
+mkdir -p "$HOME/.chromium"
+exec "$BROWSER" \
+  --kiosk --app="$URL" \
+  --ozone-platform=wayland \
+  --noerrdialogs --disable-infobars --no-first-run --no-default-browser-check \
+  --disable-session-crashed-bubble --disable-features=Translate,MediaRouter,OptimizationHints \
+  --password-store=basic --user-data-dir="$HOME/.chromium" \
+  --check-for-update-interval=31536000 --disable-component-update \
+  --overscroll-history-navigation=0 --disk-cache-size=8000000 \
+  --autoplay-policy=no-user-gesture-required

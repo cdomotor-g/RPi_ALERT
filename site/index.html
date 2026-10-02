@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>RPi ALERT — set up a base station</title>
+<meta name="description" content="Turn a Raspberry Pi into an ALERT flood-warning base station that feeds MegaNet: pick your Pi, flash the card, write its settings.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <img src="icon.svg" width="56" height="56" alt="">
+    <div>
+      <h1>RPi ALERT</h1>
+      <p>A Raspberry Pi base station for ALERT flood-warning telemetry. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware or an ELPRO ERT-A2, and every burst it hears goes to <a href="https://floodwarning.net/">MegaNet</a> — decoded by the same code the website runs, reconnected by itself after an unplug or a power cut.</p>
+      <p class="small" id="release-line">Looking for the latest release…</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <ol class="steps">
+    <li class="step" id="step-pi">
+      <h2><span class="n">1</span> Which Raspberry Pi?</h2>
+      <div class="pis" role="radiogroup" aria-label="Raspberry Pi model">
+        <label><input type="radio" name="pi" value="pi5"><span><b>Pi 5 · 500 · CM5</b><i>64-bit · best</i></span></label>
+        <label><input type="radio" name="pi" value="pi4" checked><span><b>Pi 4 · 400 · CM4</b><i>64-bit · recommended</i></span></label>
+        <label><input type="radio" name="pi" value="pi3"><span><b>Pi 3 · 3+ · CM3</b><i>64-bit</i></span></label>
+        <label><input type="radio" name="pi" value="z2w"><span><b>Pi Zero 2 W</b><i>64-bit · no screen dashboard</i></span></label>
+        <label><input type="radio" name="pi" value="old"><span><b>Pi 1 · 2 · Zero · Zero W</b><i>32-bit · radios only</i></span></label>
+      </div>
+      <div class="note" id="pi-note"></div>
+    </li>
+
+    <li class="step" id="step-flash">
+      <h2><span class="n">2</span> Put RPi ALERT on the SD card</h2>
+      <p>Put the Pi's microSD card (8 GB or larger) in this computer. A browser cannot write a whole SD card itself — no web page can, for safety — so one of these does the writing:</p>
+      <div class="cols">
+        <div class="card">
+          <h3>Raspberry Pi Imager <span class="pill">easiest</span></h3>
+          <ol>
+            <li>Install <a href="https://www.raspberrypi.com/software/" target="_blank" rel="noopener">Raspberry Pi Imager</a>.</li>
+            <li>Start it with the RPi ALERT list, so RPi ALERT is one of the choices:
+              <pre class="copy" id="imager-cmd"></pre>
+              <span class="small">Windows: press <kbd>Win</kbd>+<kbd>R</kbd>, paste the line, Enter. Mac: paste it into Terminal.</span></li>
+            <li>Choose your Pi, then <b>Operating System → RPi ALERT</b>, then the SD card.</li>
+            <li>When it offers <b>customisation</b>, say yes: set a user name and password, your Wi-Fi, and tick <b>Enable SSH</b>.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Download the image</h3>
+          <p id="dl-box">The image appears here once it has been released.</p>
+          <p class="small">Write it with Raspberry Pi Imager (<b>Operating System → Use custom</b>) or <a href="https://etcher.balena.io/" target="_blank" rel="noopener">balenaEtcher</a>.</p>
+        </div>
+        <div class="card">
+          <h3>Already running Raspberry Pi OS?</h3>
+          <p>No need to reflash. On the Pi (or over SSH):</p>
+          <pre class="copy">curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash</pre>
+          <p class="small">Works on Raspberry Pi OS Trixie or Bookworm, Lite or Desktop. A Pi 4/5 with no other computer: hold <kbd>Shift</kbd> at boot for Raspberry Pi's <a href="https://www.raspberrypi.com/documentation/computers/getting-started.html#install-over-the-network" target="_blank" rel="noopener">network install</a>, flash Raspberry Pi OS Lite, then run this line.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="step" id="step-settings">
+      <h2><span class="n">3</span> Its settings <span class="dim small">(optional — everything can be set later on the Pi's own page)</span></h2>
+      <p>With the card still in this computer, fill these in and put them on the card's <b>bootfs</b> drive. The Pi applies them at its first boot, then removes the token and passwords from the card.</p>
+      <form id="conf" class="form" autocomplete="off">
+        <fieldset>
+          <legend>MegaNet</legend>
+          <label>Ingest token <input name="token" placeholder="mgn_…" spellcheck="false"><span class="small">One per base station: MegaNet → Admin → Ingest tokens → Create token. It is shown once.</span></label>
+          <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Mt Stuart base"></label>
+        </fieldset>
+        <fieldset>
+          <legend>Where it is</legend>
+          <div class="row">
+            <label>Latitude <input name="latitude" inputmode="decimal" placeholder="-27.4698"></label>
+            <label>Longitude <input name="longitude" inputmode="decimal" placeholder="153.0251"></label>
+            <button type="button" class="ghost" id="here">Use my location</button>
+          </div>
+          <label>…or the station it sits at <input name="station" list="stations" placeholder="station name or number"><datalist id="stations"></datalist><span class="small" id="station-note"></span></label>
+          <label class="check"><input type="checkbox" name="use_gps" checked> A USB GPS, when plugged in, wins (recorded as exact)</label>
+        </fieldset>
+        <fieldset>
+          <legend>RTL-SDR</legend>
+          <div class="row">
+            <label>Frequency, MHz <input name="sdr_frequency_mhz" value="151.5" inputmode="decimal"></label>
+            <label>Frame format <select name="sdr_format"><option value="binary">ALERT Binary (151.5 MHz networks)</option><option value="enhanced_iflows">Enhanced iFLOWS (ERT-A2 set to it)</option><option value="ascii">ALERT ASCII</option></select></label>
+            <label>Gain, dB <input name="sdr_gain_db" value="29.7" placeholder="auto"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Sound and screen</legend>
+          <div class="row">
+            <label>Chirps on the speaker <select name="audio"><option value="auto">Automatic</option><option value="live">Only an SDR's real audio</option><option value="synth">A re-made burst for every reading</option><option value="beep">A beep per reading</option><option value="off">Off</option></select></label>
+            <label>Monitor <select name="kiosk"><option value="auto">Dashboard when one is plugged in</option><option value="off">Text console only</option></select></label>
+          </div>
+          <label>Web page password <input name="web_password" type="password" autocomplete="new-password" placeholder="recommended"></label>
+        </fieldset>
+        <fieldset>
+          <legend>Network and system <span class="dim small">(skip if Raspberry Pi Imager's customisation did these)</span></legend>
+          <div class="row">
+            <label>Wi-Fi name <input name="wifi_ssid"></label>
+            <label>Wi-Fi password <input name="wifi_password" type="password" autocomplete="new-password"></label>
+            <label>Country <input name="wifi_country" value="AU" maxlength="2" size="3"></label>
+          </div>
+          <div class="row">
+            <label>Hostname <input name="hostname" placeholder="rpi-alert" pattern="[a-z0-9-]+"></label>
+            <label>Time zone <input name="timezone" value="Australia/Brisbane"></label>
+            <label class="check"><input type="checkbox" name="ssh" checked> SSH on</label>
+          </div>
+        </fieldset>
+        <details><summary>Preview the file</summary><pre id="preview" class="mono small"></pre></details>
+        <div class="actions">
+          <button type="button" id="write">Write to the SD card…</button>
+          <button type="button" class="ghost" id="download">Download rpi-alert.conf</button>
+          <span id="write-status" class="small"></span>
+        </div>
+        <p class="small dim" id="write-hint"></p>
+      </form>
+    </li>
+
+    <li class="step">
+      <h2><span class="n">4</span> Start it</h2>
+      <ul class="plain">
+        <li>Put the card in the Pi. Plug in the receivers — RTL-SDR stick with its antenna, the Quansheng radio by USB-C (ALERT app running), the ERT-A2 by its USB-serial cable — then the network and the power.</li>
+        <li>Give it two minutes the first time. Then open <a href="http://rpi-alert.local/">http://rpi-alert.local/</a> from a computer on the same network (or the Pi's address from your router).</li>
+        <li>With a monitor plugged in, the same dashboard appears full screen. Over SSH (PuTTY on Windows): <code>ssh &lt;user&gt;@rpi-alert.local</code>, then <code>rpi-alert status</code> or <code>rpi-alert setup</code>.</li>
+        <li>A speaker in the audio jack (Pi 3/4) plays each ALERT burst. The Pi 5 and Zero have no jack: use HDMI audio or a USB sound card.</li>
+      </ul>
+    </li>
+  </ol>
+  <footer class="small dim">RPi ALERT is open source: <a href="https://github.com/cdomotor-g/RPi_ALERT">github.com/cdomotor-g/RPi_ALERT</a> · decoders from <a href="https://github.com/cdomotor-g/MegaNet">MegaNet</a></footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

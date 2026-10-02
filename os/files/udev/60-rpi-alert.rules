@@ -1,0 +1,15 @@
+# RPi ALERT — receivers the agent (user rpi-alert) must be able to open.
+
+# RTL2832U sticks (RTL-SDR Blog V2/V3/V4 and generic): the agent's plugdev group.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0664", GROUP="plugdev", ENV{ID_SOFTWARE_RADIO}="1"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0664", GROUP="plugdev", ENV{ID_SOFTWARE_RADIO}="1"
+
+# Keep USB autosuspend off receivers: a suspended adapter can drop the start of a burst.
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="36b7", TEST=="power/control", ATTR{power/control}="on"
+
+# The Quansheng ALERT firmware (USB CDC, VID 36B7) and USB-serial adapters carry
+# receivers, not modems: keep ModemManager's AT-command probes off them.
+ATTRS{idVendor}=="36b7", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", ATTRS{idVendor}=="36b7", MODE="0660", GROUP="dialout"

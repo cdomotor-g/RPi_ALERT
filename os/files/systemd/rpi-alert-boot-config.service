@@ -1,0 +1,20 @@
+[Unit]
+Description=Apply rpi-alert.conf from the SD card's boot partition
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/configuration.md
+# After NetworkManager so a Wi-Fi network in the file can be added; before the
+# agent so it starts with the new settings.
+After=local-fs.target NetworkManager.service
+Before=rpi-alert.service
+ConditionPathExists=|/boot/firmware/rpi-alert.conf
+ConditionPathExists=|/boot/firmware/rpi-alert.txt
+ConditionPathExists=|/boot/firmware/rpi-alert.conf.txt
+ConditionPathExists=|/boot/rpi-alert.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/rpi-alert/bin/rpi-alert import-boot-config
+RemainAfterExit=no
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

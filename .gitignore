@@ -1,0 +1,7 @@
+node_modules/
+build/cache/
+build/out/
+*.img
+*.img.xz
+*.iq8.part
+.DS_Store

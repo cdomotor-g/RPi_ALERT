@@ -1,0 +1,64 @@
+name: build-image
+
+# Builds the SD-card images — Raspberry Pi OS Lite (current release) with
+# RPi ALERT installed — for 64-bit and 32-bit Pis. On a v* tag they are
+# attached to a GitHub release, with the Raspberry Pi Imager entries, and the
+# Pages site (pages.yml) picks the new release up for its os_list.json.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'arm64, armhf or both'
+        default: both
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, armhf]
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name != 'workflow_dispatch' || inputs.arch == 'both' || inputs.arch == matrix.arch
+      - name: Build tools
+        if: github.event_name != 'workflow_dispatch' || inputs.arch == 'both' || inputs.arch == matrix.arch
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-user-static binfmt-support fdisk dosfstools mtools xz-utils e2fsprogs python3
+          # Register the qemu handlers with the fix-binary flag, so the chroot needs no copy of qemu.
+          sudo systemctl restart systemd-binfmt || true
+          ls /proc/sys/fs/binfmt_misc/
+      - name: Build the image
+        if: github.event_name != 'workflow_dispatch' || inputs.arch == 'both' || inputs.arch == matrix.arch
+        run: sudo build/build-image.sh --arch ${{ matrix.arch }} --out out
+      - name: Keep it as a build artifact
+        if: github.event_name != 'workflow_dispatch' || inputs.arch == 'both' || inputs.arch == matrix.arch
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi-alert-${{ matrix.arch }}
+          path: out/
+          retention-days: 14
+          compression-level: 0
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*.img.xz
+            out/*.sha256
+            out/os-list-*.json
+          body: |
+            Raspberry Pi SD-card images for RPi ALERT ${{ github.ref_name }}.
+
+            * **rpi-alert-*-arm64.img.xz** — Pi 3, 3+, 4, 400, 5, 500, Zero 2 W, CM3/4/5 (recommended)
+            * **rpi-alert-*-armhf.img.xz** — 32-bit, adds Pi 1, 2, Zero, Zero W (radios and ERT-A2 only; too slow for the RTL-SDR decoder)
+
+            Easiest: Raspberry Pi Imager started with `--repo https://cdomotor-g.github.io/RPi_ALERT/os_list.json` — see https://cdomotor-g.github.io/RPi_ALERT/

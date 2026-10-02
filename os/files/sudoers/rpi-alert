@@ -1,0 +1,5 @@
+# RPi ALERT: the agent runs as rpi-alert and may ask root for exactly one
+# program, which takes a fixed list of verbs and checks every argument
+# (start/stop the screen kiosk, join Wi-Fi, set hostname/time zone, reboot).
+rpi-alert ALL=(root) NOPASSWD: /opt/rpi-alert/libexec/rpi-alert-priv
+Defaults:rpi-alert !requiretty

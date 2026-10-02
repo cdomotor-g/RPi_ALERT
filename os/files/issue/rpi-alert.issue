@@ -1,0 +1,4 @@
+RPi ALERT base station  \n
+  Dashboard and settings:  http://\4/   or   http://\n.local/
+  At the command line:     log in, then   rpi-alert status   or   rpi-alert setup
+

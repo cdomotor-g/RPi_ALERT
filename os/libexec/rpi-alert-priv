@@ -1,0 +1,67 @@
+#!/bin/bash
+# rpi-alert-priv — the few things the RPi ALERT agent (user rpi-alert) needs
+# root for. sudoers lets the agent run this one program; this program takes a
+# fixed list of verbs and checks every argument before acting on it.
+#
+#   kiosk start|stop          the full-screen dashboard on a connected monitor
+#   reboot | poweroff | restart-agent
+#   set-time <unix seconds>   from a GPS fix, when there has been no NTP
+#   timezone <Area/City>
+#   hostname <name>
+#   net-status                interfaces and addresses
+#   wifi-scan                 nearby networks (nmcli terse output)
+#   wifi-connect <ssid> [<password>]
+#   update-check              is there a newer RPi ALERT release?
+set -u
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
+
+die() { echo "$*" >&2; exit 2; }
+verb=${1:-}; shift || true
+
+case "$verb" in
+  kiosk)
+    case "${1:-}" in
+      start)
+        command -v cage >/dev/null || die "the kiosk is not installed (sudo /opt/rpi-alert/os/install.sh --kiosk)"
+        exec systemctl start rpi-alert-kiosk.service ;;
+      stop) exec systemctl stop rpi-alert-kiosk.service ;;
+      *) die "kiosk start|stop" ;;
+    esac ;;
+  reboot) exec systemctl reboot ;;
+  poweroff) exec systemctl poweroff ;;
+  restart-agent) exec systemctl restart rpi-alert.service ;;
+  set-time)
+    [[ "${1:-}" =~ ^[0-9]{10}$ ]] || die "set-time <unix seconds>"
+    # A GPS with the week-rollover bug reports a date ~20 years back: never take one.
+    (( $1 > 1735689600 )) || die "refusing a time before 2025"
+    exec date -s "@$1" ;;
+  timezone)
+    tz=${1:-}
+    if ! [[ "$tz" =~ ^[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}$ ]] || ! [ -f "/usr/share/zoneinfo/$tz" ]; then die "unknown time zone: $tz"; fi
+    exec timedatectl set-timezone "$tz" ;;
+  hostname)
+    h=${1:-}
+    [[ "$h" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "hostname: lower-case letters, digits and dashes"
+    if command -v raspi-config >/dev/null; then exec raspi-config nonint do_hostname "$h"; fi
+    exec hostnamectl set-hostname "$h" ;;
+  net-status)
+    if command -v nmcli >/dev/null; then
+      nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null | sed 's/\\:/:/g'
+      echo
+    fi
+    ip -brief -4 address 2>/dev/null | grep -v '^lo ' ;;
+  wifi-scan)
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    exec nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan yes ;;
+  wifi-connect)
+    ssid=${1:-}; pw=${2:-}
+    if [ -z "$ssid" ] || [ ${#ssid} -gt 32 ]; then die "wifi-connect <ssid> [<password>]"; fi
+    [ -z "$pw" ] || { [ ${#pw} -ge 8 ] && [ ${#pw} -le 63 ]; } || die "a Wi-Fi password is 8–63 characters"
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    if [ -n "$pw" ]; then exec nmcli --wait 45 device wifi connect "$ssid" password "$pw"
+    else exec nmcli --wait 45 device wifi connect "$ssid"; fi ;;
+  update-check) exec /opt/rpi-alert/libexec/rpi-alert-update --check ;;
+  *) die "unknown verb: $verb" ;;
+esac

@@ -1,0 +1,32 @@
+[Unit]
+Description=RPi ALERT dashboard on the screen (cage + Chromium)
+Documentation=https://github.com/cdomotor-g/RPi_ALERT
+# Started and stopped by the agent as a monitor is plugged in or unplugged —
+# not enabled at boot by itself.
+After=systemd-user-sessions.service rpi-alert.service userconfig.service plymouth-quit-wait.service
+Wants=rpi-alert.service
+Conflicts=getty@tty7.service
+After=getty@tty7.service
+
+[Service]
+Type=simple
+User=rpi-alert-kiosk
+PAMName=rpi-alert-kiosk
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland
+# Bring the kiosk's console to the front (Ctrl+Alt+F1 gets back to a login prompt).
+ExecStartPre=+/bin/chvt 7
+ExecStart=/usr/bin/cage -d -s -- /opt/rpi-alert/libexec/rpi-alert-kiosk
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
