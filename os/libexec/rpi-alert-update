@@ -73,9 +73,9 @@ if [ "$current" != unknown ] && fetch "v$current" old 2>/dev/null; then back="v$
 
 # Is the agent up and answering as version $1? Two minutes to say so.
 healthy() {
-  local port url i
+  local port url _
   port=$(node -p "(require('/etc/rpi-alert/config.json').web||{}).port||80" 2>/dev/null || echo 80)
-  for i in $(seq 1 40); do
+  for _ in $(seq 1 40); do
     sleep 3
     systemctl is-active --quiet rpi-alert.service || continue
     for url in "http://127.0.0.1:$port/api/status" "http://127.0.0.1:8080/api/status"; do
