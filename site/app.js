@@ -110,7 +110,14 @@ async function write() {
   if (!window.showDirectoryPicker) { download(); status('This browser cannot write to the card directly — the file was downloaded instead: copy it onto the card\'s bootfs drive.', true); return; }
   let dir;
   try { dir = await window.showDirectoryPicker({ id: 'rpi-bootfs', mode: 'readwrite', startIn: 'desktop' }); }
-  catch (e) { if (e && e.name !== 'AbortError') status(e.message, false); return; }
+  catch (e) {
+    // Cancelled, or a browser (an embedded one) that cannot show the picker: say so —
+    // a silent page reads as "written" when nothing was.
+    status(e && e.name === 'AbortError'
+      ? 'Nothing written — no drive was chosen. Press Write again and pick the bootfs drive, or use Download.'
+      : 'Could not open a drive: ' + (e && e.message) + ' — use Download instead.', false);
+    return;
+  }
   // Make sure it is a Raspberry Pi boot partition, not someone's Documents.
   let isBoot = false;
   for (const n of ['config.txt', 'cmdline.txt']) { try { await dir.getFileHandle(n); isBoot = true; } catch (_) {} }
