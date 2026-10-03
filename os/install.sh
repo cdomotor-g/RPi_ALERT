@@ -139,6 +139,8 @@ cp -a "$SRC/agent/bin" "$SRC/agent/lib" "$SRC/agent/vendor" "$SRC/agent/web" "$S
 cp -a "$SRC/os/files" "$SRC/os/boot" "$SRC/os/install.sh" "$NEW/os/"
 [ -f "$SRC/os/bootstrap.sh" ] && cp -a "$SRC/os/bootstrap.sh" "$NEW/os/"
 install -m 0755 "$SRC/os/libexec/"* "$NEW/libexec/"
+# The Bluetooth GPS bridge is Python, kept apart from the shell helpers in libexec.
+install -m 0755 "$SRC/os/files/btgps/rpi-alert-btgps" "$NEW/libexec/"
 chown -R root:root "$NEW"
 chmod 0755 "$NEW/bin/rpi-alert"
 if [ -d "$PREFIX" ]; then rm -rf "$PREFIX.old"; mv "$PREFIX" "$PREFIX.old"; fi

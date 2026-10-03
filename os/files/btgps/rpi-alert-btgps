@@ -20,7 +20,8 @@
 #     pin = 123456
 #     channel = 1          (optional: else 1, then 2…10 are tried)
 #
-# Run by rpi-alert-btgps.service, as root (pairing and /dev need it).
+# Installed as /opt/rpi-alert/libexec/rpi-alert-btgps; run by
+# rpi-alert-btgps.service, as root (pairing and /dev need it).
 
 import errno, grp, os, pty, re, select, socket, subprocess, sys, time, tty
 
