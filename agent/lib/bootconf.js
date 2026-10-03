@@ -30,6 +30,8 @@
 //   wifi_password = …
 //   wifi_country = AU
 //   ssh = on
+//   auto_update = on                  install new RPi ALERT releases nightly (off by default)
+//   update = now                      install the latest release once, at this boot
 //   gps_bluetooth = 58:A8:39:01:93:61 a Bluetooth GPS (an Emlid Reach with its position output
 //   gps_bluetooth_pin = 123456        set to Bluetooth, NMEA): paired, kept connected, and read
 //                                     as /dev/rpi-alert-gps; gps_bluetooth = off removes it
@@ -116,6 +118,8 @@ function toPatch(kv) {
       case 'wifi_password': case 'wifi_psk': system.wifiPassword = v; break;
       case 'wifi_country': case 'country': system.wifiCountry = v.trim().toUpperCase(); break;
       case 'ssh': system.ssh = yes(v) ? 'on' : no(v) ? 'off' : null; break;
+      case 'auto_update': case 'auto_updates': system.autoUpdate = yes(v) ? 'on' : no(v) ? 'off' : null; break;
+      case 'update': if (/^(now|yes|on|true|1)$/i.test(v.trim())) system.updateNow = true; else notes.push('update: expected now'); break;
       case 'gps_bluetooth': case 'bluetooth_gps': {
         const a = v.trim().toUpperCase().replace(/-/g, ':');
         if (no(v)) btGps = { off: true };
@@ -183,6 +187,15 @@ function applySystem(s, log) {
   if (s.ssh) {
     const r = s.ssh === 'on' ? sh('systemctl', ['enable', '--now', 'ssh']) : sh('systemctl', ['disable', '--now', 'ssh']);
     log(r.ok ? 'SSH ' + s.ssh : 'could not turn SSH ' + s.ssh + ': ' + r.out);
+  }
+  if (s.autoUpdate) {
+    const r = sh('systemctl', [s.autoUpdate === 'on' ? 'enable' : 'disable', '--now', 'rpi-alert-update-auto.timer']);
+    log(r.ok ? 'automatic updates ' + s.autoUpdate : 'could not turn automatic updates ' + s.autoUpdate + ': ' + r.out);
+  }
+  if (s.updateNow) {
+    // In the background: it waits for the network, and restarts the agent when done.
+    const r = sh('systemctl', ['start', '--no-block', 'rpi-alert-update.service']);
+    log(r.ok ? 'installing the latest release (see Settings → System on the web page)' : 'could not start the update: ' + r.out);
   }
 }
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Install the latest RPi ALERT release (rolls back if it does not start)
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/install.md
+# Its own unit, not a child of the agent: installing restarts the agent, and
+# that must not take the installer down with it.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rpi-alert/libexec/rpi-alert-update
+TimeoutStartSec=20min

@@ -1,0 +1,10 @@
+[Unit]
+Description=Install a newer RPi ALERT release if there is one (nightly)
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/install.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rpi-alert/libexec/rpi-alert-update --if-newer
+TimeoutStartSec=20min

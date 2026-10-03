@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly check for a newer RPi ALERT release
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/install.md
+
+[Timer]
+# Small hours, spread over an hour so a fleet does not all restart at once.
+OnCalendar=*-*-* 03:00
+RandomizedDelaySec=1h
+Persistent=true
+Unit=rpi-alert-update-auto.service
+
+[Install]
+WantedBy=timers.target

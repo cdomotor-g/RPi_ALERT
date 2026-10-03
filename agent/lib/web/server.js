@@ -220,10 +220,23 @@ class WebServer {
       setTimeout(() => system.priv(body.action), 500);
       return this.json(res, 200, { ok: true });
     }
+    // Over-the-air updates. GET: the nightly timer and the last install's outcome.
+    if (p === '/api/system/update' && req.method === 'GET') return this.json(res, 200, await updateStatus());
     if (p === '/api/system/update' && req.method === 'POST') {
-      this.log.warn('software update requested from the web page');
       const r = await system.priv('update-check');
-      return this.json(res, 200, { ok: r.code === 0, message: (r.stdout || r.stderr).trim().slice(0, 2000) });
+      return this.json(res, 200, { ok: r.code === 0, message: (r.stdout || r.stderr).trim().slice(0, 2000), version: require('../../package.json').version });
+    }
+    if (p === '/api/system/update/install' && req.method === 'POST') {
+      this.log.warn('software update install requested from the web page');
+      const r = await system.priv('update-install');
+      return this.json(res, r.code === 0 ? 200 : 500, r.code === 0 ? { ok: true } : { error: (r.stderr || r.stdout).trim().slice(0, 300) || 'could not start the update' });
+    }
+    if (p === '/api/system/update/auto' && req.method === 'POST') {
+      const on = !!body.on;
+      const r = await system.priv('update-auto', on ? 'on' : 'off');
+      if (r.code !== 0) return this.json(res, 500, { error: (r.stderr || r.stdout).trim().slice(0, 300) || 'could not change automatic updates' });
+      this.log.info('automatic updates ' + (on ? 'on' : 'off'));
+      return this.json(res, 200, await updateStatus());
     }
     return this.json(res, 404, { error: 'no such API' });
   }
@@ -321,6 +334,17 @@ function audioDevices() {
       resolve(list);
     });
   });
+}
+
+// rpi-alert-priv update-status: the timer's state, whether an install is running,
+// then the last outcome (update-status.json, written by rpi-alert-update).
+async function updateStatus() {
+  const r = await system.priv('update-status');
+  if (r.code !== 0) return { available: false, error: (r.stderr || '').trim().slice(0, 300) || 'not available on this machine' };
+  const [timer = '', running = '', ...rest] = r.stdout.split('\n');
+  let last = null;
+  try { last = JSON.parse(rest.join('\n')); } catch (_) {}
+  return { available: true, auto: timer.trim() === 'enabled', running: running.trim() === 'running', last: last && last.state ? last : null };
 }
 
 function parseWifi(text) {

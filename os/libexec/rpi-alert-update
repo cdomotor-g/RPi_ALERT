@@ -3,42 +3,103 @@
 #
 #   rpi-alert-update --check          compare this Pi with the latest release
 #   sudo rpi-alert-update             install the latest release
+#   sudo rpi-alert-update --if-newer  …only if it is newer than this Pi (the nightly timer)
 #   sudo rpi-alert-update --ref main  install the current main branch (testing)
+#
+# The web page's "Install update" and the nightly timer run this through
+# rpi-alert-update.service, so restarting the agent mid-install does not stop it.
+# Before installing it fetches the version this Pi runs now as well; if the new
+# one does not come up and answer on its web page within two minutes, that
+# version is put back. Progress goes to /var/lib/rpi-alert/update-status.json
+# for the web page.
 #
 # Settings (/etc/rpi-alert), the queue and the receiver ids (/var/lib/rpi-alert)
 # are kept: install.sh never overwrites them.
 set -euo pipefail
 REPO=${RPI_ALERT_REPO:-cdomotor-g/RPi_ALERT}
-CHECK=0; REF=""
+STATUS=/var/lib/rpi-alert/update-status.json
+CHECK=0; REF=""; IF_NEWER=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) CHECK=1 ;;
+    --if-newer) IF_NEWER=1 ;;
     --ref) REF=$2; shift ;;
-    *) echo "usage: rpi-alert-update [--check] [--ref <tag|branch>]" >&2; exit 2 ;;
+    *) echo "usage: rpi-alert-update [--check] [--if-newer] [--ref <tag|branch>]" >&2; exit 2 ;;
   esac
   shift
 done
 
-current=$(node -p "require('/opt/rpi-alert/package.json').version" 2>/dev/null || echo unknown)
+version() { node -p "require('/opt/rpi-alert/package.json').version" 2>/dev/null || echo unknown; }
+current=$(version)
 latest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)
 
 if [ "$CHECK" = 1 ]; then
   echo "This Pi runs RPi ALERT $current."
-  if [ -z "$latest" ]; then echo "No published release found (or no internet). To follow main: sudo /opt/rpi-alert/libexec/rpi-alert-update --ref main"
+  if [ -z "$latest" ]; then echo "No published release found (or no internet)."
   elif [ "$latest" = "$current" ]; then echo "That is the latest release."
-  else echo "Release $latest is available. Install it over SSH with: sudo /opt/rpi-alert/libexec/rpi-alert-update"; fi
+  else echo "Release $latest is available."; fi
   exit 0
 fi
 
 [ "$(id -u)" = 0 ] || { echo "run as root: sudo $0 $*" >&2; exit 1; }
+
+started=$(date +%s)
+# state: running | ok | current | failed | rolled-back
+status() {
+  local state=$1 msg=$2 to=${3:-}
+  install -d -m 0750 -o rpi-alert -g rpi-alert /var/lib/rpi-alert 2>/dev/null || true
+  printf '{"state":"%s","from":"%s","to":"%s","startedAt":%s,"at":%s,"message":"%s"}\n' \
+    "$state" "$current" "$to" "$started" "$(date +%s)" "$(printf '%s' "$msg" | tr '"\\\n' "'/ ")" > "$STATUS.tmp"
+  chmod 0644 "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
+  echo "$msg"
+}
+trap 'status failed "the update stopped unexpectedly (line $LINENO); see: journalctl -u rpi-alert-update" "${REF:-}"' ERR
+
 if [ -z "$REF" ]; then
-  [ -n "$latest" ] || { echo "no release found; use --ref main" >&2; exit 1; }
+  if [ -z "$latest" ]; then status failed "no published release found (or no internet)"; exit 1; fi
+  if [ "$IF_NEWER" = 1 ] && [ "$latest" = "$current" ]; then status current "RPi ALERT $current is the latest release." "$current"; exit 0; fi
   REF="v$latest"
 fi
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-url="https://github.com/$REPO/archive/$REF.tar.gz"
-echo "Downloading $url"
-curl -fsSL --max-time 300 "$url" | tar -xz -C "$tmp" --strip-components=1
-bash "$tmp/os/install.sh" --upgrade
-echo "RPi ALERT is now $(node -p "require('/opt/rpi-alert/package.json').version")."
+fetch() { install -d "$tmp/$2"; curl -fsSL --max-time 300 "https://github.com/$REPO/archive/$1.tar.gz" | tar -xz -C "$tmp/$2" --strip-components=1; }
+
+status running "Downloading $REF" "$REF"
+fetch "$REF" new
+# The way back, fetched now so it does not depend on the network later.
+back=""
+if [ "$current" != unknown ] && fetch "v$current" old 2>/dev/null; then back="v$current"; fi
+
+# Is the agent up and answering as version $1? Two minutes to say so.
+healthy() {
+  local port url i
+  port=$(node -p "(require('/etc/rpi-alert/config.json').web||{}).port||80" 2>/dev/null || echo 80)
+  for i in $(seq 1 40); do
+    sleep 3
+    systemctl is-active --quiet rpi-alert.service || continue
+    for url in "http://127.0.0.1:$port/api/status" "http://127.0.0.1:8080/api/status"; do
+      if curl -fsS --max-time 3 "$url" 2>/dev/null | grep -q "\"version\":\"$1\""; then return 0; fi
+    done
+  done
+  return 1
+}
+
+status running "Installing $REF (this Pi runs $current)" "$REF"
+trap - ERR
+if bash "$tmp/new/os/install.sh" --upgrade && new=$(version) && healthy "$new"; then
+  status ok "RPi ALERT is now $new (was $current)." "$new"
+  exit 0
+fi
+
+if [ -n "$back" ]; then
+  echo "The new version did not come up; putting $back back."
+  if bash "$tmp/old/os/install.sh" --upgrade && healthy "$current"; then
+    status rolled-back "$REF did not start properly, so $current was put back. See: journalctl -u rpi-alert-update" "$REF"
+  else
+    status failed "$REF did not start and putting $current back failed too. See: journalctl -u rpi-alert-update" "$REF"
+  fi
+else
+  status failed "$REF did not start properly and there was no earlier version to put back. See: journalctl -u rpi-alert-update" "$REF"
+fi
+exit 1

@@ -48,6 +48,7 @@ class SdrSession extends EventEmitter {
     this.spectrum = null;
     this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: 0, dropped: 0 };
     this.lastDecode = null;
+    this.lastBurst = null;
     this.stopped = false;
     this.timer = null;
     this.watch = null;
@@ -190,6 +191,8 @@ class SdrSession extends EventEmitter {
     if (m.type === 'error') { this.log.error('decoder: ' + m.message); return; }
     if (m.type === 'burst') {
       this.counts.bursts++;
+      const peak = round(m.peakDb), nf = round(m.nfDb);
+      this.lastBurst = { t: Date.now(), ms: m.ms, peakDb: peak, nfDb: nf, snrDb: peak != null && nf != null ? round(peak - nf) : null };
       this.agent.deviceEvent(this, 'burst', { ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });
       return;
     }
@@ -200,14 +203,16 @@ class SdrSession extends EventEmitter {
     const fmt = FORMAT_SHORT[m.format] || m.format;
     const level = m.burst ? Math.round(m.burst.peakDb * 10) / 10 : null;
     const nf = m.burst ? Math.round(m.burst.nfDb * 10) / 10 : null;
+    // Burst peak over the closed-squelch floor it opened on, both in the 12 kHz channel.
+    const snr = level != null && nf != null ? Math.round((level - nf) * 10) / 10 : null;
     for (const r of m.readings) {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
       this.agent.deviceReading(this, { alert_id: r.sensorId, value_raw: r.value, protocol: 'alert', fmt, votes: r.votes,
-        level_dbfs: level, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, ''),
+        level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, ''),
         burstKey: 's' + (m.burst ? m.burst.t : Date.now()) });
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''),
-        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: { fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf } });
+        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: { fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr } });
     }
     for (const s of m.shadows || []) {
       this.counts.shadows++;
@@ -247,10 +252,10 @@ class SdrSession extends EventEmitter {
       key: this.key, kind: 'sdr', name: this.name(), pointId: this.point.pointId, state: this.state, protocol: 'alert',
       device: { serial: this.stick.serial, product: this.stick.product, manufacturer: this.stick.manufacturer, usb: this.stick.vid + ':' + this.stick.pid, index: this.stick.index },
       tuner: this.tuner, model: this.model,
-      freqHz: c.freqHz, sampleRate: c.sampleRate, gainDb: c.gainDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
+      freqHz: c.freqHz, sampleRate: c.sampleRate, gainDb: c.gainDb, squelchDb: c.squelchDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
       level: lv ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
       spectrum: this.spectrum ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: Math.round(c.freqHz - c.offsetHz), channelHz: c.freqHz } : null,
-      counts: this.counts, lastDecode: this.lastDecode, stderr: this.stderr.slice(-5),
+      counts: this.counts, lastDecode: this.lastDecode, lastBurst: this.lastBurst, stderr: this.stderr.slice(-5),
       rateKsps: this.startedAt ? Math.round(this.bytesIn / 2 / Math.max(1, (Date.now() - this.startedAt) / 1000) / 1000) : 0,
     };
   }

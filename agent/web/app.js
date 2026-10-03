@@ -229,12 +229,35 @@ function renderRxMini() {
     : '<div class="dim">No receivers found. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware (USB-C), an ERT-A2 (USB-serial cable) or a USB GPS — each is picked up within a few seconds.</div>';
 }
 
+// A channel peak this close to 0 dBFS is the ADC's ceiling, not the signal:
+// the burst saturated the stick and its level and SNR are only lower bounds.
+const SATURATED_DBFS = -3;
+
+function snrText(snr) { return snr != null ? 'SNR ' + Math.round(snr) + ' dB' : ''; }
+
+function signalCell(r) {
+  if (r.rssi_dbm != null) {
+    const bits = [r.rssi_dbm + ' dBm'];
+    if (r.snr_db != null) bits.push(snrText(r.snr_db));
+    return esc(bits.join(' · ')) + (r.nf_dbm != null ? '<br>' + esc('floor ' + r.nf_dbm + ' dBm') : '');
+  }
+  if (r.votes == null) return '';
+  const sat = r.level_dbfs != null && r.level_dbfs >= SATURATED_DBFS;
+  const top = [r.votes + ' votes'];
+  if (r.snr_db != null) top.push((sat ? '≥ ' : '') + snrText(r.snr_db));
+  const low = [];
+  if (r.level_dbfs != null) low.push('peak ' + r.level_dbfs + ' dBFS');
+  if (r.nf_dbfs != null) low.push('floor ' + r.nf_dbfs);
+  return esc(top.join(' · ')) + (low.length ? '<br>' + esc(low.join(', ')) : '')
+    + (sat ? ' <span style="color: var(--warn)" title="The burst reached the ADC full scale: the stick is saturated, so the true signal is stronger than shown. Lower the SDR gain.">⚠ saturated</span>' : '');
+}
+
 function readingRow(r, fresh) {
   const st = r.station ? esc(r.station.name) + (r.station.km != null ? ' <span class="dim small">' + r.station.km + ' km</span>' : '') + (r.shared ? ' <span class="dim small" title="This address is carried by ' + r.shared + ' stations; the nearest is shown">(' + r.shared + ')</span>' : '') : '<span class="dim">—</span>';
-  const sig = r.rssi_dbm != null ? r.rssi_dbm + ' dBm' : r.votes != null ? r.votes + ' votes' + (r.level_dbfs != null ? ', ' + r.level_dbfs + ' dBFS' : '') : '';
+  const sig = signalCell(r);
   return '<tr' + (fresh ? ' class="fresh"' : '') + '><td>' + hhmmss(r.t) + (r.timed ? '' : ' <span class="dim small" title="Held until the Pi\'s clock is set by NTP or GPS">⏳</span>') + '</td><td>'
     + protoTag(r.protocol) + ' <span class="dim small">' + esc(r.fmt || '') + '</span></td><td class="num">' + esc(r.alert_id) + '</td><td class="wrap">' + st
-    + '</td><td class="num"><b>' + esc(r.eng) + '</b>' + (String(r.eng) !== String(r.value_raw) ? ' <span class="dim small">' + esc(r.value_raw) + '</span>' : '') + '</td><td class="dim small">' + esc(sig) + '</td><td class="dim small">' + esc(r.receiver) + '</td></tr>';
+    + '</td><td class="num"><b>' + esc(r.eng) + '</b>' + (String(r.eng) !== String(r.value_raw) ? ' <span class="dim small">' + esc(r.value_raw) + '</span>' : '') + '</td><td class="dim small">' + sig + '</td><td class="dim small">' + esc(r.receiver) + '</td></tr>';
 }
 
 function renderReadings(freshOne) {
@@ -291,6 +314,12 @@ function renderRxFull() {
       rows.push(['Format', esc(d.format)]);
       if (d.level) rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '') + ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : ''))]);
       rows.push(['Heard', esc(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
+      if (d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
+      if (d.lastBurst) {
+        const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;
+        rows.push(['Last burst', esc('peak ' + b.peakDb + ' dBFS over floor ' + b.nfDb + ' · ' + (sat ? '≥ ' : '') + snrText(b.snrDb) + ' · ' + b.ms + ' ms, ' + ago(Date.now() - b.t))
+          + (sat ? ' <span style="color: var(--warn)">⚠ saturated — reached the ADC full scale; lower the gain until bursts peak below ' + SATURATED_DBFS + ' dBFS</span>' : '')]);
+      }
       if (d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
       rows.push(['Samples', esc(d.rateKsps + ' ksps arriving' + (d.counts.restarts ? ', rtl_sdr restarted ' + d.counts.restarts + '×' : '') + (d.counts.dropped ? ', ' + Math.round(d.counts.dropped / 1e6) + ' MB dropped (CPU)' : ''))]);
       if (d.stderr && d.stderr.length) rows.push(['rtl_sdr says', '<span class="mono small">' + esc(d.stderr.join(' | ')) + '</span>']);
@@ -521,10 +550,7 @@ function wireSettings() {
     if (!confirm(what + '?')) return;
     try { await api('/api/system/power', { method: 'POST', body: { action: b.dataset.power } }); flash($('#f-system'), 'Done — this page reconnects by itself.', true); } catch (e) { flash($('#f-system'), e.message, false); }
   }));
-  $('#update').addEventListener('click', async () => {
-    const out = $('#update-out'); out.hidden = false; out.textContent = 'Checking…';
-    try { const r = await api('/api/system/update', { method: 'POST', body: {} }); out.textContent = r.message || (r.ok ? 'Done.' : 'Failed.'); } catch (e) { out.textContent = e.message; }
-  });
+  bindUpdates();
 
   $('#wifi-scan').addEventListener('click', async () => {
     const box = $('#wifi-list'); box.innerHTML = '<div class="dim small">Scanning…</div>';
@@ -625,13 +651,74 @@ function connectEvents() {
   es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
 }
 
+// ── software updates ────────────────────────────────────────────────────────
+
+const UPDATE_STATES = { ok: 'Updated', current: 'Up to date', failed: 'Update failed', 'rolled-back': 'Update rolled back', running: 'Updating' };
+
+async function loadUpdate() {
+  let u;
+  try { u = await api('/api/system/update'); } catch (_) { return null; }
+  const el = $('#update-state'), auto = $('#update-auto');
+  auto.disabled = !u.available; auto.checked = !!u.auto;
+  if (!u.available) { el.textContent = 'Updates are managed by the Pi\'s system helper, which is not installed here' + (u.error ? ' (' + u.error + ')' : '') + '.'; return u; }
+  const l = u.last;
+  const last = l ? (UPDATE_STATES[l.state] || l.state) + ' ' + ago(Date.now() - l.at * 1000) + ': ' + l.message : '';
+  el.textContent = u.running ? 'Installing an update now — the dashboard drops out for a moment while the agent restarts.' + (l && l.state === 'running' ? ' ' + l.message : '') : last;
+  el.className = 'small ' + (u.running ? '' : l && (l.state === 'failed' || l.state === 'rolled-back') ? 'status bad' : '');
+  $('#update-install').disabled = u.running;
+  return u;
+}
+
+// While an install runs: poll, ride out the agent restarting, and reload the
+// page once it is done so the new version's page is the one on screen.
+let updatePoll = null;
+function followUpdate() {
+  if (updatePoll) return;
+  const from = S.status && S.status.version;
+  let seenRunning = false;
+  updatePoll = setInterval(async () => {
+    const u = await loadUpdate();
+    if (!u) { $('#update-state').textContent = 'The agent is restarting with the new version…'; return; }
+    if (u.running) { seenRunning = true; return; }
+    if (!seenRunning && !(u.last && u.last.state !== 'running')) return;
+    clearInterval(updatePoll); updatePoll = null;
+    const v = await api('/api/status').then(s => s.version).catch(() => null);
+    if (v && from && v !== from) location.reload();
+  }, 3000);
+}
+
+function bindUpdates() {
+  $('#update').addEventListener('click', async () => {
+    const out = $('#update-out'); out.hidden = false; out.textContent = 'Checking…';
+    try {
+      const r = await api('/api/system/update', { method: 'POST', body: {} });
+      out.textContent = r.message || (r.ok ? 'Done.' : 'Failed.');
+      $('#update-install').hidden = !/is available/.test(r.message || '');
+    } catch (e) { out.textContent = e.message; }
+  });
+  $('#update-install').addEventListener('click', async () => {
+    if (!confirm('Install the latest RPi ALERT now? The agent restarts, so a burst may be missed during the minute or so it takes.')) return;
+    try {
+      await api('/api/system/update/install', { method: 'POST', body: {} });
+      $('#update-install').hidden = true; $('#update-out').hidden = true;
+      $('#update-state').textContent = 'Starting the update…';
+      followUpdate();
+    } catch (e) { flash($('#f-system'), e.message, false); }
+  });
+  $('#update-auto').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    try { await api('/api/system/update/auto', { method: 'POST', body: { on } }); flash($('#f-system'), 'Automatic updates ' + (on ? 'on' : 'off') + '.', true); }
+    catch (err) { e.target.checked = !on; flash($('#f-system'), err.message, false); }
+  });
+}
+
 function showTab(t) {
   S.tab = t;
   renderHeader();
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'rx') renderRxFull();
-  if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); }
+  if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
   if (t === 'dash') renderBursts();
 }

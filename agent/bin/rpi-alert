@@ -157,7 +157,7 @@ function render(s, readingsList) {
     if (!readingsList.length) out.push('  ' + C.d + 'nothing heard yet' + C.x);
     for (const r of readingsList) {
       out.push('  ' + new Date(r.t).toLocaleTimeString() + '  ' + (r.protocol === 'alert2' ? 'ALERT2' : 'ALERT ') + ' ' + String(r.fmt || '').padEnd(6) + String(r.alert_id).padStart(5)
-        + ' = ' + String(r.eng).padEnd(10) + ' ' + ((r.station && r.station.name) || '').slice(0, 28).padEnd(28) + C.d + ' ' + r.receiver + (r.rssi_dbm != null ? ' ' + r.rssi_dbm + ' dBm' : '') + (r.votes != null ? ' ' + r.votes + ' votes' : '') + (r.timed ? '' : ' (waiting for clock)') + C.x);
+        + ' = ' + String(r.eng).padEnd(10) + ' ' + ((r.station && r.station.name) || '').slice(0, 28).padEnd(28) + C.d + ' ' + r.receiver + (r.rssi_dbm != null ? ' ' + r.rssi_dbm + ' dBm' : '') + (r.votes != null ? ' ' + r.votes + ' votes' : '') + (r.snr_db != null ? ' SNR ' + Math.round(r.snr_db) + ' dB' : '') + (r.timed ? '' : ' (waiting for clock)') + C.x);
     }
   }
   return out.join('\n');

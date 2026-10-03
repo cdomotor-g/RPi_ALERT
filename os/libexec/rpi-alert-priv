@@ -12,6 +12,9 @@
 #   wifi-scan                 nearby networks (nmcli terse output)
 #   wifi-connect <ssid> [<password>]
 #   update-check              is there a newer RPi ALERT release?
+#   update-install            install it now (rpi-alert-update.service, in the background)
+#   update-auto on|off        the nightly install-if-newer timer
+#   update-status             the last install's outcome and whether the timer is on
 set -u
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
 
@@ -63,5 +66,17 @@ case "$verb" in
     if [ -n "$pw" ]; then exec nmcli --wait 45 device wifi connect "$ssid" password "$pw"
     else exec nmcli --wait 45 device wifi connect "$ssid"; fi ;;
   update-check) exec /opt/rpi-alert/libexec/rpi-alert-update --check ;;
+  update-install) exec systemctl start --no-block rpi-alert-update.service ;;
+  update-auto)
+    case "${1:-}" in
+      on) exec systemctl enable --now rpi-alert-update-auto.timer ;;
+      off) exec systemctl disable --now rpi-alert-update-auto.timer ;;
+      *) die "update-auto on|off" ;;
+    esac ;;
+  update-status)
+    # Three lines: the timer (enabled|disabled), the installer (running|idle), the last outcome as JSON.
+    systemctl is-enabled rpi-alert-update-auto.timer 2>/dev/null || echo disabled
+    if systemctl is-active --quiet rpi-alert-update.service || systemctl is-active --quiet rpi-alert-update-auto.service; then echo running; else echo idle; fi
+    cat /var/lib/rpi-alert/update-status.json 2>/dev/null || echo '{}' ;;
   *) die "unknown verb: $verb" ;;
 esac

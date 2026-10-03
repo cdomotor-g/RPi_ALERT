@@ -54,9 +54,9 @@ FW=/boot/firmware; [ -d "$FW" ] || FW=/boot
 # ── uninstall ────────────────────────────────────────────────────────────────
 if [ "$UNINSTALL" = 1 ]; then
   say "Removing RPi ALERT"
-  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service rpi-alert-btgps.service 2>/dev/null || true
+  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service rpi-alert-btgps.service rpi-alert-update-auto.timer 2>/dev/null || true
   rm -f /dev/rpi-alert-gps
-  rm -f /etc/systemd/system/rpi-alert*.service /etc/udev/rules.d/60-rpi-alert.rules /etc/modprobe.d/rpi-alert-blacklist-dvb.conf \
+  rm -f /etc/systemd/system/rpi-alert*.service /etc/systemd/system/rpi-alert*.timer /etc/udev/rules.d/60-rpi-alert.rules /etc/modprobe.d/rpi-alert-blacklist-dvb.conf \
         /etc/sudoers.d/rpi-alert /etc/pam.d/rpi-alert-kiosk /etc/systemd/journald.conf.d/rpi-alert.conf \
         /etc/systemd/system.conf.d/rpi-alert-watchdog.conf /etc/issue.d/rpi-alert.issue /etc/profile.d/rpi-alert.sh /usr/local/bin/rpi-alert
   rm -rf "$PREFIX"
@@ -157,6 +157,10 @@ chown -R rpi-alert:rpi-alert /var/lib/rpi-alert
 say "Installing services, device rules and the root helper"
 F="$SRC/os/files"
 install -m 0644 "$F/systemd/rpi-alert.service" "$F/systemd/rpi-alert-boot-config.service" "$F/systemd/rpi-alert-btgps.service" /etc/systemd/system/
+# Over-the-air updates: the installer the web page starts, and the nightly timer
+# (off until turned on in Settings → System or with auto_update = on in
+# rpi-alert.conf; an upgrade leaves it as it was).
+install -m 0644 "$F/systemd/rpi-alert-update.service" "$F/systemd/rpi-alert-update-auto.service" "$F/systemd/rpi-alert-update-auto.timer" /etc/systemd/system/
 [ "$KIOSK" = 1 ] && install -m 0644 "$F/systemd/rpi-alert-kiosk.service" /etc/systemd/system/
 install -m 0644 "$F/udev/60-rpi-alert.rules" /etc/udev/rules.d/
 install -m 0644 "$F/modprobe/rpi-alert-blacklist-dvb.conf" /etc/modprobe.d/

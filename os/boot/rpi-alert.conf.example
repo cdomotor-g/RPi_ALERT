@@ -63,6 +63,11 @@ request_token = yes
 #timezone = Australia/Brisbane
 #hostname = rpi-alert
 #ssh = on
+# Install new RPi ALERT releases by themselves, nightly between 3 and 4 am (or
+# turn this on in the web page's Settings → System). update = now installs the
+# latest release once, at this boot. Either way no re-flashing is needed.
+#auto_update = on
+#update = now
 
 # A Wi-Fi network to join. Raspberry Pi Imager's "customisation" can do this
 # too (and set the user and password) — use one or the other.

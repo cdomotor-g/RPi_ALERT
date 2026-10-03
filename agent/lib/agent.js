@@ -110,6 +110,7 @@ class Agent extends EventEmitter {
       station: st ? { id: st.id, name: st.name, km: st.km ?? null } : (r.name ? { id: null, name: r.name } : null),
       shared: cands.length > 1 ? cands.length : 0,
       rssi_dbm: r.rssi_dbm ?? null, level_dbfs: r.level_dbfs ?? null, votes: r.votes ?? null,
+      nf_dbm: r.nf_dbm ?? null, nf_dbfs: r.nf_dbfs ?? null, snr_db: snrOf(r),
     };
     this.counts.readings++;
     this.counts[r.protocol] = (this.counts[r.protocol] || 0) + 1;
@@ -293,6 +294,14 @@ class Agent extends EventEmitter {
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
     };
   }
+}
+
+// Signal over noise floor: the SDR's channel peak over its floor (dBFS), or a
+// radio's RSSI over its own noise reading (dBm). Null when either side is missing.
+function snrOf(r) {
+  if (r.snr_db != null) return num(r.snr_db);
+  const sig = num(r.rssi_dbm), nf = num(r.nf_dbm);
+  return sig != null && nf != null ? Math.round((sig - nf) * 10) / 10 : null;
 }
 
 function num(v) { return v == null || !Number.isFinite(Number(v)) ? null : Number(v); }

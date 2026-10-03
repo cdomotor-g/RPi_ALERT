@@ -84,6 +84,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `hostname` | e.g. mt-stuart-base | system hostname (after a reboot) |
 | `wifi_ssid`, `wifi_password`, `wifi_country` | | a NetworkManager connection `rpi-alert-wifi` |
 | `ssh` | on / off | the SSH service |
+| `auto_update` | on / off | install new releases nightly, 3–4 am (off by default) |
+| `update` | now | install the latest release once, at this boot |
 
 ## `config.json` reference
 

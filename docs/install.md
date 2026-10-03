@@ -117,7 +117,21 @@ turns it down. The request appears on MegaNet's Admin tab under that name; its c
 
 ## Updating
 
-`sudo rpi-alert-update` installs the latest release (`--ref main` for the development branch);
-**Settings → System → Check for updates** says whether there is one. Settings, the queue and
-the receiver ids are kept. Raspberry Pi OS itself updates the usual way
-(`sudo apt update && sudo apt full-upgrade`).
+Updates install over the network; the SD card never needs re-flashing for a new RPi ALERT.
+
+- **From the web page:** Settings → System → **Check for updates**, then **Install update**.
+  The page follows the install and reloads on the new version.
+- **Automatically:** tick *Install new releases automatically* there (or `auto_update = on` in
+  `rpi-alert.conf`). A timer installs any newer release nightly, at a random time between 3 and 4 am.
+- **Once, from the SD card:** `update = now` in `rpi-alert.conf` installs the latest at the next boot.
+- **Over SSH:** `sudo rpi-alert-update` (`--ref main` for the development branch).
+
+Every route runs `rpi-alert-update.service`, which downloads the release and the version the Pi
+runs now, installs, and waits up to two minutes for the agent to answer as the new version. If it
+does not, the previous version is put back. Settings, the queue and the receiver ids are kept.
+The outcome shows on the Settings page; the detail is in `journalctl -u rpi-alert-update`.
+
+Pis on 0.3.0 or earlier have no install button yet: install this once over SSH
+(`ssh = on` in `rpi-alert.conf` turns SSH on), and from then on the web page does it.
+
+Raspberry Pi OS itself updates the usual way (`sudo apt update && sudo apt full-upgrade`).

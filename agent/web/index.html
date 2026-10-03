@@ -180,8 +180,15 @@
         <button type="button" class="ghost" data-power="restart-agent">Restart the agent</button>
         <button type="button" class="ghost" data-power="reboot">Reboot</button>
         <button type="button" class="ghost danger" data-power="poweroff">Shut down</button>
-        <button type="button" class="ghost" id="update">Check for updates</button>
       </div>
+      <h3>Software updates</h3>
+      <p class="hint">Updates install over the network: no need to re-flash the SD card. Settings, the queue and the receiver ids are kept, and if a new version does not start, the one before it is put back.</p>
+      <p class="small" id="update-state"></p>
+      <div class="row-actions">
+        <button type="button" class="ghost" id="update">Check for updates</button>
+        <button type="button" id="update-install" hidden>Install update</button>
+      </div>
+      <label class="check"><input type="checkbox" id="update-auto"> Install new releases automatically (nightly, 3–4 am)</label>
       <pre id="update-out" class="mono small" hidden></pre>
     </form>
   </section>
