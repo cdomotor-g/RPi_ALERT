@@ -64,3 +64,19 @@ test('rpi-alert.conf: parsed, turned into settings, and its secrets blanked', ()
   const c = tmpConfig();
   assert.ok(c.update(patch).ok, 'the patch passes validation');
 });
+
+test('rpi-alert.conf: a Bluetooth GPS is paired, read as a port, and its PIN blanked', () => {
+  const { patch, system, notes } = boot.toPatch(boot.parse('gps_bluetooth = 58-a8-39-01-93-61\ngps_bluetooth_pin = 123456\n'));
+  assert.deepEqual(system.btGps, { address: '58:A8:39:01:93:61', pin: '123456' });
+  assert.equal(patch.location.useGps, true, 'a Bluetooth GPS means the location follows it');
+  assert.equal(notes.length, 0);
+  assert.deepEqual(boot.withBtGpsPort(['/dev/serial0'], system.btGps), ['/dev/serial0', boot.BT_GPS_PORT]);
+  assert.deepEqual(boot.withBtGpsPort([boot.BT_GPS_PORT], system.btGps), [boot.BT_GPS_PORT], 'not added twice');
+  assert.deepEqual(boot.withBtGpsPort(['/dev/serial0', boot.BT_GPS_PORT], { off: true }), ['/dev/serial0']);
+  assert.equal(boot.toPatch(boot.parse('gps_bluetooth = off\n')).system.btGps.off, true);
+  assert.equal(boot.toPatch(boot.parse('gps_bluetooth = 58:A8:39:01:93:61\nuse_gps = no\n')).patch.location.useGps, false, 'use_gps still wins');
+  assert.ok(boot.toPatch(boot.parse('gps_bluetooth = reach\n')).notes.some(n => /Bluetooth address/.test(n)));
+  assert.ok(!boot.redactText('gps_bluetooth_pin = 123456').includes('123456'));
+  const c = tmpConfig();
+  assert.ok(c.update(Object.assign({}, patch, { receivers: { extraPorts: boot.withBtGpsPort([], system.btGps) } })).ok, 'the port passes validation');
+});

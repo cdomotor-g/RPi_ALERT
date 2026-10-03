@@ -30,6 +30,9 @@
 //   wifi_password = …
 //   wifi_country = AU
 //   ssh = on
+//   gps_bluetooth = 58:A8:39:01:93:61 a Bluetooth GPS (an Emlid Reach with its position output
+//   gps_bluetooth_pin = 123456        set to Bluetooth, NMEA): paired, kept connected, and read
+//                                     as /dev/rpi-alert-gps; gps_bluetooth = off removes it
 //
 // Once applied the file is renamed rpi-alert.conf.applied with the secrets
 // blanked out, and what happened is appended to rpi-alert-boot.log beside it.
@@ -42,7 +45,9 @@ const { Config, hashPassword } = require('./config');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
-const SECRET = new Set(['token', 'web_password', 'wifi_password']);
+const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin']);
+const BT_GPS_PORT = '/dev/rpi-alert-gps';
+const BT_GPS_CONF = process.env.RPI_ALERT_BTGPS_CONF || '/etc/rpi-alert/bluetooth-gps.conf';
 
 function parse(text) {
   const out = {};
@@ -68,6 +73,7 @@ const no = (v) => /^(0|n|no|off|false|disable|disabled)$/i.test(String(v).trim()
 // key/values → { patch, system: {…}, notes: [] }
 function toPatch(kv) {
   const patch = {}, system = {}, notes = [];
+  let btGps = null, btPin = '', btChannel = null;
   const set = (p, v) => { const ks = p.split('.'); let c = patch; ks.slice(0, -1).forEach(k => { c = c[k] = c[k] || {}; }); c[ks[ks.length - 1]] = v; };
   const n = (v) => { const x = Number(String(v).replace(',', '.')); return Number.isFinite(x) ? x : NaN; };
   for (const [k, v] of Object.entries(kv)) {
@@ -110,9 +116,29 @@ function toPatch(kv) {
       case 'wifi_password': case 'wifi_psk': system.wifiPassword = v; break;
       case 'wifi_country': case 'country': system.wifiCountry = v.trim().toUpperCase(); break;
       case 'ssh': system.ssh = yes(v) ? 'on' : no(v) ? 'off' : null; break;
+      case 'gps_bluetooth': case 'bluetooth_gps': {
+        const a = v.trim().toUpperCase().replace(/-/g, ':');
+        if (no(v)) btGps = { off: true };
+        else if (/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(a)) btGps = { address: a };
+        else notes.push('gps_bluetooth: expected a Bluetooth address like 58:A8:39:01:93:61, or off');
+        break;
+      }
+      case 'gps_bluetooth_pin': btPin = v.trim(); break;
+      case 'gps_bluetooth_channel': {
+        const c = Number(v.trim());
+        if (Number.isInteger(c) && c >= 1 && c <= 30) btChannel = c; else notes.push('gps_bluetooth_channel: a number, 1–30');
+        break;
+      }
       default: notes.push(k.startsWith('_bad_') ? 'line ' + k.slice(5) + ' is not "key = value": ' + v : 'unknown setting "' + k + '" (ignored)');
     }
   }
+  if (btGps && btGps.address) {
+    if (btPin) btGps.pin = btPin;
+    if (btChannel) btGps.channel = btChannel;
+    // A GPS paired on purpose is there to say where this is (a mobile unit).
+    if (!('use_gps' in kv)) set('location.useGps', true);
+  }
+  if (btGps) system.btGps = btGps;
   // A location: typed coordinates, or a station's (which the flasher page fills in).
   const L = patch.location;
   if (L && Number.isFinite(L.lat) && Number.isFinite(L.lon)) L.source = L.station ? 'station' : 'manual';
@@ -153,10 +179,40 @@ function applySystem(s, log) {
     if (r.ok) { sh('nmcli', ['radio', 'wifi', 'on']); sh('nmcli', ['connection', 'up', name]); }
     log(r.ok ? 'Wi-Fi network "' + s.wifiSsid + '" added (joins when in range)' : 'could not add Wi-Fi "' + s.wifiSsid + '": ' + r.out);
   }
+  if (s.btGps) applyBtGps(s.btGps, log);
   if (s.ssh) {
     const r = s.ssh === 'on' ? sh('systemctl', ['enable', '--now', 'ssh']) : sh('systemctl', ['disable', '--now', 'ssh']);
     log(r.ok ? 'SSH ' + s.ssh : 'could not turn SSH ' + s.ssh + ': ' + r.out);
   }
+}
+
+// A Bluetooth GPS: the settings for rpi-alert-btgps, and Bluetooth and that
+// service on (the image leaves Bluetooth off until something needs it).
+function applyBtGps(b, log) {
+  if (b.off) {
+    sh('systemctl', ['disable', '--now', 'rpi-alert-btgps.service']);
+    try { fs.unlinkSync(BT_GPS_CONF); } catch (_) {}
+    log('Bluetooth GPS removed');
+    return;
+  }
+  const text = '# Written from rpi-alert.conf at boot — see rpi-alert-btgps\naddress = ' + b.address + '\n' +
+    (b.pin ? 'pin = ' + b.pin + '\n' : '') + (b.channel ? 'channel = ' + b.channel + '\n' : '');
+  try { fs.writeFileSync(BT_GPS_CONF, text, { mode: 0o600 }); fs.chmodSync(BT_GPS_CONF, 0o600); }
+  catch (e) { log('could not write ' + BT_GPS_CONF + ': ' + e.message); return; }
+  sh('rfkill', ['unblock', 'bluetooth']);
+  // hciuart brings up the Pi's own Bluetooth chip; not every board has it.
+  sh('systemctl', ['enable', '--now', '--no-block', 'hciuart.service']);
+  const r1 = sh('systemctl', ['enable', '--now', '--no-block', 'bluetooth.service']);
+  const r2 = sh('systemctl', ['enable', '--no-block', 'rpi-alert-btgps.service']);
+  sh('systemctl', ['restart', '--no-block', 'rpi-alert-btgps.service']);
+  log(r1.ok && r2.ok ? 'Bluetooth GPS ' + b.address + ' — pairs and connects in the background, read as ' + BT_GPS_PORT
+    : 'could not turn on the Bluetooth GPS: ' + [r1, r2].filter(r => !r.ok).map(r => r.out).join('; '));
+}
+
+// The Bluetooth GPS's port in (or out of) the agent's extra ports, keeping the rest.
+function withBtGpsPort(current, btGps) {
+  const rest = (current || []).filter(p => p !== BT_GPS_PORT);
+  return btGps && btGps.address ? rest.concat(BT_GPS_PORT) : rest;
 }
 
 function redactText(text) {
@@ -182,6 +238,10 @@ function main(args) {
   notes.forEach(n => log('note: ' + n));
   const cfg = new Config().load();
   if (cfg.loadError) log('note: ' + cfg.loadError);
+  if (system.btGps) {
+    patch.receivers = patch.receivers || {};
+    patch.receivers.extraPorts = withBtGpsPort(cfg.get().receivers.extraPorts, system.btGps);
+  }
   const r = cfg.update(patch);
   if (r.ok) log(r.changed.length ? 'settings changed: ' + r.changed.join(', ').replace('web.passwordHash', 'web password') : 'settings: nothing new');
   else {
@@ -203,4 +263,4 @@ function main(args) {
   try { fs.appendFileSync(path.join(dir, 'rpi-alert-boot.log'), logLines.join('\r\n') + '\r\n'); } catch (_) {}
 }
 
-module.exports = { parse, toPatch, redactText, main };
+module.exports = { parse, toPatch, redactText, withBtGpsPort, main, BT_GPS_PORT };

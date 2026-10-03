@@ -31,6 +31,12 @@ request_token = yes
 #longitude = 153.0251
 #use_gps = yes
 
+# A Bluetooth GPS, for a mobile unit: an Emlid Reach with Position output set
+# to Bluetooth, NMEA (ReachView), Bluetooth on and discoverable. The Pi pairs
+# with it, keeps it connected and follows it as it moves.
+#gps_bluetooth = 58:A8:39:01:93:61
+#gps_bluetooth_pin = 123456
+
 # ── RTL-SDR ─────────────────────────────────────────────────────────────────
 #sdr_frequency_mhz = 151.5
 # binary (the 151.5 MHz networks) | enhanced_iflows (an ERT-A2 set to it) | ascii

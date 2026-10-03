@@ -66,6 +66,9 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `latitude`, `longitude` | decimal degrees | `location` (approximate) |
 | `location_station` (+ `location_station_name`) | MegaNet station id, with `latitude`/`longitude` | `location.source = station` |
 | `use_gps` | yes / no | `location.useGps` |
+| `gps_bluetooth` | Bluetooth address, or off | a Bluetooth GPS (an Emlid Reach set to *Position output → Bluetooth, NMEA*): Bluetooth turned on, the receiver paired and kept connected by `rpi-alert-btgps.service`, read as `/dev/rpi-alert-gps` (added to `receivers.extraPorts`); turns `location.useGps` on unless `use_gps` says otherwise. For a mobile unit |
+| `gps_bluetooth_pin` | e.g. 123456 | the PIN the receiver asks for when pairing (Emlid's default is 123456) |
+| `gps_bluetooth_channel` | 1–30 | its serial channel, if not 1 (else 1 to 10 are tried) |
 | `sdr_frequency_mhz` | e.g. 151.5 | `receivers.sdr.freqHz` |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |

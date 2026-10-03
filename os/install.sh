@@ -54,7 +54,8 @@ FW=/boot/firmware; [ -d "$FW" ] || FW=/boot
 # ── uninstall ────────────────────────────────────────────────────────────────
 if [ "$UNINSTALL" = 1 ]; then
   say "Removing RPi ALERT"
-  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service 2>/dev/null || true
+  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service rpi-alert-btgps.service 2>/dev/null || true
+  rm -f /dev/rpi-alert-gps
   rm -f /etc/systemd/system/rpi-alert*.service /etc/udev/rules.d/60-rpi-alert.rules /etc/modprobe.d/rpi-alert-blacklist-dvb.conf \
         /etc/sudoers.d/rpi-alert /etc/pam.d/rpi-alert-kiosk /etc/systemd/journald.conf.d/rpi-alert.conf \
         /etc/systemd/system.conf.d/rpi-alert-watchdog.conf /etc/issue.d/rpi-alert.issue /etc/profile.d/rpi-alert.sh /usr/local/bin/rpi-alert
@@ -84,7 +85,8 @@ fi
 say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-PKGS=(nodejs rtl-sdr alsa-utils avahi-daemon curl ca-certificates sudo procps)
+# bluez and python3: a Bluetooth GPS (rpi-alert-btgps), used only when rpi-alert.conf names one.
+PKGS=(nodejs rtl-sdr alsa-utils avahi-daemon curl ca-certificates sudo procps bluez python3)
 apt_install "${PKGS[@]}"
 if [ "$KIOSK" = 1 ]; then
   say "Installing the screen dashboard (cage + Chromium)"
@@ -152,7 +154,7 @@ chown -R rpi-alert:rpi-alert /var/lib/rpi-alert
 # ── system integration ───────────────────────────────────────────────────────
 say "Installing services, device rules and the root helper"
 F="$SRC/os/files"
-install -m 0644 "$F/systemd/rpi-alert.service" "$F/systemd/rpi-alert-boot-config.service" /etc/systemd/system/
+install -m 0644 "$F/systemd/rpi-alert.service" "$F/systemd/rpi-alert-boot-config.service" "$F/systemd/rpi-alert-btgps.service" /etc/systemd/system/
 [ "$KIOSK" = 1 ] && install -m 0644 "$F/systemd/rpi-alert-kiosk.service" /etc/systemd/system/
 install -m 0644 "$F/udev/60-rpi-alert.rules" /etc/udev/rules.d/
 install -m 0644 "$F/modprobe/rpi-alert-blacklist-dvb.conf" /etc/modprobe.d/
@@ -185,6 +187,7 @@ if [ "$IMAGE" = 1 ]; then
   ln -sf /usr/share/zoneinfo/Australia/Brisbane /etc/localtime
   echo Australia/Brisbane > /etc/timezone
   # Not needed by a base station; a USB GPS or receiver never uses them. Re-enable with systemctl enable.
+  # (gps_bluetooth in rpi-alert.conf turns Bluetooth back on for a Bluetooth GPS.)
   for s in hciuart.service bluetooth.service triggerhappy.service triggerhappy.socket ModemManager.service; do systemctl disable "$s" 2>/dev/null || true; done
   # Each Pi makes its own machine id at first boot (and so its own receiver ids).
   : > /etc/machine-id

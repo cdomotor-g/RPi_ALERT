@@ -1,0 +1,246 @@
+#!/usr/bin/python3
+# RPi ALERT — a Bluetooth GPS (an Emlid Reach, any receiver with NMEA on a
+# Bluetooth serial port) made into a serial port the agent already reads.
+#
+# The agent finds GPS receivers on serial ports. A Bluetooth one has no port
+# of its own until something connects to it, so this does: it pairs with the
+# receiver once (answering a PIN if it asks), connects to its serial service
+# (RFCOMM), and copies what arrives to a pseudo-terminal linked at
+#
+#     /dev/rpi-alert-gps
+#
+# which is in the agent's extra ports. The link stays put while the receiver
+# comes and goes: out of range, switched off, rebooted — this reconnects
+# (5 s, 10 s … 60 s) and the agent simply sees the sentences stop and start.
+#
+# Settings: /etc/rpi-alert/bluetooth-gps.conf, written from rpi-alert.conf at
+# boot (gps_bluetooth = <address>, gps_bluetooth_pin, gps_bluetooth_channel):
+#
+#     address = 58:A8:39:01:93:61
+#     pin = 123456
+#     channel = 1          (optional: else 1, then 2…10 are tried)
+#
+# Run by rpi-alert-btgps.service, as root (pairing and /dev need it).
+
+import errno, grp, os, pty, re, select, socket, subprocess, sys, time, tty
+
+CONF = os.environ.get('RPI_ALERT_BTGPS_CONF', '/etc/rpi-alert/bluetooth-gps.conf')
+LINK = os.environ.get('RPI_ALERT_BTGPS_LINK', '/dev/rpi-alert-gps')
+BACKOFF = [5, 10, 20, 30, 60]
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def read_conf(path):
+    out = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            k, _, v = line.partition('=')
+            out[k.strip().lower()] = v.strip()
+    return out
+
+
+def sh(*args, timeout=20):
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stdout + r.stderr).strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def paired(addr):
+    ok, out = sh('bluetoothctl', 'info', addr)
+    return ok and re.search(r'Paired:\s*yes', out) is not None
+
+
+def pair(addr, pin):
+    """Pair through bluetoothctl in a pseudo-terminal, answering its prompts."""
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvp('bluetoothctl', ['bluetoothctl'])
+    buf = ''
+    result = None
+
+    def send(s):
+        os.write(fd, (s + '\n').encode())
+
+    def wait(secs, pats):
+        nonlocal buf
+        end = time.time() + secs
+        while time.time() < end:
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if not r:
+                continue
+            try:
+                chunk = os.read(fd, 4096).decode('utf-8', 'replace')
+            except OSError:
+                return None
+            buf += chunk
+            clean = re.sub(r'\x1b\[[0-9;]*[A-Za-z]|\r', '', buf)
+            if re.search(r'Enter PIN code|Enter passkey', clean):
+                send(pin or '0000'); buf = ''
+                continue
+            if re.search(r'Confirm passkey|Authorize service|\(yes/no\)', clean):
+                send('yes'); buf = ''
+                continue
+            for p in pats:
+                if re.search(p, clean):
+                    buf = ''
+                    return p
+        return None
+
+    try:
+        time.sleep(1)
+        send('power on')
+        send('agent KeyboardDisplay')
+        send('default-agent')
+        send('scan on')
+        # Pairing finds the device faster when it has just been seen.
+        wait(20, [re.escape('Device ' + addr.upper()), re.escape('Device ' + addr.lower())])
+        send('pair ' + addr)
+        got = wait(40, [r'Pairing successful', r'AlreadyExists', r'Failed to pair', r'not available', r'AuthenticationFailed'])
+        result = got in (r'Pairing successful', r'AlreadyExists')
+        if result:
+            send('trust ' + addr)
+            wait(5, [r'trust succeeded', r'Changing .* succeeded'])
+        send('scan off')
+        send('quit')
+        time.sleep(1)
+    finally:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    return bool(result)
+
+
+def make_pty():
+    master, slave = os.openpty()
+    tty.setraw(slave)               # no echo, no line editing: bytes as they come
+    os.set_blocking(master, False)
+    name = os.ttyname(slave)
+    try:
+        os.chown(name, 0, grp.getgrnam('dialout').gr_gid)
+    except (KeyError, OSError):
+        pass
+    os.chmod(name, 0o660)
+    tmp = LINK + '.new'
+    try:
+        os.unlink(tmp)
+    except FileNotFoundError:
+        pass
+    os.symlink(name, tmp)
+    os.replace(tmp, LINK)
+    return master, slave, name
+
+
+def connect(addr, channels):
+    last = None
+    for ch in channels:
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        s.settimeout(15)
+        try:
+            s.connect((addr, ch))
+            s.settimeout(None)
+            s.setblocking(False)
+            return s, ch
+        except OSError as e:
+            last = e
+            s.close()
+            # Refused: nothing on that channel — try the next. Anything else
+            # (host down, timeout) is the receiver being away: stop trying.
+            if e.errno not in (errno.ECONNREFUSED, errno.EINVAL):
+                break
+    raise last or OSError('no channel')
+
+
+def pump(sock, master):
+    """Copy the receiver's bytes to the pty (and anything written back) until the link drops."""
+    while True:
+        # No timeout: a receiver with no fix may send nothing for a long
+        # while and still be connected; a dropped link shows up as an error.
+        r, _, _ = select.select([sock, master], [], [])
+        if sock in r:
+            try:
+                data = sock.recv(4096)
+            except BlockingIOError:
+                data = None
+            except OSError as e:
+                return str(e)
+            if data == b'':
+                return 'the receiver closed the connection'
+            if data:
+                try:
+                    os.write(master, data)
+                except BlockingIOError:
+                    pass                # nobody reading: drop, the next fix is a second away
+                except OSError:
+                    pass
+        if master in r:
+            try:
+                out = os.read(master, 4096)
+                if out:
+                    sock.sendall(out)
+            except (BlockingIOError, OSError):
+                pass
+
+
+def main():
+    if not hasattr(socket, 'BTPROTO_RFCOMM'):
+        log('this Python has no Bluetooth sockets — cannot reach a Bluetooth GPS')
+        sys.exit(2)
+    try:
+        conf = read_conf(CONF)
+    except OSError as e:
+        log('no settings (%s): %s' % (CONF, e))
+        sys.exit(0)
+    addr = conf.get('address', '').upper()
+    if not re.fullmatch(r'([0-9A-F]{2}:){5}[0-9A-F]{2}', addr):
+        log('address "%s" is not a Bluetooth address (AA:BB:CC:DD:EE:FF)' % addr)
+        sys.exit(2)
+    pin = conf.get('pin', '')
+    ch = conf.get('channel', '')
+    channels = [int(ch)] if ch.isdigit() else list(range(1, 11))
+
+    sh('rfkill', 'unblock', 'bluetooth')
+    master, slave, name = make_pty()
+    log('Bluetooth GPS %s → %s (%s)' % (addr, LINK, name))
+    tries = 0
+    while True:
+        sh('bluetoothctl', 'power', 'on')
+        if not paired(addr):
+            log('pairing with %s' % addr)
+            if pair(addr, pin):
+                log('paired with %s' % addr)
+            else:
+                log('could not pair with %s (in range, switched on, Bluetooth discoverable?)' % addr)
+        try:
+            sock, used = connect(addr, channels)
+            log('connected to %s on channel %d' % (addr, used))
+            channels = [used] + [c for c in channels if c != used]
+            tries = 0
+            why = pump(sock, master)
+            sock.close()
+            log('link to %s lost: %s' % (addr, why))
+        except OSError as e:
+            log('could not connect to %s: %s' % (addr, e.strerror or e))
+        wait = BACKOFF[min(tries, len(BACKOFF) - 1)]
+        tries += 1
+        time.sleep(wait)
+
+
+if __name__ == '__main__':
+    main()

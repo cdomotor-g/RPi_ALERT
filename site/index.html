@@ -82,7 +82,12 @@
             <button type="button" class="ghost" id="here">Use my location</button>
           </div>
           <label>…or the station it sits at <input name="station" list="stations" placeholder="station name or number"><datalist id="stations"></datalist><span class="small" id="station-note"></span></label>
-          <label class="check"><input type="checkbox" name="use_gps" checked> A USB GPS, when plugged in, wins (recorded as exact)</label>
+          <label class="check"><input type="checkbox" name="use_gps" checked> A GPS, when there is one, wins (recorded as exact)</label>
+          <div class="row">
+            <label>Bluetooth GPS address <input name="gps_bluetooth" placeholder="58:A8:39:01:93:61 (optional)" spellcheck="false" maxlength="17"></label>
+            <label>Its PIN <input name="gps_bluetooth_pin" placeholder="123456" maxlength="16" spellcheck="false"></label>
+          </div>
+          <span class="small">For a mobile unit: an Emlid Reach (or any GPS sending NMEA over Bluetooth). In ReachView set <b>Position output → Bluetooth, NMEA</b> and turn Bluetooth on and discoverable; its address is under Bluetooth. The Pi pairs with it and follows it as it moves.</span>
         </fieldset>
         <fieldset>
           <legend>RTL-SDR</legend>

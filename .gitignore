@@ -5,3 +5,4 @@ build/out/
 *.img.xz
 *.iq8.part
 .DS_Store
+__pycache__/

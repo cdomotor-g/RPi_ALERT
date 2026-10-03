@@ -68,6 +68,7 @@ function confText() {
     put('latitude', pickedStation.lat); put('longitude', pickedStation.lon);
   } else { put('latitude', v('latitude')); put('longitude', v('longitude')); }
   put('use_gps', f.elements.use_gps.checked ? 'yes' : 'no');
+  if (v('gps_bluetooth')) { put('gps_bluetooth', v('gps_bluetooth').toUpperCase().replace(/-/g, ':')); put('gps_bluetooth_pin', v('gps_bluetooth_pin')); }
   put('sdr_frequency_mhz', v('sdr_frequency_mhz'));
   put('sdr_format', v('sdr_format'));
   put('sdr_gain_db', v('sdr_gain_db') || 'auto');
@@ -91,11 +92,13 @@ function problems() {
   if (h && !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(h)) out.push('a hostname is lower-case letters, digits and dashes');
   const pw = f.elements.wifi_password.value;
   if (pw && (pw.length < 8 || pw.length > 63)) out.push('a Wi-Fi password is 8–63 characters');
+  const bt = f.elements.gps_bluetooth.value.trim();
+  if (bt && !/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(bt)) out.push('a Bluetooth address looks like 58:A8:39:01:93:61');
   return out;
 }
 
 function preview() {
-  const red = confText().replace(/^(token|web_password|wifi_password) = .+$/gm, (m, k) => k + ' = ••••••••');
+  const red = confText().replace(/^(token|web_password|wifi_password|gps_bluetooth_pin) = .+$/gm, (m, k) => k + ' = ••••••••');
   $('#preview').textContent = red;
 }
 
