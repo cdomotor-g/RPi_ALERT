@@ -25,6 +25,8 @@ const MEGANET_ENDPOINTS = [
 const MEGANET_APIKEY = 'sb_publishable_PV9VjCM8NQeGAJMuwa5TKA_yX9GWacY';
 
 const SDR_FORMATS = ['BINARY', 'ENHANCED_IFLOWS', 'ASCII'];
+// What one stick can set for itself (receivers.sdrDevices[]), besides its name.
+const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
 const PORT_TYPES = ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'];
 const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
@@ -78,7 +80,10 @@ function defaults() {
         minVotes: 4,
         minVotesCrc: 4,
       },
-      // Per-stick overrides by USB serial: { serial, name, freqHz, format, gainDb, enabled }
+      // Each stick's own settings, by the key the Receivers page shows for it:
+      //   { key, name, enabled, freqHz, format, gainDb, ppm, biasTee, squelchDb }
+      // Anything left out is the shared setting above. (0.4 matched them by
+      // { serial } alone, which every stick with that serial shares; still read.)
       sdrDevices: [],
     },
     audio: {
@@ -111,6 +116,26 @@ function num(v, lo, hi) {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
   return typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi ? n : undefined;
 }
+function isNum(v, lo, hi) { return typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi; }
+
+// One stick's own settings: which stick (its key; or a serial, as 0.4 wrote
+// them), then any setting that differs from the shared ones.
+function stickErrors(d) {
+  if (!isObj(d)) return ['each stick\'s settings are an object'];
+  const errs = [];
+  const need = (ok, msg) => { if (!ok) errs.push(msg); };
+  const text = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
+  need(d.key !== undefined ? text(d.key, 120) : text(d.serial, 64), 'key: which stick (as the Receivers page shows it)');
+  need(d.name === undefined || (typeof d.name === 'string' && d.name.length <= 60), 'name: at most 60 characters');
+  need(d.enabled === undefined || typeof d.enabled === 'boolean', 'enabled: true or false');
+  need(d.freqHz === undefined || isNum(d.freqHz, 24e6, 1766e6), 'freqHz: 24–1766 MHz');
+  need(d.format === undefined || SDR_FORMATS.includes(d.format), 'format: one of ' + SDR_FORMATS.join(', '));
+  need(d.gainDb === undefined || d.gainDb === null || isNum(d.gainDb, 0, 60), 'gainDb: 0–60 dB, or null for AGC');
+  need(d.ppm === undefined || isNum(d.ppm, -200, 200), 'ppm: -200…200');
+  need(d.biasTee === undefined || typeof d.biasTee === 'boolean', 'biasTee: true or false');
+  need(d.squelchDb === undefined || isNum(d.squelchDb, 2, 40), 'squelchDb: 2–40 dB');
+  return errs;
+}
 
 // Hold every field to its shape. A bad value is refused with a reason rather
 // than stored, because a typo in a frequency or a token is far easier to fix
@@ -142,6 +167,11 @@ function validate(c) {
   need(num(s.squelchDb, 2, 40) !== undefined, 'receivers.sdr.squelchDb: 2–40 dB');
   need(num(s.minVotes, 1, 45) !== undefined && num(s.minVotesCrc, 1, 45) !== undefined, 'receivers.sdr.minVotes: 1–45');
   need(Array.isArray(r.sdrDevices), 'receivers.sdrDevices: a list');
+  if (Array.isArray(r.sdrDevices)) {
+    r.sdrDevices.forEach((d, i) => { const e = stickErrors(d); if (e.length) errs.push('receivers.sdrDevices[' + i + '] ' + e.join('; ')); });
+    const keys = r.sdrDevices.filter(d => isObj(d) && d.key).map(d => d.key);
+    need(new Set(keys).size === keys.length, 'receivers.sdrDevices: one entry per stick');
+  }
   const a = c.audio || {};
   need(AUDIO_MODES.includes(a.mode), 'audio.mode: one of ' + AUDIO_MODES.join(', '));
   need(typeof a.device === 'string' && /^[\w:,=.-]+$/.test(a.device), 'audio.device: an ALSA device name such as default or plughw:CARD=Headphones');
@@ -241,6 +271,15 @@ class Config extends EventEmitter {
 function repair(c) {
   const d = defaults();
   const out = JSON.parse(JSON.stringify(c));
+  // One stick's bad settings cost that stick its own settings, not every stick theirs.
+  if (out.receivers && Array.isArray(out.receivers.sdrDevices)) {
+    const seen = new Set();
+    out.receivers.sdrDevices = out.receivers.sdrDevices.filter(e => {
+      if (stickErrors(e).length || (e.key && seen.has(e.key))) return false;
+      if (e.key) seen.add(e.key);
+      return true;
+    });
+  }
   const probe = (p) => {
     const trial = JSON.parse(JSON.stringify(d));
     setPath(trial, p, getPath(out, p));
@@ -269,6 +308,6 @@ function changedPaths(a, b) {
 }
 
 module.exports = {
-  Config, defaults, validate, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
-  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES,
+  Config, defaults, validate, stickErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
+  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES,
 };

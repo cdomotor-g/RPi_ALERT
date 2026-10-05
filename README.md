@@ -23,6 +23,7 @@ itself after an unplug or a power cut.
 |---|---|
 | **Receivers** | **RTL-SDR** sticks (Blog V2, V3, V4, any RTL2832U) decoding off the air · **Quansheng** UV-K5 V3 / UV-K1 on the [ALERT receiver firmware](https://github.com/cdomotor-g/quansheng_alert_v3) (USB-C, schema 2) and the older [DP32G030 firmware](https://github.com/cdomotor-g/quansheng_alert) (programming cable, 38400) · **ELPRO ERT-A2** (RS-232 ALERT2 ASCII at 9600, or its USB binary framing) · any **NMEA GPS** |
 | **ALERT and ALERT2** | Each device is recognised from what it sends and every reading is tagged with its protocol: legacy **ALERT** (300-baud AFSK — ALERT Binary, Enhanced iFLOWS, ASCII) from SDRs and radios, **ALERT2** from the ERT-A2. |
+| **Several sticks, several channels** | Each RTL-SDR stick is a receiver of its own, and can have its own channel, format, gain, ppm and bias tee — one Pi listening to two networks (or two formats) at once. Sticks that share a serial number, as most do, are told apart by their USB port, and each `rtl_sdr` is checked to have opened its own stick. Plugging in another stick never renames or restarts the ones running; an unplugged one stays listed until you remove it. |
 | **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. |
 | **MegaNet** | Posts through `ingest_http()` with one ingest token per Pi, one receiver id per device (`serial-monitor/rpi-<host>-qs1`), describes each receiver through `report_ingest_point()` and every frame heard through `report_receptions()` (the Reception Map) — the contract MegaNet's Serial Monitor already uses. Falls back from the floodwarning.net proxy to Supabase directly. |
 | **Its token, without typing it** | Press **Request a token** on the Pi (or `rpi-alert request-token`, or `request_token = yes` on the SD card): it shows a code and a QR code, an administrator signed in to MegaNet on their phone approves it on the Admin tab, and the Pi starts sending within seconds. Nobody signs in on the Pi and nothing is copied: the Pi makes the token and MegaNet keeps only its hash. |
@@ -95,8 +96,8 @@ docs/             install, configuration, hardware, how it works, research, road
 
 ```sh
 cd agent
-node --test test/*.test.js       # 47 tests; the pty and end-to-end ones need socat
-scripts/simulate.sh              # a simulated base station on http://localhost:8099/
+node --test test/*.test.js       # 59 tests; the pty and serial end-to-end ones need socat
+scripts/simulate.sh [sticks]     # a simulated base station on http://localhost:8099/ (1–4 RTL-SDR sticks)
 ```
 
 Building an image needs Linux with root, `qemu-user-static` (binfmt), `fdisk`, `xz` and

@@ -38,6 +38,9 @@ request_token = yes
 #gps_bluetooth_pin = 123456
 
 # ── RTL-SDR ─────────────────────────────────────────────────────────────────
+# For every stick. With several, each can have a channel of its own once it
+# has been plugged in: the web page (Settings → RTL-SDR → Each stick), or
+# `rpi-alert sdr 2 freq 151.525` over SSH.
 #sdr_frequency_mhz = 151.5
 # binary (the 151.5 MHz networks) | enhanced_iflows (an ERT-A2 set to it) | ascii
 #sdr_format = binary

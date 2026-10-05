@@ -50,6 +50,20 @@ the token's label, the clock **ok (ntp)**, and the location.
    - on Bookworm, `sudo /opt/rpi-alert/os/install.sh --build-rtl` builds the RTL-SDR Blog driver.
 3. Same decode check as the V2.
 
+## 3a. Both sticks at once
+
+1. With the V2 running as *RTL-SDR*, plug the V4 in beside it. Expect *RTL-SDR 2* within a few
+   seconds — and *RTL-SDR* not renamed, not restarted (its Receivers card: same receiver id, no
+   restarts), even though both sticks say serial 00000001.
+2. **Settings → RTL-SDR → Each stick**: give *RTL-SDR 2* another channel (or the same channel in
+   Enhanced iFLOWS) and save. Only that stick restarts; each now hears its own. `rpi-alert sdr`
+   lists both with their USB ports.
+3. On the Receivers page, each card's *USB port* line should say *seen to be this stick*. Swap
+   the antennas, or unplug one, to be sure which is which.
+4. Reboot with both plugged in: the same names, ports and channels come back.
+5. Unplug one: it stays listed as *unplugged*. Press **Remove**: it is gone, and plugged in again
+   it is found as a new stick (with the first free name).
+
 ## 4. Quansheng radio
 
 Plug in by USB-C with the ALERT app running (F then 0). Expect *Quansheng radio*, recognised by USB id

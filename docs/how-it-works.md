@@ -67,6 +67,22 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
   MegaNet's `AlertDsp.Pipeline` (channeliser, burst gate, decode, spectrum, FM audio). Ten seconds
   with no samples kills it; any exit restarts it (2 s doubling to 30 s) while the stick is present.
   A decoder that falls behind drops input rather than memory.
+- **Which stick is which** ([`state.js`](../agent/lib/state.js)): every stick seen is remembered in
+  `/var/lib/rpi-alert/state.json` with what it says it is (USB ids, maker, model, serial) and its USB
+  port (`1-1.3`), and each scan matches what is plugged in against that — same stick in the same
+  port; else the same kind of stick that is missing, moved; else a new stick — never against what
+  else is plugged in, so a second stick neither renames nor restarts the first even when both say
+  they are serial `00000001`. Each has its own receiver id and its own settings
+  (`receivers.sdrDevices`, by key). An unplugged stick stays listed until it returns or is removed.
+- **Pointing `rtl_sdr` at it** ([`rtl-index.js`](../agent/lib/devices/rtl-index.js)): `-d` takes a
+  serial or a device number, and librtlsdr numbers the sticks in libusb's order — udev's device-path
+  order, reversed, since libusb puts each device it finds at the head of its list. The agent uses
+  the stick's serial when no other stick has it and `rtl_sdr` cannot read it as a number (it tries
+  `strtol(…, 0)` first: `00000001` is device 1); otherwise the device number it predicts, narrowed by
+  the device list `rtl_sdr` prints and by what it has already learnt. Once samples flow it reads
+  which `/dev/bus/usb/BBB/DDD` node the process holds (`/proc/<pid>/fd`): the wrong stick is closed
+  and the right number used; a number that was busy is another stick's, so the next is tried. A
+  running `rtl_sdr` keeps its stick when others come and go.
 
 ## ALERT and ALERT2
 

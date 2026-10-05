@@ -11,16 +11,22 @@
 // under whatever /dev name the kernel gives it this time. Its identity is the
 // /dev/serial/by-id link (vendor, model, serial number), so it keeps its
 // MegaNet receiver id across all of that, and across reboots.
+//
+// RTL-SDR sticks are matched to the sticks seen before (state.js) by what each
+// says it is and the USB port it is in, so plugging in another stick leaves
+// the ones already running alone. A stick that is unplugged stays on the list
+// until it comes back or is removed (forget()).
 
 const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { SerialPort } = require('../serial/port');
-const { listPorts, listSdrs } = require('../serial/scan');
+const { listPorts, listSdrs, portCompare } = require('../serial/scan');
 const { Sniffer } = require('./sniff');
 const { QuanshengDriver } = require('./quansheng');
 const { ErtDriver } = require('./ert');
 const { GpsDriver } = require('./gps');
 const { SdrSession } = require('./sdr');
+const { RtlIndex } = require('./rtl-index');
 const { Quansheng } = require('../meganet-codecs');
 
 const SCAN_MS = 2000;
@@ -279,10 +285,11 @@ class DeviceManager extends EventEmitter {
     this.agent = agent;
     this.log = agent.log.child('devices');
     this.ports = new Map();   // key → PortSession
-    this.sdrs = new Map();    // key → SdrSession
+    this.sdrs = new Map();    // key → SdrSession, plugged in or remembered
     this.timer = null;
     this.tickTimer = null;
-    this.sticks = [];
+    this.sticks = [];         // the RTL-SDR sticks plugged in now (scan.js)
+    this.rtl = new RtlIndex();
   }
 
   start() {
@@ -318,34 +325,79 @@ class DeviceManager extends EventEmitter {
     let sticks;
     try { sticks = listSdrs(); } catch (e) { sticks = []; }
     this.sticks = sticks;
+    this.rtl.update(sticks);
+    const keys = this.agent.state.assignSdrs(sticks);
     const live = new Set();
-    for (const st of sticks) {
+    // In port order, so new sticks are numbered (RTL-SDR, RTL-SDR 2, …) as their ports are.
+    for (const st of sticks.slice().sort((a, b) => portCompare(a.busPath, b.busPath))) {
+      st.key = keys.get(st);
       live.add(st.key);
       let s = this.sdrs.get(st.key);
       if (!s) {
-        s = new SdrSession(this.agent, st);
-        s.on('change', () => this.emit('change'));
-        this.sdrs.set(st.key, s);
-        this.log.info('found RTL-SDR ' + st.vid + ':' + st.pid + ' ' + [st.manufacturer, st.product, st.serial && 'SN ' + st.serial].filter(Boolean).join(' '));
+        s = this.addSdr(st);
+        this.log.info('found RTL-SDR ' + st.vid + ':' + st.pid + ' ' + [st.manufacturer, st.product, st.serial && 'SN ' + st.serial].filter(Boolean).join(' ')
+          + ' in USB port ' + st.busPath + ' — ' + s.name() + ' (' + s.point.pointId + ')');
         s.start();
         this.agent.deviceAttached(s);
         this.emit('change');
       } else {
         s.stick = st;
-        if (s.state === 'unplugged') { s.log.info('plugged back in'); s.start(); this.agent.deviceAttached(s); this.emit('change'); }
+        if (s.state === 'unplugged') { s.log.info('plugged back in, USB port ' + st.busPath); s.start(); this.agent.deviceAttached(s); this.emit('change'); }
       }
+    }
+    this.agent.state.touchSdrs(live);
+    // Sticks seen before and not plugged in now are shown as unplugged.
+    for (const [key, info] of this.agent.state.sdrEntries()) {
+      if (this.sdrs.has(key)) continue;
+      this.addSdr(Object.assign({ key, busnum: null, devnum: null, index: null }, info), { absent: true });
+      this.emit('change');
     }
     for (const [key, s] of this.sdrs) {
       if (live.has(key) || s.state === 'unplugged') continue;
-      s.log.warn('unplugged');
+      s.log.warn('unplugged (USB port ' + s.stick.busPath + ')');
       s.stop();
       s.state = 'unplugged';
+      this.agent.state.sdrGone(key);
       this.agent.deviceDetached(s);
       this.emit('change');
     }
   }
 
-  sdrCount() { return this.sticks.length; }
+  addSdr(stick, opts) {
+    const s = new SdrSession(this.agent, stick, opts);
+    s.on('change', () => this.emit('change'));
+    this.sdrs.set(stick.key, s);
+    return s;
+  }
+
+  // Forget a receiver that is not plugged in: its session, what the agent
+  // remembers of it, its own settings and its MegaNet receiver id (which the
+  // next new receiver of its kind may be given). Plugged in again, it is a new
+  // receiver. One that is plugged in is turned off instead, not forgotten.
+  forget(key) {
+    const sdr = this.sdrs.get(key), port = this.ports.get(key);
+    const s = sdr || port;
+    if (!s) return { ok: false, status: 404, error: 'no such receiver' };
+    if (s.state !== 'unplugged') return { ok: false, status: 409, error: s.name() + ' is plugged in. Unplug it first — or, to stop using it, turn it off.' };
+    const name = s.name();
+    const pt = sdr ? sdr.point : (port.type && port.type !== 'gps' ? this.agent.state.pointFor(key, port.type) : null);
+    if (pt) this.agent.uplink.forgetPoint(pt.pointId);
+    if (sdr) {
+      sdr.stop();
+      sdr.state = 'unplugged';
+      this.sdrs.delete(key);
+      this.agent.state.forgetSdr(key);
+      const list = this.agent.config.get().receivers.sdrDevices || [];
+      if (list.some(d => d.key === key)) this.agent.config.update({ receivers: { sdrDevices: list.filter(d => d.key !== key) } });
+    } else {
+      port.close();
+      this.ports.delete(key);
+      this.agent.state.forgetPort(key);
+    }
+    this.log.info('removed ' + name + ' (' + key + ')');
+    this.emit('change');
+    return { ok: true, name };
+  }
 
   onConfig(changed) {
     if (changed.some(p => p.startsWith('receivers.sdr') || p === 'receivers.sdrDevices' || p.startsWith('audio.'))) {
@@ -366,7 +418,7 @@ class DeviceManager extends EventEmitter {
   status() {
     return {
       ports: [...this.ports.values()].map(s => s.status()),
-      sdrs: [...this.sdrs.values()].map(s => s.status()),
+      sdrs: [...this.sdrs.values()].sort((a, b) => a.point.n - b.point.n).map(s => s.status()),
     };
   }
 

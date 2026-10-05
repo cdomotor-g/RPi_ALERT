@@ -13,12 +13,14 @@ lib/devices/sniff.js       what a port is, from what it sends; baud hunting on l
 lib/devices/quansheng.js   ALERT firmware (schema 2 + legacy lines): DTR, clock, console
 lib/devices/ert.js         ERT-A2: ALERT2 ASCII and USB binary
 lib/devices/gps.js         NMEA fix and time
-lib/devices/sdr.js         rtl_sdr supervisor;  sdr-worker.js: AlertDsp.Pipeline in a worker thread
+lib/devices/sdr.js         rtl_sdr supervisor, one per stick, with its own settings;  sdr-worker.js: AlertDsp.Pipeline in a worker thread
+lib/devices/rtl-index.js   which rtl_sdr -d opens which stick (serials shared; libusb's order; checked in /proc)
 lib/serial/port.js         a serial port with no native module (non-blocking fd + stty)
 lib/serial/scan.js         ports, USB ids and RTL-SDR sticks from sysfs
 lib/uplink.js, meganet.js  the queue on disk; ingest_http / report_ingest_point / report_receptions
 lib/token-request.js       asking MegaNet for the token: a code, approved on MegaNet's Admin tab (0048)
 lib/clock.js               is the time trustworthy (NTP, GPS); monotonic holding
+lib/state.js               receiver ids, what each port was, and every RTL-SDR stick seen (by model, serial and USB port)
 lib/stations.js            MegaNet's register, for names
 lib/audio.js               live SDR audio, re-synthesised bursts, beeps — via aplay
 lib/bootconf.js            /boot/firmware/rpi-alert.conf
@@ -29,7 +31,7 @@ lib/web/server.js, web/    the dashboard, API and SSE; web/qr.js draws QR codes 
 
 ```sh
 node --test test/*.test.js      # all tests (pty/end-to-end ones need socat)
-scripts/simulate.sh             # simulated receivers + MegaNet stand-in; dashboard on :8099
+scripts/simulate.sh [sticks]    # simulated receivers (1–4 RTL-SDR sticks) + MegaNet stand-in; dashboard on :8099
 ```
 
 Or by hand, against your own config and data directories:

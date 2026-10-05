@@ -39,8 +39,26 @@ for the live networks; Enhanced iFLOWS for an ERT-A2 set to it — one at a time
 
 The DVB-T modules (`dvb_usb_rtl28xxu`, `rtl2832`, `rtl2832_sdr`, `rtl2830`, `r820t`) are
 blacklisted. Only one program can hold a stick: stop `rtl_tcp`, SDR++ or GQRX while the agent runs.
-With several sticks, give each a unique non-numeric serial (`rtl_eeprom -d 0 -s ALERT1`) so each
-keeps its settings and MegaNet receiver id.
+
+### Several sticks
+
+Plug in as many as the Pi's CPU and USB power allow — each is a receiver of its own with its own
+decoder thread, so a Pi 4 runs a few at 960 ksps (two V4s draw about 0.6 A; use a powered hub
+beyond that). Give each its own channel under **Settings → RTL-SDR → Each stick** (or
+`rpi-alert sdr 2 freq 151.525`), and one Pi listens to several networks at once.
+
+Most sticks leave the factory with serial `00000001`, so the agent tells them apart by **USB port**:
+keep each stick in its port and it keeps its name, its settings and its MegaNet receiver id, however
+many others come and go. librtlsdr numbers the sticks itself (`rtl_sdr -d 0, 1, …` — in reverse USB
+device-path order, as libusb lists them), and those numbers change as sticks are plugged in and out,
+so the agent works out each stick's number when it starts its `rtl_sdr`, then checks the stick it
+really opened (the `/dev/bus/usb` node it holds) and reopens the right one if they differ. The
+Receivers page shows each stick's port and how it was opened.
+
+To make a stick recognisable in any port, give it a serial of its own — with the agent stopped and
+that stick alone plugged in: `sudo systemctl stop rpi-alert; rtl_eeprom -s ALERT1`, then unplug it
+and plug it back in. A serial that is a number (like `2`) is read by `rtl_sdr` as a device number,
+so use letters (`ALERT1`, `NORTH`). After that it is a new stick to the agent: remove the old one.
 
 ## Quansheng UV-K5 V3 / UV-K1 (ALERT receiver firmware)
 

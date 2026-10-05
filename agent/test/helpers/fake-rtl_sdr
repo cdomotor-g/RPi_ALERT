@@ -2,25 +2,111 @@
 'use strict';
 // A stand-in for rtl_sdr: takes the same arguments, says on stderr what a real
 // RTL-SDR Blog V4 says, and streams u8 IQ to stdout in real time — noise, with
-// an ALERT Binary burst (two frames) at the requested channel every few
-// seconds. The channel is RPI_ALERT_FAKE_CHANNEL_HZ (default 151.5 MHz).
+// an ALERT Binary burst (two frames) at its stick's channel every few seconds.
 //
-//   RPI_ALERT_FAKE_FRAMES="2088:143,2089:12"   what the bursts carry
+// It plays librtlsdr too, as far as the agent can tell. It finds the sticks in
+// the fake sysfs (RPI_ALERT_SYSFS), numbers them as libusb does (in reverse
+// device-path order), lists them, picks one from -d as rtl_sdr does (a number;
+// else a serial — exact, prefix, suffix), refuses a stick another rtl_sdr holds
+// ("usb_claim_interface error -6"), holds that stick's /dev/bus/usb/BBB/DDD
+// node open (under RPI_ALERT_DEV) as libusb does, and exits as on an unplug
+// when the stick's sysfs entry goes away. With no fake sysfs: one stick.
+//
+//   RPI_ALERT_FAKE_CHANNEL_HZ=151500000          where the bursts are (default 151.5 MHz)
+//   RPI_ALERT_FAKE_FRAMES="2088:143,2089:12"     what they carry
+//   RPI_ALERT_FAKE_STICKS='{"1-1.4": {"channelHz": 151600000, "frames": "3001:77"}}'
+//                                                 per stick, by USB port
 //   RPI_ALERT_FAKE_FORMAT=BINARY|ENHANCED_IFLOWS
-//   RPI_ALERT_FAKE_EXIT_AFTER_S=5               exit (as an unplug would) after this long
+//   RPI_ALERT_FAKE_ORDER=forward                  number the sticks in device-path order,
+//                                                 unlike libusb (the agent must notice)
+//   RPI_ALERT_FAKE_EXIT_AFTER_S=5                 exit (as an unplug would) after this long
 
+const fs = require('node:fs');
 const path = require('node:path');
 const D = require(path.join(__dirname, '..', '..', 'vendor', 'meganet', 'alert-dsp.js'));
+const { RTL_IDS } = require(path.join(__dirname, '..', '..', 'lib', 'serial', 'scan.js'));
 
 const a = process.argv.slice(2);
 const arg = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
 const rate = Number(arg('-s', 2048000));
 const center = Number(arg('-f', 100e6));
-const channel = Number(process.env.RPI_ALERT_FAKE_CHANNEL_HZ || 151.5e6);
-const fmt = process.env.RPI_ALERT_FAKE_FORMAT || 'BINARY';
-const frames = (process.env.RPI_ALERT_FAKE_FRAMES || '2088:143,2089:12').split(',').map(p => p.split(':').map(Number)).map(([id, v]) => D.encodeFrame(D[fmt], id, v));
+const SYS = process.env.RPI_ALERT_SYSFS;
+const DEV = process.env.RPI_ALERT_DEV;
+const err = (s) => process.stderr.write(s);
+const read = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch (_) { return ''; } };
 
-process.stderr.write('Found 1 device(s):\n  0:  RTLSDRBlog, Blog V4, SN: 00000001\n\nUsing device 0: Generic RTL2832U OEM\nFound Rafael Micro R828D tuner\nRTL-SDR Blog V4 Detected\nSampling at ' + rate + ' S/s.\nTuned to ' + center + ' Hz.\nReading samples in async mode...\n');
+function sticks() {
+  if (!SYS) return [{ busPath: null, manufacturer: 'RTLSDRBlog', product: 'Blog V4', serial: '00000001' }];
+  const root = path.join(SYS, 'bus', 'usb', 'devices');
+  let names = [];
+  try { names = fs.readdirSync(root).filter(n => !n.includes(':')); } catch (_) {}
+  const out = names.map(n => ({ busPath: n, dir: path.join(root, n) }))
+    .filter(s => RTL_IDS.has(read(path.join(s.dir, 'idVendor')) + ':' + read(path.join(s.dir, 'idProduct'))))
+    .map(s => Object.assign(s, { manufacturer: read(path.join(s.dir, 'manufacturer')), product: read(path.join(s.dir, 'product')), serial: read(path.join(s.dir, 'serial')),
+      busnum: Number(read(path.join(s.dir, 'busnum'))), devnum: Number(read(path.join(s.dir, 'devnum'))) }));
+  // libusb: udev lists devices in device-path order, and each found goes to the head of the list.
+  out.sort((x, y) => (x.busPath < y.busPath ? -1 : x.busPath > y.busPath ? 1 : 0));
+  if (process.env.RPI_ALERT_FAKE_ORDER !== 'forward') out.reverse();
+  return out;
+}
+
+// strtol(s, &end, 0) when it reads all of s, else null.
+function strtol0(s) {
+  const m = /^\s*([+-]?)(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$/.exec(s);
+  if (!m) return null;
+  const t = m[2];
+  const v = /^0[xX]/.test(t) ? parseInt(t, 16) : t.length > 1 && t[0] === '0' ? parseInt(t, 8) : parseInt(t, 10);
+  return m[1] === '-' ? -v : v;
+}
+
+// rtl_sdr's verbose_device_search().
+function search(q, list) {
+  if (!list.length) { err('No supported devices found.\n'); return -1; }
+  err('Found ' + list.length + ' device(s):\n');
+  list.forEach((d, i) => err('  ' + i + ':  ' + d.manufacturer + ', ' + d.product + ', SN: ' + d.serial + '\n'));
+  err('\n');
+  const n = strtol0(q);
+  let i = n !== null && n >= 0 && n < list.length ? n : -1;
+  for (const hit of [(s) => s === q, (s) => s.startsWith(q), (s) => s.endsWith(q)]) if (i < 0) i = list.findIndex(d => hit(d.serial));
+  if (i < 0) { err('No matching devices found.\n'); return -1; }
+  err('Using device ' + i + ': Generic RTL2832U OEM\n');
+  return i;
+}
+
+// usbfs allows one claim on a stick's interface: a lock file, by pid.
+function claim(lock) {
+  for (let tries = 0; tries < 2; tries++) {
+    try { const fd = fs.openSync(lock, 'wx'); fs.writeSync(fd, String(process.pid)); fs.closeSync(fd); return true; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    const pid = Number(read(lock));
+    let alive = !pid;                                   // empty: being written right now
+    if (pid) { try { process.kill(pid, 0); alive = true; } catch (_) {} }
+    if (alive) return false;
+    try { fs.unlinkSync(lock); } catch (_) {}
+  }
+  return false;
+}
+
+const list = sticks();
+const index = search(arg('-d', '0'), list);
+if (index < 0) process.exit(1);
+const st = list[index];
+if (DEV && st.busPath) {
+  const node = path.join(DEV, 'bus', 'usb', String(st.busnum).padStart(3, '0'), String(st.devnum).padStart(3, '0'));
+  fs.mkdirSync(path.dirname(node), { recursive: true });
+  if (!claim(node + '.claimed')) { err('usb_claim_interface error -6\nFailed to open rtlsdr device #' + index + '.\n'); process.exit(1); }
+  process.on('exit', () => { try { if (Number(read(node + '.claimed')) === process.pid) fs.unlinkSync(node + '.claimed'); } catch (_) {} });
+  fs.openSync(node, 'a+');                              // held open, as libusb holds the device node
+  setInterval(() => { if (!fs.existsSync(st.dir)) { err('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); } }, 300);
+}
+
+let per = {};
+try { per = JSON.parse(process.env.RPI_ALERT_FAKE_STICKS || '{}'); } catch (_) {}
+const mine = (st.busPath && per[st.busPath]) || {};
+const channel = Number(mine.channelHz || process.env.RPI_ALERT_FAKE_CHANNEL_HZ || 151.5e6);
+const fmt = mine.format || process.env.RPI_ALERT_FAKE_FORMAT || 'BINARY';
+const frames = (mine.frames || process.env.RPI_ALERT_FAKE_FRAMES || '2088:143,2089:12').split(',').map(p => p.split(':').map(Number)).map(([id, v]) => D.encodeFrame(D[fmt], id, v));
+
+err('Found Rafael Micro R828D tuner\nRTL-SDR Blog V4 Detected\nSampling at ' + rate + ' S/s.\nTuned to ' + center + ' Hz.\nReading samples in async mode...\n');
 
 const seconds = 6;
 const offset = channel - center;
@@ -32,7 +118,7 @@ const t0 = Date.now();
 let sent = 0;
 const exitAfter = Number(process.env.RPI_ALERT_FAKE_EXIT_AFTER_S || 0);
 function pump() {
-  if (exitAfter && Date.now() - t0 > exitAfter * 1000) { process.stderr.write('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); }
+  if (exitAfter && Date.now() - t0 > exitAfter * 1000) { err('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); }
   const due = ((Date.now() - t0) / 1000) * rate * 2;
   while (sent < due) {
     const end = Math.min(loop.length, pos + chunk);
@@ -46,5 +132,5 @@ function pump() {
   setTimeout(pump, 25);
 }
 process.stdout.on('error', () => process.exit(0));
-process.on('SIGTERM', () => { process.stderr.write('Signal caught, exiting!\n'); process.exit(0); });
+process.on('SIGTERM', () => { err('Signal caught, exiting!\n'); process.exit(0); });
 pump();

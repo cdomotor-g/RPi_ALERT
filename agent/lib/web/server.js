@@ -188,8 +188,14 @@ class WebServer {
     if (p === '/api/devices/restart' && req.method === 'POST') {
       const s = a.devices.all().find(x => x.key === body.key);
       if (!s) return this.json(res, 404, { error: 'no such device' });
-      if (s.kind === 'sdr') { s.stop(); s.start(); } else await s.restart();
+      if (s.state === 'unplugged') return this.json(res, 409, { error: s.name() + ' is not plugged in' });
+      await s.restart();
       return this.json(res, 200, { ok: true });
+    }
+    // Remove a receiver that is not plugged in: the agent forgets it.
+    if (p === '/api/devices/forget' && req.method === 'POST') {
+      const r = a.devices.forget(String(body.key || ''));
+      return this.json(res, r.ok ? 200 : r.status, r.ok ? { ok: true, name: r.name } : { error: r.error });
     }
     if (p === '/api/audio/test' && req.method === 'POST') { a.audio.test(body.kind); return this.json(res, 200, { ok: true }); }
     if (p === '/api/audio/devices') return this.json(res, 200, { devices: await audioDevices() });

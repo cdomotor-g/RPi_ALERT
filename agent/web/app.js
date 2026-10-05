@@ -45,6 +45,37 @@ function stateLabel(s) {
   return { running: 'receiving', identifying: 'identifying…', opening: 'opening…', starting: 'starting…', disconnected: 'reconnecting…',
     unplugged: 'unplugged', restarting: 'restarting…', error: 'error', ignored: 'ignored', disabled: 'off', stopped: 'stopped' }[s] || s;
 }
+const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
+
+// ── drawing without undoing ─────────────────────────────────────────────────
+// The page redraws every two seconds. An element is only rewritten when what
+// it shows has changed, and rows of inputs are kept, one per key, so a button
+// is not replaced between press and release and typing is not undone.
+
+const drawn = new WeakMap();
+function setHtml(el, html) { if (el && drawn.get(el) !== html) { el.innerHTML = html; drawn.set(el, html); } }
+
+// box: the container; items: what to show; o: { key(item), cls (the rows'
+// class), make (a new row's HTML), fill(row, item) when made or with force,
+// update(row, item) every time, empty (HTML while there are none) }.
+function keyedRows(box, items, o) {
+  if (!box) return;
+  if (!items.length) { if (!box.querySelector(':scope > .none')) box.innerHTML = o.empty; return; }
+  const none = box.querySelector(':scope > .none');
+  if (none) none.remove();
+  const rows = new Map($$(':scope > .' + o.cls.split(' ').pop(), box).map(r => [r.dataset.key, r]));
+  items.forEach((it, i) => {
+    const k = o.key(it);
+    let row = rows.get(k);
+    const made = !row;
+    if (made) { row = document.createElement('div'); row.className = o.cls; row.dataset.key = k; row.innerHTML = o.make; }
+    if ((made || o.force) && o.fill) o.fill(row, it);
+    if (o.update) o.update(row, it);
+    if (box.children[i] !== row) box.insertBefore(row, box.children[i] || null);
+    rows.delete(k);
+  });
+  for (const r of rows.values()) r.remove();
+}
 
 // ── header ──────────────────────────────────────────────────────────────────
 
@@ -199,10 +230,16 @@ function renderStats() {
 function deviceLine(d) {
   const bits = [];
   if (d.kind === 'sdr') {
-    bits.push((d.freqHz / 1e6).toFixed(4) + ' MHz', d.format === 'BINARY' ? 'ALERT Binary' : d.format === 'ENHANCED_IFLOWS' ? 'Enhanced iFLOWS' : d.format);
-    if (d.model || d.tuner) bits.push(d.model || d.tuner);
-    if (d.level) bits.push('channel ' + d.level.chDb + ' dB (floor ' + d.level.nfDb + ')' + (d.level.open ? ' · OPEN' : ''));
-    bits.push(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' decodes');
+    bits.push((d.freqHz / 1e6).toFixed(4) + ' MHz', FORMAT_NAMES[d.format] || d.format);
+    // With several sticks, the port says which is which.
+    if (d.state === 'unplugged' || S.status.devices.sdrs.length > 1) bits.push('USB port ' + (d.device.port || '?'));
+    if (d.state === 'unplugged') {
+      if (d.lastSeen) bits.push('last seen ' + ago(Date.now() - d.lastSeen));
+    } else {
+      if (d.model || d.tuner) bits.push(d.model || d.tuner);
+      if (d.level) bits.push('channel ' + d.level.chDb + ' dB (floor ' + d.level.nfDb + ')' + (d.level.open ? ' · OPEN' : ''));
+      bits.push(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' decodes');
+    }
   } else {
     bits.push(d.port.dev.split('/').pop() + (d.port.baud && !d.port.acm ? ' @ ' + d.port.baud : ''));
     const q = d.detail || {};
@@ -303,56 +340,83 @@ function renderBursts() {
 
 function kv(rows) { return '<div class="kv">' + rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join('') + '</div>'; }
 
+const OWN_LABELS = { name: 'name', enabled: 'on/off', freqHz: 'frequency', format: 'format', gainDb: 'gain', ppm: 'ppm', biasTee: 'bias tee', squelchDb: 'squelch' };
+
+// How rtl_sdr was pointed at the stick, and whether it was seen to open it.
+function openedText(o) {
+  if (o.how === 'only') return 'the only stick';
+  return 'rtl_sdr -d ' + o.arg + (o.how === 'serial' ? ' (its serial)' : '') + (o.checked ? ', seen to be this stick' : o.checked === false ? ', not checked' : '');
+}
+
+function rxHeadHtml(d) {
+  return '<h2>' + esc(d.name) + '</h2>' + (d.protocol ? protoTag(d.protocol) : '') + '<span class="pill">' + esc(d.kind) + '</span>'
+    + (d.state === 'unplugged'
+      ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '" title="Forget it: its name, its own settings and its MegaNet receiver id">Remove</button>'
+      : '<button type="button" class="ghost small" data-restart="' + esc(d.key) + '">Restart</button>');
+}
+
 function renderRxFull() {
-  const list = allDevices();
-  if (!list.length) { $('#rx-full').innerHTML = '<div class="card dim">No receivers found yet.</div>'; return; }
-  $('#rx-full').innerHTML = list.map(d => {
-    const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')], ['MegaNet receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']];
-    if (d.kind === 'sdr') {
-      rows.push(['Stick', esc([d.model, d.tuner, d.device.serial && 'SN ' + d.device.serial, 'USB ' + d.device.usb].filter(Boolean).join(' · '))]);
-      rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + d.sampleRate / 1000 + ' ksps, gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? ', bias tee ON' : ''))]);
-      rows.push(['Format', esc(d.format)]);
-      if (d.level) rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '') + ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : ''))]);
-      rows.push(['Heard', esc(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
-      if (d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
-      if (d.lastBurst) {
-        const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;
-        rows.push(['Last burst', esc('peak ' + b.peakDb + ' dBFS over floor ' + b.nfDb + ' · ' + (sat ? '≥ ' : '') + snrText(b.snrDb) + ' · ' + b.ms + ' ms, ' + ago(Date.now() - b.t))
-          + (sat ? ' <span style="color: var(--warn)">⚠ saturated — reached the ADC full scale; lower the gain until bursts peak below ' + SATURATED_DBFS + ' dBFS</span>' : '')]);
-      }
-      if (d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
-      rows.push(['Samples', esc(d.rateKsps + ' ksps arriving' + (d.counts.restarts ? ', rtl_sdr restarted ' + d.counts.restarts + '×' : '') + (d.counts.dropped ? ', ' + Math.round(d.counts.dropped / 1e6) + ' MB dropped (CPU)' : ''))]);
-      if (d.stderr && d.stderr.length) rows.push(['rtl_sdr says', '<span class="mono small">' + esc(d.stderr.join(' | ')) + '</span>']);
-    } else {
-      rows.push(['Port', '<code>' + esc(d.port.byId || d.port.dev) + '</code>' + (d.port.usb ? ' <span class="dim">USB ' + esc(d.port.usb.vid + ':' + d.port.usb.pid + ' ' + [d.port.usb.manufacturer, d.port.usb.product].filter(Boolean).join(' ')) + '</span>' : '')]);
-      rows.push(['Line', esc((d.port.acm ? 'USB CDC' : (d.port.baud || '?') + ' baud 8N1') + (d.port.driver ? ' · ' + d.port.driver : ''))]);
-      if (d.how) rows.push(['Recognised by', esc(d.how)]);
-      rows.push(['Data', esc(d.rx + ' bytes' + (d.lastRxAgoMs != null ? ', last ' + ago(d.lastRxAgoMs) : '') + (d.reconnects ? ' · reconnected ' + d.reconnects + '×' : ''))]);
-      const q = d.detail || {};
-      if (d.kind === 'quansheng') {
-        rows.push(['Radio', esc([q.firmware ? 'firmware ' + q.firmware : q.legacy ? 'legacy (DP32G030) firmware' : null, q.console ? 'USB console' : 'UART (records only)', q.freq ? q.freq + ' MHz' : null].filter(Boolean).join(' · '))]);
-        if (q.battery) rows.push(['Battery', esc(q.battery.pct + '% (' + (q.battery.mv / 1000).toFixed(2) + ' V)')]);
-        if (q.nf_dbm != null) rows.push(['Noise floor', esc(q.nf_dbm + ' dBm, RSSI ' + q.rssi_dbm + ' dBm' + (q.squelch ? ', squelch open' : ''))]);
-        if (q.stationTable) rows.push(['Station table', esc(q.stationTable)]);
-        if (q.log) rows.push(['Flash log', esc(q.log.state + ' ' + q.log.count + '/' + q.log.cap)]);
-        rows.push(['Decoded', esc(q.counts.dec + ' readings, ' + q.counts.bst + ' bursts (' + q.counts.undecoded + ' undecoded)')]);
-        if (q.bootloader) rows.push(['Note', 'The radio is in its bootloader (waiting to be flashed).']);
-      } else if (d.kind === 'ert-a2') {
-        rows.push(['Wire format', esc(q.format === 'ascii' ? 'RS-232 ALERT2 ASCII (receiver clock, no RSSI)' : q.format === 'bin' ? 'USB binary (RSSI, no receiver clock)' : 'not seen yet')]);
-        if (q.counts) rows.push(['Frames', esc(q.counts.frames + ' (' + q.counts.bad + ' would not decode), ' + q.counts.readings + ' readings')]);
-        if (q.decoder) rows.push(['Decoder address', esc(q.decoder)]);
-        if (q.receiverClockSkewS != null) rows.push(['Receiver clock', esc((q.receiverClockSkewS >= 0 ? '+' : '') + Math.round(q.receiverClockSkewS) + ' s from the network\'s')]);
-        if (q.note) rows.push(['Note', esc(q.note)]);
-      } else if (d.kind === 'gps') {
-        rows.push(['Fix', esc(q.fix ? (q.fix.lat != null ? q.fix.lat.toFixed(6) + ', ' + q.fix.lon.toFixed(6) + ' ±' + q.fix.accuracy_m + ' m' : 'yes') + (q.fix.alt != null ? ', ' + q.fix.alt + ' m' : '') : 'none')]);
-        rows.push(['Satellites', esc((q.sats ?? '—') + (q.hdop != null ? ', HDOP ' + q.hdop : ''))]);
-      }
+  keyedRows($('#rx-full'), allDevices(), {
+    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div>',
+    empty: '<div class="card dim none">No receivers found yet.</div>',
+    update: (card, d) => {
+      setHtml($('.head', card), rxHeadHtml(d));
+      setHtml($('.body', card), rxBodyHtml(d));
+      let cv = $('canvas', card);
+      if (d.kind === 'sdr' && d.spectrum) {
+        if (!cv) { card.insertAdjacentHTML('beforeend', '<canvas height="120"></canvas><div class="dim small spec-note">Spectrum around the channel (green line); 1 s max hold.</div>'); cv = $('canvas', card); }
+        drawSpectrum(cv, d);
+      } else if (cv) { cv.remove(); $('.spec-note', card).remove(); }
+    },
+  });
+}
+
+function rxBodyHtml(d) {
+  const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')], ['MegaNet receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']];
+  if (d.kind === 'sdr') {
+    rows.push(['Stick', esc([d.model, d.tuner, d.device.serial && 'SN ' + d.device.serial, 'USB ' + d.device.usb].filter(Boolean).join(' · '))]);
+    rows.push(['USB port', esc(d.device.port || '?') + (d.opened ? ' <span class="dim">· ' + esc(openedText(d.opened)) + '</span>' : '')]);
+    if (d.state === 'unplugged') rows.push(['Last seen', d.lastSeen ? esc(ago(Date.now() - d.lastSeen) + ' (' + new Date(d.lastSeen).toLocaleString() + ')') : '—']);
+    rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + d.sampleRate / 1000 + ' ksps, gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? ', bias tee ON' : ''))]);
+    rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format)]);
+    rows.push(['Settings', esc(d.own.length ? 'its own ' + d.own.map(f => OWN_LABELS[f] || f).join(', ') + '; the rest shared' : 'the shared ones') + ' — <a href="#settings-sdr">change</a>']);
+    if (d.level) rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '') + ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : ''))]);
+    rows.push(['Heard', esc(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
+    if (d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
+    if (d.lastBurst) {
+      const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;
+      rows.push(['Last burst', esc('peak ' + b.peakDb + ' dBFS over floor ' + b.nfDb + ' · ' + (sat ? '≥ ' : '') + snrText(b.snrDb) + ' · ' + b.ms + ' ms, ' + ago(Date.now() - b.t))
+        + (sat ? ' <span style="color: var(--warn)">⚠ saturated — reached the ADC full scale; lower the gain until bursts peak below ' + SATURATED_DBFS + ' dBFS</span>' : '')]);
     }
-    return '<div class="card rxcard"><div class="head"><h2>' + esc(d.name) + '</h2>' + (d.protocol ? protoTag(d.protocol) : '') + '<span class="pill">' + esc(d.kind) + '</span>'
-      + '<button class="ghost small" data-restart="' + esc(d.key) + '">Restart</button></div>' + kv(rows)
-      + (d.kind === 'sdr' && d.spectrum ? '<canvas data-spec="' + esc(d.key) + '" height="120"></canvas><div class="dim small">Spectrum around the channel (green line); 1 s max hold.</div>' : '') + '</div>';
-  }).join('');
-  for (const d of list) if (d.kind === 'sdr' && d.spectrum) drawSpectrum($('canvas[data-spec="' + CSS.escape(d.key) + '"]'), d);
+    if (d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
+    rows.push(['Samples', esc(d.rateKsps + ' ksps arriving' + (d.counts.restarts ? ', rtl_sdr restarted ' + d.counts.restarts + '×' : '') + (d.counts.dropped ? ', ' + Math.round(d.counts.dropped / 1e6) + ' MB dropped (CPU)' : ''))]);
+    if (d.stderr && d.stderr.length) rows.push(['rtl_sdr says', '<span class="mono small">' + esc(d.stderr.join(' | ')) + '</span>']);
+  } else {
+    rows.push(['Port', '<code>' + esc(d.port.byId || d.port.dev) + '</code>' + (d.port.usb ? ' <span class="dim">USB ' + esc(d.port.usb.vid + ':' + d.port.usb.pid + ' ' + [d.port.usb.manufacturer, d.port.usb.product].filter(Boolean).join(' ')) + '</span>' : '')]);
+    rows.push(['Line', esc((d.port.acm ? 'USB CDC' : (d.port.baud || '?') + ' baud 8N1') + (d.port.driver ? ' · ' + d.port.driver : ''))]);
+    if (d.how) rows.push(['Recognised by', esc(d.how)]);
+    rows.push(['Data', esc(d.rx + ' bytes' + (d.lastRxAgoMs != null ? ', last ' + ago(d.lastRxAgoMs) : '') + (d.reconnects ? ' · reconnected ' + d.reconnects + '×' : ''))]);
+    const q = d.detail || {};
+    if (d.kind === 'quansheng') {
+      rows.push(['Radio', esc([q.firmware ? 'firmware ' + q.firmware : q.legacy ? 'legacy (DP32G030) firmware' : null, q.console ? 'USB console' : 'UART (records only)', q.freq ? q.freq + ' MHz' : null].filter(Boolean).join(' · '))]);
+      if (q.battery) rows.push(['Battery', esc(q.battery.pct + '% (' + (q.battery.mv / 1000).toFixed(2) + ' V)')]);
+      if (q.nf_dbm != null) rows.push(['Noise floor', esc(q.nf_dbm + ' dBm, RSSI ' + q.rssi_dbm + ' dBm' + (q.squelch ? ', squelch open' : ''))]);
+      if (q.stationTable) rows.push(['Station table', esc(q.stationTable)]);
+      if (q.log) rows.push(['Flash log', esc(q.log.state + ' ' + q.log.count + '/' + q.log.cap)]);
+      rows.push(['Decoded', esc(q.counts.dec + ' readings, ' + q.counts.bst + ' bursts (' + q.counts.undecoded + ' undecoded)')]);
+      if (q.bootloader) rows.push(['Note', 'The radio is in its bootloader (waiting to be flashed).']);
+    } else if (d.kind === 'ert-a2') {
+      rows.push(['Wire format', esc(q.format === 'ascii' ? 'RS-232 ALERT2 ASCII (receiver clock, no RSSI)' : q.format === 'bin' ? 'USB binary (RSSI, no receiver clock)' : 'not seen yet')]);
+      if (q.counts) rows.push(['Frames', esc(q.counts.frames + ' (' + q.counts.bad + ' would not decode), ' + q.counts.readings + ' readings')]);
+      if (q.decoder) rows.push(['Decoder address', esc(q.decoder)]);
+      if (q.receiverClockSkewS != null) rows.push(['Receiver clock', esc((q.receiverClockSkewS >= 0 ? '+' : '') + Math.round(q.receiverClockSkewS) + ' s from the network\'s')]);
+      if (q.note) rows.push(['Note', esc(q.note)]);
+    } else if (d.kind === 'gps') {
+      rows.push(['Fix', esc(q.fix ? (q.fix.lat != null ? q.fix.lat.toFixed(6) + ', ' + q.fix.lon.toFixed(6) + ' ±' + q.fix.accuracy_m + ' m' : 'yes') + (q.fix.alt != null ? ', ' + q.fix.alt + ' m' : '') : 'none')]);
+      rows.push(['Satellites', esc((q.sats ?? '—') + (q.hdop != null ? ', HDOP ' + q.hdop : ''))]);
+    }
+  }
+  return kv(rows);
 }
 
 function drawSpectrum(c, d) {
@@ -406,9 +470,10 @@ function fillForms() {
   fs.squelch.value = sd.squelchDb;
   fs.enabled.checked = sd.enabled;
   fs.biasTee.checked = !!sd.biasTee;
+  renderSticks(true);
 
   $('#f-ports').autoDetect.checked = c.receivers.autoDetect;
-  renderPortOverrides();
+  renderPortOverrides(true);
 
   const fa = $('#f-audio');
   fa.mode.value = c.audio.enabled ? c.audio.mode : 'off';
@@ -424,21 +489,124 @@ function fillForms() {
   if (S.status) $('#hostname').value = S.status.system.hostname;
 }
 
-function renderPortOverrides() {
+// One row per port: drawn once, filled from the settings when they load or
+// are saved (force), its "who" kept current — so what is being typed stays.
+function renderPortOverrides(force) {
   const c = S.config;
   if (!c || !S.status) return;
   const overrides = c.receivers.ports || [];
   const ports = S.status.devices.ports;
-  const keys = new Set(ports.map(p => p.port.byId || p.port.dev));
-  overrides.forEach(o => keys.add(o.match));
-  $('#port-overrides').innerHTML = [...keys].map(k => {
-    const live = ports.find(p => (p.port.byId || p.port.dev) === k);
-    const o = overrides.find(x => x.match === k) || { type: 'auto', baud: 0, name: '' };
-    return '<div class="port-row" data-match="' + esc(k) + '"><div class="who"><b>' + esc(live ? live.name : '(not plugged in)') + '</b><br><code class="small">' + esc(k) + '</code></div>'
-      + '<label>Type<select name="ptype">' + ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'].map(t => '<option' + (o.type === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></label>'
-      + '<label>Baud<select name="pbaud">' + [0, 4800, 9600, 19200, 38400, 57600, 115200].map(b => '<option value="' + b + '"' + ((o.baud || 0) === b ? ' selected' : '') + '>' + (b || 'auto') + '</option>').join('') + '</select></label>'
-      + '<label>Name<input name="pname" value="' + esc(o.name || '') + '" placeholder="automatic"></label></div>';
-  }).join('') || '<div class="dim small">No serial ports seen yet.</div>';
+  const keys = [...new Set(ports.map(p => p.port.byId || p.port.dev).concat(overrides.map(o => o.match)))];
+  keyedRows($('#port-overrides'), keys, {
+    key: k => k, cls: 'port-row', force,
+    make: '<div class="who"></div>'
+      + '<label>Type<select name="ptype">' + ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'].map(t => '<option>' + t + '</option>').join('') + '</select></label>'
+      + '<label>Baud<select name="pbaud">' + [0, 4800, 9600, 19200, 38400, 57600, 115200].map(b => '<option value="' + b + '">' + (b || 'auto') + '</option>').join('') + '</select></label>'
+      + '<label>Name<input name="pname" placeholder="automatic"></label>',
+    empty: '<div class="dim small none">No serial ports seen yet.</div>',
+    fill: (row, k) => {
+      const o = overrides.find(x => x.match === k) || { type: 'auto', baud: 0, name: '' };
+      $('[name=ptype]', row).value = o.type || 'auto';
+      $('[name=pbaud]', row).value = String(o.baud || 0);
+      $('[name=pname]', row).value = o.name || '';
+    },
+    update: (row, k) => {
+      const live = ports.find(p => (p.port.byId || p.port.dev) === k);
+      setHtml($('.who', row), '<b>' + esc(live ? live.name : '(not plugged in)') + '</b><br><code class="small">' + esc(k) + '</code>');
+    },
+  });
+}
+
+// ── each stick's own settings (Settings → RTL-SDR) ─────────────────────────
+
+const STICK_ROW = '<div class="stick-head"><span class="who"></span><span class="act"></span></div>'
+  + '<div class="cols">'
+  + '<label>Name <input name="sname" maxlength="60"></label>'
+  + '<label>Frequency, MHz <input name="sfreq" type="number" step="0.0001" min="24" max="1766"></label>'
+  + '<label>Frame format <select name="sformat"><option value=""></option>'
+  + Object.entries(FORMAT_NAMES).map(([v, t]) => '<option value="' + v + '">' + t + '</option>').join('') + '</select></label>'
+  + '<label>Gain, dB <input name="sgain" title="A number, auto for the tuner\'s AGC, or blank for the setting above"></label>'
+  + '</div>'
+  + '<details><summary>More for this stick</summary><div class="cols">'
+  + '<label>Frequency correction, ppm <input name="sppm" type="number" step="1" min="-200" max="200"></label>'
+  + '<label>Squelch, dB over the noise floor <input name="ssquelch" type="number" step="1" min="2" max="40"></label>'
+  + '<label>Bias tee <select name="sbias"><option value=""></option><option value="on">On (4.5 V on the antenna socket)</option><option value="off">Off</option></select></label>'
+  + '</div></details>'
+  + '<label class="check"><input type="checkbox" name="son"> Use this stick</label>';
+
+// A stick's own entry in receivers.sdrDevices — by key, or 0.4's by serial.
+function ownEntry(d) {
+  const list = (S.config && S.config.receivers.sdrDevices) || [];
+  return list.find(e => e.key === d.key) || list.find(e => !e.key && e.serial && e.serial === d.device.serial) || null;
+}
+
+function stickWhoHtml(d) {
+  const bits = [stateLabel(d.state)];
+  if (d.model || d.device.product) bits.push(d.model || d.device.product);
+  bits.push('USB port ' + (d.device.port || '?'));
+  if (d.device.serial) bits.push('SN ' + d.device.serial);
+  if (d.state === 'unplugged' && d.lastSeen) bits.push('last seen ' + ago(Date.now() - d.lastSeen));
+  return '<span class="dot ' + esc(d.state) + '"></span><b>' + esc(d.name) + '</b><span class="dim small">' + esc(bits.join(' · ')) + '</span>';
+}
+
+function fillStick(row, d) {
+  const sd = S.config.receivers.sdr, own = ownEntry(d) || {};
+  const put = (n, v, hint) => { const el = $('[name=' + n + ']', row); el.value = v; if (hint != null) el.placeholder = hint; };
+  put('sname', own.name || '', 'RTL-SDR' + (d.n > 1 ? ' ' + d.n : ''));
+  put('sfreq', own.freqHz != null ? (own.freqHz / 1e6).toFixed(4) : '', (sd.freqHz / 1e6).toFixed(4));
+  $('[name=sformat]', row).options[0].textContent = 'As above — ' + (FORMAT_NAMES[sd.format] || sd.format);
+  put('sformat', own.format || '');
+  put('sgain', own.gainDb === undefined ? '' : own.gainDb === null ? 'auto' : String(own.gainDb), sd.gainDb == null ? 'auto' : String(sd.gainDb));
+  put('sppm', own.ppm != null ? String(own.ppm) : '', String(sd.ppm || 0));
+  put('ssquelch', own.squelchDb != null ? String(own.squelchDb) : '', String(sd.squelchDb));
+  $('[name=sbias]', row).options[0].textContent = 'As above — ' + (sd.biasTee ? 'on' : 'off');
+  put('sbias', own.biasTee === undefined ? '' : own.biasTee ? 'on' : 'off');
+  $('[name=son]', row).checked = own.enabled !== false;
+  if (own.ppm != null || own.squelchDb != null || own.biasTee !== undefined) $('details', row).open = true;
+}
+
+function renderSticks(force) {
+  if (!S.config || !S.status) return;
+  keyedRows($('#sdr-sticks'), S.status.devices.sdrs, {
+    key: d => d.key, cls: 'stick-row', make: STICK_ROW, force,
+    empty: '<div class="dim small none">No sticks yet. Each RTL-SDR stick plugged in is listed here, to give it settings of its own.</div>',
+    fill: fillStick,
+    update: (row, d) => {
+      row.dataset.serial = d.device.serial || '';
+      row.dataset.name = d.name;
+      setHtml($('.who', row), stickWhoHtml(d));
+      setHtml($('.act', row), d.state === 'unplugged'
+        ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '">Remove</button>' : '');
+    },
+  });
+}
+
+// The stick rows → receivers.sdrDevices: for each stick, only what it sets
+// for itself. Entries for sticks not listed are kept; 0.4's by-serial ones
+// become the listed sticks' own.
+function stickEntries() {
+  const rows = $$('#sdr-sticks .stick-row');
+  const keys = new Set(rows.map(r => r.dataset.key)), serials = new Set(rows.map(r => r.dataset.serial).filter(Boolean));
+  const list = ((S.config && S.config.receivers.sdrDevices) || []).filter(e => (e.key ? !keys.has(e.key) : !serials.has(e.serial)));
+  for (const row of rows) {
+    const v = (n) => $('[name=' + n + ']', row).value.trim();
+    const who = row.dataset.name + ': ';
+    const e = { key: row.dataset.key };
+    if (v('sname')) e.name = v('sname');
+    if (v('sfreq')) { const mhz = Number(v('sfreq')); if (!(mhz >= 24 && mhz <= 1766)) return { error: who + 'a frequency of 24–1766 MHz' }; e.freqHz = Math.round(mhz * 1e6); }
+    if (v('sformat')) e.format = v('sformat');
+    if (v('sgain')) {
+      const g = v('sgain');
+      if (/^(auto|agc)$/i.test(g)) e.gainDb = null;
+      else { if (!(Number(g) >= 0 && Number(g) <= 60)) return { error: who + 'a gain of 0–60 dB, or auto' }; e.gainDb = Number(g); }
+    }
+    if (v('sppm')) { const p = Number(v('sppm')); if (!(p >= -200 && p <= 200)) return { error: who + 'a correction of -200…200 ppm' }; e.ppm = p; }
+    if (v('ssquelch')) { const q = Number(v('ssquelch')); if (!(q >= 2 && q <= 40)) return { error: who + 'a squelch of 2–40 dB' }; e.squelchDb = q; }
+    if (v('sbias')) e.biasTee = v('sbias') === 'on';
+    if (!$('[name=son]', row).checked) e.enabled = false;
+    if (Object.keys(e).length > 1) list.push(e);
+  }
+  return { list };
 }
 
 async function loadAudioDevices() {
@@ -524,14 +692,17 @@ function wireSettings() {
     e.preventDefault();
     const f = e.target;
     const g = f.gain.value.trim();
+    const sticks = stickEntries();
+    if (sticks.error) { flash(f, sticks.error, false); return; }
     save(f, { receivers: { sdr: { freqHz: Math.round(Number(f.freq.value) * 1e6), format: f.format.value, gainDb: g === '' || /auto/i.test(g) ? null : Number(g),
-      sampleRate: Number(f.rate.value), ppm: Number(f.ppm.value) || 0, squelchDb: Number(f.squelch.value) || 8, enabled: f.enabled.checked, biasTee: f.biasTee.checked } } });
+      sampleRate: Number(f.rate.value), ppm: Number(f.ppm.value) || 0, squelchDb: Number(f.squelch.value) || 8, enabled: f.enabled.checked, biasTee: f.biasTee.checked },
+    sdrDevices: sticks.list } });
   });
 
   $('#f-ports').addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
-    const ports = $$('.port-row', f).map(row => ({ match: row.dataset.match, type: $('[name=ptype]', row).value, baud: Number($('[name=pbaud]', row).value) || 0, name: $('[name=pname]', row).value.trim() }))
+    const ports = $$('.port-row', f).map(row => ({ match: row.dataset.key, type: $('[name=ptype]', row).value, baud: Number($('[name=pbaud]', row).value) || 0, name: $('[name=pname]', row).value.trim() }))
       .filter(p => p.type !== 'auto' || p.baud || p.name);
     save(f, { receivers: { autoDetect: f.autoDetect.checked, ports } });
   });
@@ -581,8 +752,21 @@ function wireSettings() {
   });
   $('#rescan').addEventListener('click', () => api('/api/devices/rescan', { method: 'POST', body: {} }).then(refresh));
   $('#rx-full').addEventListener('click', (e) => {
-    const k = e.target.dataset && e.target.dataset.restart;
-    if (k) api('/api/devices/restart', { method: 'POST', body: { key: k } }).then(refresh).catch(err => alert(err.message));
+    const b = e.target.closest && e.target.closest('[data-restart]');
+    if (b) api('/api/devices/restart', { method: 'POST', body: { key: b.dataset.restart } }).then(refresh).catch(err => alert(err.message));
+  });
+  // Remove an unplugged receiver (Receivers, Settings → RTL-SDR): forgotten.
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest && e.target.closest('[data-forget]');
+    if (!b || b.disabled) return;
+    e.preventDefault();
+    if (!confirm('Remove ' + b.dataset.name + '?\n\nThe Pi forgets it: its name, its own settings and its MegaNet receiver id. If it is plugged in again, it is found as a new receiver.')) return;
+    b.disabled = true;
+    try {
+      await api('/api/devices/forget', { method: 'POST', body: { key: b.dataset.forget } });
+      if (S.config) S.config.receivers.sdrDevices = (S.config.receivers.sdrDevices || []).filter(x => x.key !== b.dataset.forget);
+    } catch (err) { alert(err.message); b.disabled = false; }
+    refresh();
   });
 }
 
@@ -626,7 +810,7 @@ async function refresh() {
     S.status = await api('/api/status');
     renderHeader(); renderStats(); renderRxMini();
     if (S.tab === 'rx') renderRxFull();
-    if (S.tab === 'settings' && S.config) renderPortOverrides();
+    if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); }
     renderBursts();
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;
@@ -723,8 +907,17 @@ function showTab(t) {
   if (t === 'dash') renderBursts();
 }
 
+// #settings, or #settings-sdr: the tab, then that card (id f-sdr).
+function route() {
+  const h = location.hash.slice(1) || 'dash';
+  const tab = h.split('-')[0];
+  showTab(tab);
+  const card = h !== tab && document.getElementById('f-' + h.slice(tab.length + 1));
+  if (card) card.scrollIntoView({ block: 'start' });
+}
+
 $$('.tabs button').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
-window.addEventListener('hashchange', () => showTab((location.hash.slice(1) || 'dash').replace('settings-', 'settings')));
+window.addEventListener('hashchange', route);
 window.addEventListener('resize', debounce(renderBursts, 200));
 
 (async function init() {
@@ -732,6 +925,6 @@ window.addEventListener('resize', debounce(renderBursts, 200));
   await refresh();
   try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); } catch (_) {}
   connectEvents();
-  showTab((location.hash.slice(1) || 'dash'));
+  route();
   setInterval(renderBursts, 15000);
 })();

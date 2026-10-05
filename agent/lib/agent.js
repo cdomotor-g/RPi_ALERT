@@ -197,7 +197,7 @@ class Agent extends EventEmitter {
   // operator said one, as a suggestion for the token's host station.
   tokenRequestPayload() {
     const loc = this.location();
-    const rx = this.devices.all().filter(s => s.kind === 'sdr' || (s.type && s.type !== 'gps'))
+    const rx = this.devices.all().filter(s => s.state !== 'unplugged' && (s.kind === 'sdr' || (s.type && s.type !== 'gps')))
       .map(s => ({ kind: s.kind === 'sdr' ? 'rtl-sdr' : s.type, name: s.name() })).slice(0, 8);
     const p = {
       label: this.baseName(),

@@ -15,25 +15,36 @@
 // The SDR hears legacy ALERT (300-baud AFSK): ALERT Binary, Enhanced iFLOWS or
 // ALERT ASCII, one format at a time (alert-dsp.js explains why there is no
 // "both"). Readings go to MegaNet as protocol "alert".
+//
+// Each stick is a receiver of its own — its own rtl_sdr, decoder thread and
+// MegaNet receiver id — and may have its own settings (receivers.sdrDevices,
+// by its key): another channel, format, gain, ppm, bias tee. rtl-index.js
+// sees that each rtl_sdr opens the stick it is meant to. A stick that is
+// unplugged stays known (and shown) until it comes back or is removed.
 
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const { EventEmitter } = require('node:events');
+const { STICK_FIELDS } = require('../config');
+const { openedUsb } = require('./rtl-index');
 
 const STALL_MS = 10000;
 const FORMAT_SHORT = { BINARY: 'ABF', ENHANCED_IFLOWS: 'EIF', ASCII: 'ASCII' };
+const MAX_RETARGETS = 4;
 
 class SdrSession extends EventEmitter {
-  constructor(agent, stick) {
+  // stick: from scan.js, with its key; absent: a stick remembered, not plugged in.
+  constructor(agent, stick, opts) {
     super();
     this.agent = agent;
     this.stick = stick;
     this.key = stick.key;
     this.kind = 'sdr';
     this.protocol = 'alert';
-    this.log = agent.log.child('sdr' + (stick.index || 0));
-    this.state = 'starting';
+    this.point = agent.state.pointFor(this.key, 'sdr');
+    this.log = agent.log.child('sdr' + this.point.n);
+    this.state = opts && opts.absent ? 'unplugged' : 'starting';
     this.proc = null;
     this.worker = null;
     this.restarts = 0;
@@ -49,18 +60,34 @@ class SdrSession extends EventEmitter {
     this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: 0, dropped: 0 };
     this.lastDecode = null;
     this.lastBurst = null;
-    this.stopped = false;
+    this.stopped = !!(opts && opts.absent);
     this.timer = null;
     this.watch = null;
-    this.point = agent.state.pointFor(this.key, 'sdr');
     this.startedAt = 0;
+    this.sel = null;            // how rtl_sdr was pointed at the stick: { arg, index, how }
+    this.checked = null;        // true: seen to have opened this stick; false: could not tell
+    this.usingIndex = null;     // the device number rtl_sdr said it used
+    this.listing = null;        // rtl_sdr's device list, as it prints it
+    this.avoid = new Set();     // device numbers just found busy (another stick's)
+    this.openFailed = false;
+    this.reopen = null;         // why rtl_sdr is being closed to be opened again at once
+    this.retargets = 0;
+    this.tuned = '';            // the tuner settings rtl_sdr runs with
   }
 
-  // The settings for this stick: the shared SDR block, then its own overrides.
+  // This stick's own settings: its entry in receivers.sdrDevices, by key — or,
+  // as 0.4 wrote them, by serial alone (shared by every stick with it).
+  own() {
+    const list = this.agent.config.get().receivers.sdrDevices || [];
+    return list.find(d => d.key === this.key) || list.find(d => !d.key && d.serial && d.serial === this.stick.serial) || null;
+  }
+
+  // The settings for this stick: the shared SDR block, then its own.
   cfg() {
     const all = this.agent.config.get().receivers;
-    const own = (all.sdrDevices || []).find(d => d.serial && d.serial === this.stick.serial) || {};
-    const c = Object.assign({}, all.sdr, own);
+    const own = this.own() || {};
+    const c = Object.assign({}, all.sdr);
+    for (const f of STICK_FIELDS) if (own[f] !== undefined) c[f] = own[f];
     const b = this.agent.board;
     // 960 ksps (cleaner channel filtering) on a 4-core Pi with 1 GB+; 240 ksps
     // (a quarter of the work) on a Zero 2 W, Pi 1/2 or Zero.
@@ -69,16 +96,20 @@ class SdrSession extends EventEmitter {
     return c;
   }
 
+  // On, unless the stick is turned off, or RTL-SDR sticks are.
+  on() { return this.cfg().enabled !== false && this.agent.config.get().receivers.sdr.enabled !== false; }
+
   name() {
-    const own = (this.agent.config.get().receivers.sdrDevices || []).find(d => d.serial && d.serial === this.stick.serial);
+    const own = this.own();
     return (own && own.name) || 'RTL-SDR' + (this.point.n > 1 ? ' ' + this.point.n : '');
   }
 
   start() {
     this.stopped = false;
-    const c = this.cfg();
-    if (c.enabled === false || !this.agent.config.get().receivers.sdr.enabled) { this.state = 'disabled'; return; }
-    if (!this.worker) this.spawnWorker(c);
+    if (!this.on()) { this.state = 'disabled'; return; }
+    if (!this.worker) this.spawnWorker(this.cfg());
+    // Stopped a moment ago and its rtl_sdr still closing: open again once it has.
+    if (this.proc) this.reopen = 'restart';
     this.launch();
     clearInterval(this.watch);
     this.watch = setInterval(() => this.checkStall(), 2000);
@@ -100,13 +131,8 @@ class SdrSession extends EventEmitter {
       squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc };
   }
 
-  args(c) {
+  args(c, dev) {
     const center = Math.round(c.freqHz - c.offsetHz);
-    // One stick: index 0. Several: the serial when it is unique and cannot be
-    // mistaken for an index (librtlsdr reads "00000001" as device 1 first),
-    // else the enumeration index.
-    const sticks = this.agent.devices ? this.agent.devices.sdrCount() : 1;
-    const dev = sticks <= 1 ? '0' : (this.key.startsWith('sdr-serial:') && /\D/.test(this.stick.serial) ? this.stick.serial : String(this.stick.index));
     const a = ['-d', dev, '-f', String(center), '-s', String(c.sampleRate)];
     if (c.gainDb != null) a.push('-g', String(c.gainDb));
     if (c.ppm) a.push('-p', String(Math.round(c.ppm)));
@@ -115,30 +141,46 @@ class SdrSession extends EventEmitter {
     return a;
   }
 
+  // What rtl_sdr is told, but which stick: when it changes, rtl_sdr restarts.
+  tunerKey(c) { return this.args(c, '').join(' '); }
+
   launch() {
     if (this.stopped || this.proc) return;
     const c = this.cfg();
-    const args = this.args(c);
+    const rtl = this.agent.devices && this.agent.devices.rtl;
+    this.sel = rtl ? rtl.choose(this.stick, this.avoid) : { arg: '0', index: 0, how: 'only' };
+    const args = this.args(c, this.sel.arg);
+    this.tuned = this.tunerKey(c);
     this.state = 'starting';
     this.stderr = [];
+    this.listing = null; this.usingIndex = null; this.openFailed = false; this.checked = null;
     this.startedAt = Date.now();
     this.lastData = Date.now();
+    this.bytesIn = 0;
     this.worker && this.worker.postMessage({ type: 'reset' });
     this.worker && this.worker.postMessage({ type: 'config', cfg: this.dspCfg(c) });
     let p;
     try { p = spawn('rtl_sdr', args, { stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { this.exited(null, e.message); return; }
     this.proc = p;
-    this.log.info('rtl_sdr ' + args.join(' ') + '  (channel ' + (c.freqHz / 1e6).toFixed(4) + ' MHz, ' + c.format + ')');
+    this.log.info('rtl_sdr ' + args.join(' ') + '  (channel ' + (c.freqHz / 1e6).toFixed(4) + ' MHz, ' + c.format
+      + (this.sel.how === 'only' ? '' : '; the stick in USB port ' + this.stick.busPath) + ')');
     p.stdout.on('data', (buf) => this.onIq(buf));
     p.stderr.on('data', (d) => this.onStderr(String(d)));
     p.on('error', (e) => { this.stderr.push(e.code === 'ENOENT' ? 'rtl_sdr is not installed (apt install rtl-sdr)' : e.message); });
-    p.on('close', (code, sig) => { this.proc = null; this.exited(code, sig); });
+    p.on('close', (code, sig) => { if (this.proc === p) this.proc = null; this.exited(code, sig); });
   }
 
   onIq(buf) {
+    if (this.stopped || this.reopen) return;
     this.bytesIn += buf.length;
     this.lastData = Date.now();
-    if (this.state !== 'running') { this.state = 'running'; this.backoff = 2000; this.log.info('receiving' + (this.tuner ? ' (' + this.tuner + ')' : '')); this.emit('change'); }
+    if (this.state !== 'running') {
+      this.checkStick();
+      if (this.reopen) return;
+      this.state = 'running'; this.backoff = 2000; this.avoid.clear();
+      this.log.info('receiving' + (this.tuner ? ' (' + this.tuner + ')' : ''));
+      this.emit('change');
+    }
     if (!this.worker) return;
     // If the decoder cannot keep up (a slow Pi at a high sample rate), drop
     // input rather than let it pile up in memory — and say so.
@@ -149,6 +191,26 @@ class SdrSession extends EventEmitter {
     this.worker.postMessage({ type: 'iq', buf: ab }, [ab]);
   }
 
+  // rtl_sdr is streaming: is it this stick? (rtl-index.js)
+  checkStick() {
+    const mgr = this.agent.devices;
+    if (!mgr || !mgr.rtl || !this.proc || !this.sel || this.sel.how === 'only') return;
+    const index = this.usingIndex != null ? this.usingIndex : this.sel.index;
+    const at = openedUsb(this.proc.pid);
+    const st = at && mgr.sticks.find(s => s.busnum === at.busnum && s.devnum === at.devnum);
+    if (!st) { this.checked = false; return; }                 // cannot tell: trust the choice
+    if (index != null) mgr.rtl.learn(index, st.busPath);
+    if (st.busPath === this.stick.busPath) { this.checked = true; this.retargets = 0; return; }
+    if (++this.retargets > MAX_RETARGETS) {
+      this.checked = false;
+      this.log.error('rtl_sdr keeps opening the stick in USB port ' + st.busPath + ' instead of this one (' + this.stick.busPath + '); using it. Give each stick its own serial: rtl_eeprom -d <n> -s <name>');
+      return;
+    }
+    this.log.warn('rtl_sdr device ' + index + ' is the stick in USB port ' + st.busPath + ', not this one (' + this.stick.busPath + ') — reopening');
+    this.reopen = 'retarget';
+    try { this.proc.kill('SIGTERM'); } catch (_) {}
+  }
+
   onStderr(s) {
     for (const line of s.split(/\r?\n/)) {
       const t = line.trim();
@@ -156,21 +218,53 @@ class SdrSession extends EventEmitter {
       this.stderr.push(t);
       if (this.stderr.length > 30) this.stderr.shift();
       let m;
+      if (/^Found \d+ device\(s\)/.test(t)) { this.listing = []; continue; }
+      if (this.listing && (m = /^(\d+):\s+(.*)$/.exec(t))) { this.listing.push({ index: Number(m[1]), text: m[2].trim() }); continue; }
       if ((m = /^Found (.+) tuner/.exec(t))) this.tuner = m[1];
       if (/Blog V4/i.test(t)) this.model = 'RTL-SDR Blog V4';
-      if ((m = /^Using device \d+: (.+)$/.exec(t))) this.model = this.model || m[1];
-      if (/usb_claim_interface error|Kernel driver is active/i.test(t)) this.log.warn('the stick is held by another driver or program — is the DVB-T module blacklisted, or rtl_tcp/SDR++ running?');
+      if ((m = /^Using device (\d+): (.+)$/.exec(t))) {
+        this.usingIndex = Number(m[1]);
+        this.model = this.model || m[2];
+        const rtl = this.agent.devices && this.agent.devices.rtl;
+        if (rtl && this.listing) rtl.listing(this.listing);
+        this.listing = null;
+      }
+      if (/usb_claim_interface error|Failed to open rtlsdr device/i.test(t)) this.openFailed = true;
+      // A guessed device number is often another stick of ours, held by its own rtl_sdr.
+      const guessing = this.sel && this.sel.how === 'guess';
+      if (/Kernel driver is active/i.test(t) || (!guessing && /usb_claim_interface error/i.test(t))) this.log.warn('the stick is held by another driver or program — is the DVB-T module blacklisted, or rtl_tcp/SDR++ running?');
     }
   }
 
   exited(code, sig) {
-    if (this.stopped) { if (this.state !== 'unplugged') this.state = 'stopped'; return; }
+    clearTimeout(this.timer);
+    if (this.stopped) { if (['running', 'starting', 'restarting'].includes(this.state)) this.state = 'stopped'; this.reopen = null; return; }
+    // Closed on purpose, to open again at once: the wrong stick, new tuner settings, Restart.
+    if (this.reopen) {
+      this.reopen = null;
+      this.state = 'starting';
+      this.timer = setTimeout(() => this.launch(), 300);
+      this.emit('change');
+      return;
+    }
+    // A guessed device number that was busy is most likely another of our
+    // sticks: try the next number at once, before backing off.
+    const sticks = this.agent.devices ? this.agent.devices.sticks.length : 1;
+    if (this.openFailed && this.sel && this.sel.how === 'guess') {
+      this.avoid.add(this.sel.index);
+      if (this.avoid.size < sticks) {
+        this.state = 'starting';
+        this.log.info('rtl_sdr device ' + this.sel.index + ' is in use (another stick, most likely) — trying another');
+        this.timer = setTimeout(() => this.launch(), 1000);
+        return;
+      }
+      this.avoid.clear();
+    }
     const tail = this.stderr.slice(-3).join(' | ');
     this.state = 'restarting';
     this.counts.restarts++;
     this.log.warn('rtl_sdr stopped (' + (sig || 'exit ' + code) + ')' + (tail ? ': ' + tail : '') + ' — restarting in ' + Math.round(this.backoff / 1000) + ' s');
     this.emit('change');
-    clearTimeout(this.timer);
     this.timer = setTimeout(() => this.launch(), this.backoff);
     this.backoff = Math.min(30000, this.backoff * 2);
   }
@@ -228,13 +322,30 @@ class SdrSession extends EventEmitter {
     }
   }
 
+  // Settings changed. Format, squelch and votes go to the decoder as they
+  // are; frequency, rate, gain, ppm and bias tee are the tuner's, and restart
+  // rtl_sdr — this stick's only, and only when they changed for it.
   reconfigure() {
+    if (this.state === 'unplugged') return;
+    if (!this.on()) {
+      if (this.state !== 'disabled') { this.stop(); this.state = 'disabled'; this.log.info('turned off'); this.emit('change'); }
+      return;
+    }
+    if (this.stopped || this.state === 'disabled') { this.log.info('turned on'); this.start(); this.emit('change'); return; }
     const c = this.cfg();
-    if (!c.enabled || !this.agent.config.get().receivers.sdr.enabled) { this.stop(); this.state = 'disabled'; return; }
-    if (this.worker) this.worker.postMessage({ type: 'config', cfg: Object.assign(this.dspCfg(c), { audio: this.agent.audio && ['auto', 'live'].includes(this.agent.audio.mode()) }) });
-    // Frequency, rate, gain and bias tee are the tuner's: restart rtl_sdr with them.
-    if (this.proc) { this.backoff = 1000; this.log.info('new settings — restarting rtl_sdr'); try { this.proc.kill('SIGTERM'); } catch (_) {} }
-    else if (this.stopped || this.state === 'disabled') this.start();
+    if (this.worker) this.worker.postMessage({ type: 'config', cfg: Object.assign(this.dspCfg(c), { audio: !!(this.agent.audio && ['auto', 'live'].includes(this.agent.audio.mode())) }) });
+    if (this.tunerKey(c) === this.tuned) return;
+    if (this.proc) { this.log.info('new tuner settings — restarting rtl_sdr'); this.reopen = 'settings'; try { this.proc.kill('SIGTERM'); } catch (_) {} }
+  }
+
+  // The Restart button: rtl_sdr closed and opened again now.
+  restart() {
+    if (this.state === 'unplugged') return;
+    clearTimeout(this.timer);
+    this.backoff = 2000; this.avoid.clear(); this.retargets = 0;
+    if (this.stopped || this.state === 'disabled') { this.start(); return; }
+    if (this.proc) { this.log.info('restarting rtl_sdr'); this.reopen = 'restart'; try { this.proc.kill('SIGTERM'); } catch (_) {} return; }
+    this.launch();
   }
 
   stop() {
@@ -248,15 +359,22 @@ class SdrSession extends EventEmitter {
   status() {
     const c = this.cfg();
     const lv = this.level;
+    const st = this.stick;
+    const own = this.own() || {};
+    const info = this.agent.state.sdrInfo(this.key);
     return {
-      key: this.key, kind: 'sdr', name: this.name(), pointId: this.point.pointId, state: this.state, protocol: 'alert',
-      device: { serial: this.stick.serial, product: this.stick.product, manufacturer: this.stick.manufacturer, usb: this.stick.vid + ':' + this.stick.pid, index: this.stick.index },
+      key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',
+      present: this.state !== 'unplugged', lastSeen: info && info.lastSeen ? Date.parse(info.lastSeen) : null, enabled: this.on(),
+      device: { serial: st.serial, product: st.product, manufacturer: st.manufacturer, usb: st.vid + ':' + st.pid, port: st.busPath, index: st.index != null ? st.index : null },
+      opened: this.sel && this.state !== 'unplugged' ? { arg: this.sel.arg, index: this.usingIndex != null ? this.usingIndex : this.sel.index, how: this.sel.how, checked: this.checked } : null,
+      own: STICK_FIELDS.filter(f => own[f] !== undefined).concat(own.name ? ['name'] : []),
       tuner: this.tuner, model: this.model,
       freqHz: c.freqHz, sampleRate: c.sampleRate, gainDb: c.gainDb, squelchDb: c.squelchDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
-      level: lv ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
-      spectrum: this.spectrum ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: Math.round(c.freqHz - c.offsetHz), channelHz: c.freqHz } : null,
+      level: lv && this.state !== 'unplugged' ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
+      spectrum: this.spectrum && this.state !== 'unplugged' ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: Math.round(c.freqHz - c.offsetHz), channelHz: c.freqHz } : null,
       counts: this.counts, lastDecode: this.lastDecode, lastBurst: this.lastBurst, stderr: this.stderr.slice(-5),
-      rateKsps: this.startedAt ? Math.round(this.bytesIn / 2 / Math.max(1, (Date.now() - this.startedAt) / 1000) / 1000) : 0,
+      rateKsps: this.startedAt && this.state === 'running' ? Math.round(this.bytesIn / 2 / Math.max(1, (Date.now() - this.startedAt) / 1000) / 1000) : 0,
+      startedAt: this.startedAt || null,
     };
   }
 
@@ -266,6 +384,7 @@ class SdrSession extends EventEmitter {
     if (this.tuner) d.tuner = this.tuner;
     if (this.model) d.model = this.model;
     if (this.stick.serial) d.serial = this.stick.serial;
+    if (this.stick.busPath) d.usb_port = this.stick.busPath;
     return d;
   }
 }

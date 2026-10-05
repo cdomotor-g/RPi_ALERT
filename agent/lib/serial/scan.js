@@ -86,6 +86,10 @@ const RTL_IDS = new Set([
   '1f4d:d286', '1f4d:d803',
 ]);
 
+// Every RTL2832U stick plugged in, by its USB port (busPath, e.g. "1-1.3"), in
+// the order librtlsdr numbers them (`index`, what rtl_sdr -d takes). Which
+// stick is which receiver is the device manager's business (state.js
+// remembers them), not this list's: it says only what is plugged in where.
 function listSdrs() {
   const root = path.join(SYS, 'bus', 'usb', 'devices');
   let names = [];
@@ -95,21 +99,54 @@ function listSdrs() {
     const d = path.join(root, n);
     const vid = read(path.join(d, 'idVendor')), pid = read(path.join(d, 'idProduct'));
     if (!vid || !RTL_IDS.has(vid + ':' + pid)) continue;
+    let real = d;
+    try { real = fs.realpathSync(d); } catch (_) {}
     out.push({
       busPath: n, vid, pid, serial: read(path.join(d, 'serial')) || '',
       manufacturer: read(path.join(d, 'manufacturer')) || '', product: read(path.join(d, 'product')) || '',
       busnum: Number(read(path.join(d, 'busnum'))), devnum: Number(read(path.join(d, 'devnum'))),
+      devpath: real.startsWith(SYS + '/') ? real.slice(SYS.length) : real,
     });
   }
-  // librtlsdr numbers sticks in libusb's enumeration order, which on Linux
-  // follows bus then device number.
-  out.sort((a, b) => a.busnum - b.busnum || a.devnum - b.devnum);
+  return rtlOrder(out);
+}
+
+// librtlsdr's device numbers. It counts the sticks in libusb_get_device_list()
+// order. On Linux libusb finds devices through udev, which lists them in
+// device-path order (systemd's path_compare), and puts each one it finds at
+// the head of its list — so the numbers run in reverse device-path order:
+// device 0 is the stick that sorts last. This is the agent's guess; it checks
+// which stick each rtl_sdr really opened (devices/rtl-index.js), so a libusb
+// that orders them some other way costs a reopen, not the wrong stick.
+function rtlOrder(sticks) {
+  const out = sticks.slice().sort((a, b) => pathCompare(b.devpath, a.devpath));
   out.forEach((s, i) => { s.index = i; });
-  // A stick is remembered by its serial when that is unique, else by its socket.
-  const counts = new Map();
-  out.forEach(s => counts.set(s.serial, (counts.get(s.serial) || 0) + 1));
-  out.forEach(s => { s.key = s.serial && counts.get(s.serial) === 1 ? 'sdr-serial:' + s.serial : 'sdr-port:' + s.busPath; });
   return out;
+}
+
+// USB ports as people count them: 1-1.2 before 1-1.10.
+function portCompare(a, b) {
+  const A = String(a || '').split(/[-.:]/), B = String(b || '').split(/[-.:]/);
+  for (let i = 0; i < A.length && i < B.length; i++) {
+    const d = (Number(A[i]) - Number(B[i])) || (A[i] < B[i] ? -1 : A[i] > B[i] ? 1 : 0);
+    if (d) return d;
+  }
+  return A.length - B.length;
+}
+
+// systemd's path_compare(): component by component, bytewise, a shorter
+// component (or path) first.
+function pathCompare(a, b) {
+  const A = String(a || '').split('/').filter(Boolean), B = String(b || '').split('/').filter(Boolean);
+  for (let i = 0; i < A.length && i < B.length; i++) {
+    if (A[i] === B[i]) continue;
+    for (let j = 0; j < A[i].length && j < B[i].length; j++) {
+      const d = A[i].charCodeAt(j) - B[i].charCodeAt(j);
+      if (d) return d;
+    }
+    return A[i].length - B[i].length;
+  }
+  return A.length - B.length;
 }
 
 // What kind of Raspberry Pi this is, for sensible defaults.
@@ -122,4 +159,4 @@ function board() {
   return { model, cores, memMb };
 }
 
-module.exports = { listPorts, listSdrs, usbInfoFor, board, RTL_IDS };
+module.exports = { listPorts, listSdrs, rtlOrder, pathCompare, portCompare, usbInfoFor, board, RTL_IDS };

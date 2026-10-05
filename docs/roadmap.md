@@ -21,7 +21,7 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
 - **Several channels on one stick** — at 960 ksps a stick sees ±480 kHz; several AlertDsp channels
-  could run off one stream.
+  could run off one stream. (Today it is one channel per stick, with as many sticks as the Pi takes.)
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
   frames the radio heard but did not report, as MegaNet's Serial Monitor does.
 - **Upload MegaNet's station table to a Quansheng radio** from the Receivers page

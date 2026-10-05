@@ -17,9 +17,28 @@ mode 0600 because it holds the ingest token):
   station, value in engineering units, signal, receiver).
 - **Receivers** — everything known about each device: port, USB ids, speed, how it was recognised,
   firmware, battery and noise floor (Quansheng), wire format and receiver clock (ERT-A2), tuner,
-  levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each.
-- **Settings** — MegaNet, location, RTL-SDR, serial devices, audio, screen, network (Wi-Fi scan and
-  join, hostname), web password, time zone, restart/reboot/shut down, update check.
+  USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
+  that is unplugged.
+- **Settings** — MegaNet, location, RTL-SDR (the settings every stick shares, and each stick's
+  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), web password, time
+  zone, restart/reboot/shut down, update check.
+
+**Several RTL-SDR sticks.** Each stick is a receiver of its own, with its own MegaNet receiver id
+(`rpi-<host>-sdr1`, `-sdr2`, …) and name (*RTL-SDR*, *RTL-SDR 2*, …, numbered in USB port order).
+Under **Settings → RTL-SDR → Each stick**, any stick can have its own name, frequency, frame format,
+gain, ppm, squelch and bias tee, or be turned off; a blank field is the shared setting above it. So
+one Pi can listen to two networks at once — or one channel in both ALERT Binary and Enhanced
+iFLOWS, a stick each. Changing one stick's frequency, gain, ppm or bias tee restarts only that
+stick's `rtl_sdr`; a format or squelch change does not restart anything.
+
+Most sticks share one serial number (`00000001`), so sticks are told apart by the **USB port** they
+are in: keep each in its port and it keeps its name, settings and receiver id, across replugs and
+reboots, whatever else is plugged in. (A stick plugged into another port takes the place of a stick
+like it that is missing — the one seen last — so a stick moved on its own keeps who it is. A stick
+with a serial of its own is recognised in any port.)
+A stick that is unplugged stays listed, as *unplugged*, with when it was last seen, until it comes
+back or you press **Remove** — which forgets its name, its own settings and its receiver id; plugged
+in again, it is found as a new receiver.
 - **Log** — the agent's log, live.
 
 **Getting the token.** *Request a token* (Settings → MegaNet, or the banner while there is none)
@@ -46,6 +65,11 @@ rpi-alert request-token          ask MegaNet for the token: a code and a QR code
 rpi-alert token [mgn_…]          check a token against MegaNet and save it
 rpi-alert config get [key]       e.g. rpi-alert config get receivers.sdr
 rpi-alert config set key value   e.g. rpi-alert config set receivers.sdr.freqHz 151525000
+rpi-alert sdr                    the RTL-SDR sticks: number, name, channel, USB port, state
+rpi-alert sdr 2 freq 151.525     one stick's own setting: freq (MHz), format, gain (dB or auto),
+                                 ppm, squelch, bias-tee, name — "shared" goes back to the shared
+                                 one; rpi-alert sdr 2 off / on. A stick by number, name or USB port
+rpi-alert sdr remove 3           forget an unplugged stick (name, settings, receiver id)
 rpi-alert password               the web page password
 rpi-alert readings [n] · log [n] · test-audio [alert|alert2|beep] · send-now · version
 sudo journalctl -u rpi-alert -f  the full log
@@ -72,7 +96,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `sdr_frequency_mhz` | e.g. 151.5 | `receivers.sdr.freqHz` |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
-| `sdr_ppm`, `sdr_sample_rate`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` |
+| `sdr_ppm`, `sdr_sample_rate`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
 | `auto_detect` | yes / no | `receivers.autoDetect` |
 | `extra_ports` | e.g. /dev/serial0 | `receivers.extraPorts` (a GPIO-UART GPS, say) |
 | `audio` | auto / live / synth / beep / off | `audio.mode` |
@@ -111,7 +135,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdr.offsetHz` | 0 (auto) | Tune this far below the channel (default rate/4) to keep the DC spike off it |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
-| `receivers.sdrDevices[]` | — | Per-stick overrides by USB serial: `{ serial, name, freqHz, format, gainDb, enabled }` |
+| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one. Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |

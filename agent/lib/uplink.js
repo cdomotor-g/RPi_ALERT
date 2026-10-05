@@ -271,6 +271,7 @@ class Uplink {
     this.reportOne(pointId, true);
   }
   deactivatePoint(pointId) { const p = this.points.get(pointId); if (p) p.active = false; }
+  forgetPoint(pointId) { this.points.delete(pointId); }
 
   reportAll(force) { for (const id of this.points.keys()) this.reportOne(id, force); }
 
