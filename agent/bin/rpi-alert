@@ -13,11 +13,13 @@
 //   rpi-alert token [mgn_…]          set (or check) the MegaNet ingest token by hand
 //   rpi-alert config get [key]       print settings (e.g. receivers.sdr.freqHz)
 //   rpi-alert config set key value   change one (value as JSON, or plain text)
-//   rpi-alert sdr                    the RTL-SDR sticks: number, name, channel, USB port, state
+//   rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
 //   rpi-alert sdr <stick> <setting> <value>
-//                                    a stick's own setting: freq (MHz), format, gain (dB or
-//                                    auto), ppm, squelch, bias-tee, name; or on / off. The value
-//                                    "shared" goes back to the setting all sticks share.
+//                                    a stick's own setting: freq (MHz; several — 151.5, 152.4 —
+//                                    to hear them all at once), channels (the more channels
+//                                    besides freq: "151.525, 152.4 eif", or none), format, gain
+//                                    (dB or auto), ppm, squelch, bias-tee, name; or on / off. The
+//                                    value "shared" goes back to the setting all sticks share.
 //                                    <stick>: its number (2 for "RTL-SDR 2"), name or USB port
 //   rpi-alert sdr remove <stick>     forget an unplugged stick: name, settings, MegaNet receiver id
 //   rpi-alert password               set the web page password
@@ -35,6 +37,7 @@
 const path = require('node:path');
 const lib = path.join(__dirname, '..', 'lib');
 const pkg = require('../package.json');
+const Channels = require(path.join(__dirname, '..', 'web', 'channels.js'));
 
 const argv = process.argv.slice(2);
 const cmd = argv[0] || 'help';
@@ -149,6 +152,21 @@ function render(s, readingsList) {
   for (const d of devs) {
     const col = d.state === 'running' ? C.g : d.state === 'identifying' || d.state === 'starting' ? C.c : C.y;
     let line = '  ' + col + d.state.padEnd(12) + C.x + ' ' + d.name.padEnd(22) + ' ' + (d.protocol ? (d.protocol === 'alert2' ? 'ALERT2' : 'ALERT ') : '      ');
+    const multi = d.kind === 'sdr' && d.channels && d.channels.length > 1;
+    if (multi) {
+      // A line for the stick, then one for each channel it hears: a receiver each.
+      line += C.d + ' ' + d.channels.length + ' channels, ' + d.sampleRate / 1000 + ' ksps around ' + (d.centerHz / 1e6).toFixed(4) + ' MHz'
+        + (s.devices.sdrs.length > 1 || d.state === 'unplugged' ? ', USB port ' + d.device.port : '')
+        + (d.state === 'unplugged' ? (d.lastSeen ? ', last seen ' + ago(Date.now() - d.lastSeen) : '') + ' (rpi-alert sdr remove ' + d.n + ' forgets it)' : (d.tuner ? ' ' + d.tuner : '')) + C.x;
+      out.push(line);
+      for (const ch of d.channels) {
+        out.push('  ' + ' '.repeat(13) + C.d + '· ' + C.x + (Channels.mhz(ch.freqHz) + ' ' + Channels.SHORT[ch.format]).padEnd(20) + '        ' + C.d
+          + (!ch.inBand ? C.y + 'does not fit beside the others — not decoded' + C.d
+            : (ch.level ? 'ch ' + ch.level.chDb + ' dB, floor ' + ch.level.nfDb + ' dB, ' : '') + 'bursts ' + ch.counts.bursts + ', decodes ' + ch.counts.decodes)
+          + '  ' + ch.pointId + C.x);
+      }
+      continue;
+    }
     if (d.kind === 'sdr') {
       line += C.d + ' ' + (d.freqHz / 1e6).toFixed(4) + ' MHz ' + d.format + (s.devices.sdrs.length > 1 || d.state === 'unplugged' ? ', USB port ' + d.device.port : '');
       line += d.state === 'unplugged' ? (d.lastSeen ? ', last seen ' + ago(Date.now() - d.lastSeen) : '') + ' (rpi-alert sdr remove ' + d.n + ' forgets it)' + C.x
@@ -220,9 +238,33 @@ async function config(sub, key, value) {
 
 const FORMATS = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 const STICK_SETTINGS = {
-  freq: 'freqHz', frequency: 'freqHz', mhz: 'freqHz', format: 'format', gain: 'gainDb', ppm: 'ppm', squelch: 'squelchDb',
+  freq: 'freqHz', frequency: 'freqHz', mhz: 'freqHz', channels: 'moreChannels', more: 'moreChannels', format: 'format', gain: 'gainDb', ppm: 'ppm', squelch: 'squelchDb',
   'bias-tee': 'biasTee', biastee: 'biasTee', bias: 'biasTee', name: 'name', enabled: 'enabled',
 };
+
+// A stick's channels, as typed (web/channels.js reads them): freq is its own
+// channel — or, given several, its own and its more channels at once; channels
+// is the more channels alone ("none" for none). → the fields to set, a field
+// undefined going back to the shared setting.
+function channelSetting(field, s) {
+  s = String(s || '').trim();
+  if (/^(shared|default|same)$/i.test(s)) return field === 'freqHz' ? { freqHz: undefined, moreChannels: undefined } : { moreChannels: undefined };
+  const p = Channels.parse(s);
+  if (p.error) throw new Error((field === 'freqHz' ? 'freq: ' : 'channels: ') + p.error);
+  if (field === 'moreChannels') return { moreChannels: p.channels };
+  if (!p.channels.length) throw new Error('freq: a frequency in MHz, e.g. 151.525 — or several, 151.5, 152.4');
+  const [first, ...rest] = p.channels;
+  const out = { freqHz: first.freqHz };
+  if (first.format) out.format = first.format;
+  if (rest.length) out.moreChannels = rest;
+  return out;
+}
+
+// What a stick hears, as one line: "151.500, 151.525, 152.400 EIF MHz".
+function channelsText(d) {
+  const list = d.channels && d.channels.length ? d.channels : [{ freqHz: d.freqHz, format: d.format }];
+  return list.map(ch => Channels.mhz(ch.freqHz) + (ch.format !== d.format ? ' ' + Channels.SHORT[ch.format] : '')).join(', ') + ' MHz';
+}
 const yes = (v) => /^(1|y|yes|on|true)$/i.test(v), no = (v) => /^(0|n|no|off|false)$/i.test(v);
 
 // A stick by its number (2 for "RTL-SDR 2"), name, USB port or key.
@@ -244,7 +286,6 @@ function stickValue(field, s) {
   if (/^(shared|default|same)$/i.test(s)) return undefined;
   const number = (what) => { const n = Number(s); if (s === '' || !Number.isFinite(n)) throw new Error(what); return n; };
   switch (field) {
-    case 'freqHz': { const n = number('freq: a frequency in MHz, e.g. 151.525'); return Math.round(n >= 1e6 ? n : n * 1e6); }
     case 'format': {
       const f = { binary: 'BINARY', abf: 'BINARY', enhanced_iflows: 'ENHANCED_IFLOWS', iflows: 'ENHANCED_IFLOWS', eif: 'ENHANCED_IFLOWS', ascii: 'ASCII' }[s.toLowerCase().replace(/[\s-]+/g, '_')];
       if (!f) throw new Error('format: binary, enhanced_iflows or ascii');
@@ -264,13 +305,17 @@ function printSticks(sticks) {
   for (const d of sticks) {
     const own = (f) => (d.own.includes(f) ? '*' : ' ');
     const col = d.state === 'running' ? C.g : d.state === 'unplugged' ? C.y : C.c;
+    const n = d.channels ? d.channels.length : 1;
     console.log('  ' + String(d.n).padStart(2) + '  ' + d.name.padEnd(14) + ' ' + col + d.state.padEnd(10) + C.x + ' '
-      + (d.freqHz / 1e6).toFixed(4) + ' MHz' + own('freqHz') + ' ' + (FORMATS[d.format] + own('format')).padEnd(17)
-      + ' USB port ' + String(d.device.port).padEnd(8) + C.d + ' SN ' + (d.device.serial || '—') + ' · ' + d.pointId
+      + channelsText(d) + (d.own.includes('freqHz') || d.own.includes('moreChannels') ? '*' : ' ') + ' ' + (FORMATS[d.format] + own('format')).padEnd(17)
+      + ' USB port ' + String(d.device.port).padEnd(8) + C.d + ' SN ' + (d.device.serial || '—') + ' · ' + d.pointId + (n > 1 ? ' (+' + (n - 1) + ')' : '')
       + (d.state === 'unplugged' && d.lastSeen ? ' · last seen ' + ago(Date.now() - d.lastSeen) : '') + C.x);
+    for (const ch of (d.channels || []).filter(c => !c.inBand)) console.log('      ' + C.y + Channels.mhz(ch.freqHz) + ' MHz does not fit beside its other channels — not decoded' + C.x);
   }
   if (sticks.some(d => d.own.length)) console.log(C.d + '  * its own setting (the rest: rpi-alert config get receivers.sdr)' + C.x);
-  console.log('\nA stick\'s own channel: rpi-alert sdr ' + (sticks[1] || sticks[0]).n + ' freq 151.525   (also format, gain, ppm, squelch, bias-tee, name, on, off; "shared" undoes one)');
+  const eg = (sticks[1] || sticks[0]).n;
+  console.log('\nA stick\'s own channel: rpi-alert sdr ' + eg + ' freq 151.525   — or several at once: rpi-alert sdr ' + eg + ' freq 151.5, 151.525, 152.4');
+  console.log('(also channels, format, gain, ppm, squelch, bias-tee, name, on, off; "shared" undoes one)');
   if (sticks.some(d => d.state === 'unplugged')) console.log('Forget one that is unplugged: rpi-alert sdr remove ' + sticks.find(d => d.state === 'unplugged').n);
 }
 
@@ -286,26 +331,37 @@ async function sdr(args) {
   const d = pickStick(sticks, args[0]);
   let what = String(args[1] || '').toLowerCase(), value = args.slice(2).join(' ');
   if (!what) {
+    const multi = d.channels && d.channels.length > 1;
     console.log(C.b + d.name + C.x + '  (' + d.key + ', ' + d.pointId + ')  ' + d.state);
     console.log('  ' + [d.model || d.device.product, d.tuner, 'SN ' + (d.device.serial || '—'), 'USB port ' + d.device.port].filter(Boolean).join(' · '));
-    console.log('  ' + (d.freqHz / 1e6).toFixed(4) + ' MHz, ' + FORMATS[d.format] + ', gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + ', ' + (d.ppm || 0) + ' ppm, squelch ' + d.squelchDb + ' dB' + (d.biasTee ? ', bias tee on' : ''));
-    const label = { freqHz: 'freq', gainDb: 'gain', squelchDb: 'squelch', biasTee: 'bias-tee', enabled: 'on/off' };
+    const tuner = 'gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + ', ' + (d.ppm || 0) + ' ppm, squelch ' + d.squelchDb + ' dB' + (d.biasTee ? ', bias tee on' : '');
+    if (multi) {
+      console.log('  ' + d.channels.length + ' channels at once, ' + d.sampleRate / 1000 + ' ksps around ' + (d.centerHz / 1e6).toFixed(4) + ' MHz, ' + tuner + ':');
+      for (const ch of d.channels) {
+        console.log('    ' + (Channels.mhz(ch.freqHz) + ' MHz').padEnd(13) + ' ' + FORMATS[ch.format].padEnd(16) + ' ' + ch.pointId.padEnd(24) + ' '
+          + (ch.inBand ? 'bursts ' + ch.counts.bursts + ', decodes ' + ch.counts.decodes : C.y + 'does not fit beside the others — not decoded' + C.x));
+      }
+    } else console.log('  ' + (d.freqHz / 1e6).toFixed(4) + ' MHz, ' + FORMATS[d.format] + ', ' + tuner);
+    const label = { freqHz: 'freq', moreChannels: 'channels', gainDb: 'gain', squelchDb: 'squelch', biasTee: 'bias-tee', enabled: 'on/off' };
     console.log('  ' + (d.own.length ? 'its own: ' + d.own.map(f => label[f] || f).join(', ') + '; the rest shared' : 'all settings shared') + (d.enabled ? '' : C.y + ' — turned off' + C.x));
     return;
   }
   if (what === 'on' || what === 'off') { value = what === 'on' ? 'shared' : 'off'; what = 'enabled'; }
   const field = STICK_SETTINGS[what];
-  if (!field) throw new Error('rpi-alert sdr <stick> freq|format|gain|ppm|squelch|bias-tee|name <value>, or rpi-alert sdr <stick> on|off');
+  if (!field) throw new Error('rpi-alert sdr <stick> freq|channels|format|gain|ppm|squelch|bias-tee|name <value>, or rpi-alert sdr <stick> on|off');
   if (value === '') throw new Error(what + ': which value? ("shared" for the setting all sticks share)');
-  const v = stickValue(field, value);
+  const set = field === 'freqHz' || field === 'moreChannels' ? channelSetting(field, value) : { [field]: stickValue(field, value) };
   const list = (await api('/api/config')).config.receivers.sdrDevices || [];
   // Its entry by key; one 0.4 made by serial is copied into it (and left for any other stick with that serial).
   const entry = Object.assign({}, list.find(e => e.key === d.key) || list.find(e => !e.key && e.serial === d.device.serial) || {}, { key: d.key });
   delete entry.serial;
-  if (v === undefined) delete entry[field]; else entry[field] = v;
+  for (const [f, v] of Object.entries(set)) { if (v === undefined) delete entry[f]; else entry[f] = v; }
   const next = list.filter(e => e.key !== d.key).concat(Object.keys(entry).length > 1 ? [entry] : []);
   const r = await post('/api/config', { config: { receivers: { sdrDevices: next } } });
-  const shown = v === undefined ? 'back to the shared setting' : field === 'freqHz' ? (v / 1e6).toFixed(4) + ' MHz' : field === 'format' ? FORMATS[v]
+  const v = set[field];
+  const shown = v === undefined ? 'back to the shared setting'
+    : field === 'freqHz' ? Channels.text([{ freqHz: v, format: set.format }].concat(set.moreChannels || []), entry.format) + ' MHz'
+    : field === 'moreChannels' ? (v.length ? Channels.text(v, entry.format) + ' MHz' : 'none') : field === 'format' ? FORMATS[v]
     : field === 'gainDb' && v === null ? 'auto' : field === 'biasTee' ? (v ? 'on' : 'off') : String(v);
   console.log(r.changed.length ? 'Saved: ' + d.name + ' — ' + (field === 'enabled' ? (v === false ? 'turned off' : 'turned on') : what + ' ' + shown) + '.' : 'Unchanged.');
 }
@@ -350,13 +406,21 @@ async function setup() {
   console.log('A USB GPS, when one is plugged in, is used instead automatically.');
   const where = await ask(rl, 'Location', c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '');
   console.log('\nRTL-SDR: the ALERT channel, and the frame format the network sends (binary for the 151.5 MHz network; enhanced_iflows for an ERT-A2 set to it).');
+  console.log('One stick hears several channels at once when they are within about 1.9 MHz of each other: list them, e.g. 151.5, 151.525, 152.4 (a format after one that differs: 152.4 eif).');
   const sticks = (await api('/api/status')).devices.sdrs;
-  if (sticks.length > 1) console.log('This is for every stick; to give one of the ' + sticks.length + ' its own channel afterwards: rpi-alert sdr ' + sticks[1].n + ' freq <MHz>');
-  const mhz = await ask(rl, 'Frequency, MHz', (c.receivers.sdr.freqHz / 1e6).toString());
-  const fmt = await ask(rl, 'Format (binary / enhanced_iflows / ascii)', c.receivers.sdr.format.toLowerCase());
+  if (sticks.length > 1) console.log('This is for every stick; to give one of the ' + sticks.length + ' its own channels afterwards: rpi-alert sdr ' + sticks[1].n + ' freq <MHz>');
+  const sd = c.receivers.sdr;
+  let chans = null;
+  for (let tries = 0; !chans; tries++) {
+    const p = Channels.parse(await ask(rl, 'Frequency, MHz', Channels.text([{ freqHz: sd.freqHz }].concat(sd.moreChannels || []), sd.format)));
+    if (!p.error && p.channels.length) chans = p.channels;
+    else if (tries >= 2) { rl.close(); throw new Error('no frequency set — ' + (p.error || 'type one, e.g. 151.5')); }
+    else console.log(C.y + (p.error || 'Type a frequency, e.g. 151.5') + C.x);
+  }
+  const fmt = await ask(rl, 'Format (binary / enhanced_iflows / ascii)', sd.format.toLowerCase());
   const audio = await ask(rl, 'Audio (auto / live / synth / beep / off)', c.audio.mode);
   rl.close();
-  const patch = { name, receivers: { sdr: { freqHz: Math.round(Number(mhz) * 1e6), format: String(fmt).toUpperCase() } }, audio: { mode: audio } };
+  const patch = { name, receivers: { sdr: { freqHz: chans[0].freqHz, moreChannels: chans.slice(1), format: Channels.formatOf(fmt) || String(fmt).toUpperCase() } }, audio: { mode: audio } };
   if (where && where !== (c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '')) {
     const m = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(where);
     if (m) {

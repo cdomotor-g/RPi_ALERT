@@ -9,7 +9,7 @@ flowchart LR
     ps --> e[ERT-A2 driver<br/>alert2.js]
     ps --> g[GPS driver<br/>serial-gps.js]
     scan --> sdr[SDR session<br/>rtl_sdr supervisor]
-    sdr --> w[worker thread<br/>alert-dsp.js Pipeline]
+    sdr --> w[a worker thread per channel<br/>alert-dsp.js Pipeline]
     q & e & w --> agent[agent<br/>time · name · show · play]
     g --> clock[clock<br/>NTP / GPS]
     g --> agent
@@ -64,16 +64,25 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
 - **Lost a device?** The session closes the port and retries (1, 2, 5, 10, 30 s) while the device
   node exists; once it is gone the session waits, and the scan reopens it the moment it reappears.
 - **RTL-SDR**: `rtl_sdr` streams u8 IQ to the agent, which hands it to a worker thread running
-  MegaNet's `AlertDsp.Pipeline` (channeliser, burst gate, decode, spectrum, FM audio). Ten seconds
-  with no samples kills it; any exit restarts it (2 s doubling to 30 s) while the stick is present.
-  A decoder that falls behind drops input rather than memory.
+  MegaNet's `AlertDsp.Pipeline` (channeliser, burst gate, decode, spectrum, FM audio) — one for each
+  channel the stick listens on, every one fed the same stream and set to its own channel's offset
+  from where the stick is tuned. So one stick decodes every channel in its slice of the band at
+  once, each a receiver of its own (its own MegaNet receiver id, counts, gate, squelch and format),
+  and a burst on one channel never waits for a decode on another: they run on separate cores.
+  [`sdr-plan.js`](../agent/lib/devices/sdr-plan.js) picks the sample rate and the centre — the
+  lowest of the decoder's rates that holds the channels, and the centre that keeps the DC spike and
+  every mirror image furthest from all of them. Ten seconds with no samples kills `rtl_sdr`; any exit
+  restarts it (2 s doubling to 30 s) while the stick is present. A decoder that falls behind drops
+  input rather than memory.
 - **Which stick is which** ([`state.js`](../agent/lib/state.js)): every stick seen is remembered in
   `/var/lib/rpi-alert/state.json` with what it says it is (USB ids, maker, model, serial) and its USB
   port (`1-1.3`), and each scan matches what is plugged in against that — same stick in the same
   port; else the same kind of stick that is missing, moved; else a new stick — never against what
   else is plugged in, so a second stick neither renames nor restarts the first even when both say
   they are serial `00000001`. Each has its own receiver id and its own settings
-  (`receivers.sdrDevices`, by key). An unplugged stick stays listed until it returns or is removed.
+  (`receivers.sdrDevices`, by key); each of its more channels has the stick's id and its frequency
+  (`rpi-<host>-sdr1-151.525`), so it keeps its id whatever other channels come and go. An unplugged
+  stick stays listed until it returns or is removed.
 - **Pointing `rtl_sdr` at it** ([`rtl-index.js`](../agent/lib/devices/rtl-index.js)): `-d` takes a
   serial or a device number, and librtlsdr numbers the sticks in libusb's order — udev's device-path
   order, reversed, since libusb puts each device it finds at the head of its list. The agent uses
@@ -90,7 +99,7 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
 |---|---|---|
 | On air | 300-baud AFSK on narrowband FM | 4800 bps, a different modulation and framing |
 | Frame formats | ALERT Binary (no check), Enhanced iFLOWS (CRC-6), ALERT ASCII | IND 0x74 "ALERT concentration" element: seconds-since-midnight + 4-byte records |
-| Heard by | RTL-SDR (decoded on the Pi), Quansheng radio (decoded on the radio) | ELPRO ERT-A2 (decoded on the receiver) |
+| Heard by | RTL-SDR (decoded on the Pi, every channel in the stick's slice at once), Quansheng radio (decoded on the radio) | ELPRO ERT-A2 (decoded on the receiver) |
 | Reading | `protocol: "alert"`, format shown as ABF / EIF / ASCII | `protocol: "alert2"` |
 
 Both carry the same 13-bit ALERT address and 11-bit value, which is why MegaNet stores them in one

@@ -197,8 +197,10 @@ class Agent extends EventEmitter {
   // operator said one, as a suggestion for the token's host station.
   tokenRequestPayload() {
     const loc = this.location();
+    // An RTL-SDR stick is a receiver for each channel it hears.
     const rx = this.devices.all().filter(s => s.state !== 'unplugged' && (s.kind === 'sdr' || (s.type && s.type !== 'gps')))
-      .map(s => ({ kind: s.kind === 'sdr' ? 'rtl-sdr' : s.type, name: s.name() })).slice(0, 8);
+      .flatMap(s => (s.kind === 'sdr' ? s.channels.filter(ch => ch.spec.inBand).map(ch => ({ kind: 'rtl-sdr', name: ch.name() })) : [{ kind: s.type, name: s.name() }]))
+      .slice(0, 8);
     const p = {
       label: this.baseName(),
       detail: { app: 'RPi ALERT', version: pkg.version, host: os.hostname(), board: this.board.model || undefined, receivers: rx },

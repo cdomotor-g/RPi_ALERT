@@ -23,13 +23,26 @@ mode 0600 because it holds the ingest token):
   own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), web password, time
   zone, restart/reboot/shut down, update check.
 
+**Several channels on one stick.** One stick decodes every channel in a stretch of the band about
+1.9 MHz wide, all at the same time. Under **Settings → RTL-SDR**, *Frequency* is the stick's own
+channel and *More channels on the same stick* the others — `151.525, 151.95, 152.4`, with a format
+after any channel sent in another one (`152.4 EIF`). Each channel is a receiver of its own: named for
+its frequency (*RTL-SDR · 151.525*), with its own MegaNet receiver id (`rpi-<host>-sdr1-151.525`; the
+stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and counts. The stick's
+sample rate goes up by itself to hold them (the setting is the least it uses), and it is tuned so the
+DC spike and any mirror image stay off every channel — the Receivers page shows where it is tuned and
+a row for each channel. Adding or removing a channel leaves the others alone: they keep their
+receiver ids, and are restarted only if the stick had to be tuned elsewhere. Channels too far apart
+for one stick are refused, saying which. More: [hardware.md](hardware.md#several-channels-on-one-stick).
+
 **Several RTL-SDR sticks.** Each stick is a receiver of its own, with its own MegaNet receiver id
 (`rpi-<host>-sdr1`, `-sdr2`, …) and name (*RTL-SDR*, *RTL-SDR 2*, …, numbered in USB port order).
-Under **Settings → RTL-SDR → Each stick**, any stick can have its own name, frequency, frame format,
-gain, ppm, squelch and bias tee, or be turned off; a blank field is the shared setting above it. So
-one Pi can listen to two networks at once — or one channel in both ALERT Binary and Enhanced
-iFLOWS, a stick each. Changing one stick's frequency, gain, ppm or bias tee restarts only that
-stick's `rtl_sdr`; a format or squelch change does not restart anything.
+Under **Settings → RTL-SDR → Each stick**, any stick can have its own name, frequency, more channels,
+frame format, gain, ppm, squelch and bias tee, or be turned off; a blank field is the shared setting
+above it, and `none` in *More channels* leaves a stick with only its own frequency. So one Pi can
+listen to networks further apart than one stick hears. Changing one stick's channels, gain, ppm or
+bias tee restarts only that stick's `rtl_sdr` (and only if where it is tuned changes); a format or
+squelch change does not restart anything.
 
 Most sticks share one serial number (`00000001`), so sticks are told apart by the **USB port** they
 are in: keep each in its port and it keeps its name, settings and receiver id, across replugs and
@@ -65,10 +78,14 @@ rpi-alert request-token          ask MegaNet for the token: a code and a QR code
 rpi-alert token [mgn_…]          check a token against MegaNet and save it
 rpi-alert config get [key]       e.g. rpi-alert config get receivers.sdr
 rpi-alert config set key value   e.g. rpi-alert config set receivers.sdr.freqHz 151525000
-rpi-alert sdr                    the RTL-SDR sticks: number, name, channel, USB port, state
+rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
+rpi-alert sdr 1                  one stick: where it is tuned, and each channel with its receiver id
 rpi-alert sdr 2 freq 151.525     one stick's own setting: freq (MHz), format, gain (dB or auto),
                                  ppm, squelch, bias-tee, name — "shared" goes back to the shared
                                  one; rpi-alert sdr 2 off / on. A stick by number, name or USB port
+rpi-alert sdr 1 freq 151.5, 151.525, 152.4 eif
+                                 several channels on one stick, all heard at once (its own first)
+rpi-alert sdr 1 channels 151.95  just its more channels ("none" for none, "shared" for the shared)
 rpi-alert sdr remove 3           forget an unplugged stick (name, settings, receiver id)
 rpi-alert password               the web page password
 rpi-alert readings [n] · log [n] · test-audio [alert|alert2|beep] · send-now · version
@@ -93,7 +110,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `gps_bluetooth` | Bluetooth address, or off | a Bluetooth GPS (an Emlid Reach set to *Position output → Bluetooth, NMEA*): Bluetooth turned on, the receiver paired and kept connected by `rpi-alert-btgps.service`, read as `/dev/rpi-alert-gps` (added to `receivers.extraPorts`); turns `location.useGps` on unless `use_gps` says otherwise. For a mobile unit |
 | `gps_bluetooth_pin` | e.g. 123456 | the PIN the receiver asks for when pairing (Emlid's default is 123456) |
 | `gps_bluetooth_channel` | 1–30 | its serial channel, if not 1 (else 1 to 10 are tried) |
-| `sdr_frequency_mhz` | e.g. 151.5 | `receivers.sdr.freqHz` |
+| `sdr_frequency_mhz` | e.g. 151.5 — or several, `151.5, 151.525, 152.4 eif` | `receivers.sdr.freqHz` (the first); several: also `receivers.sdr.moreChannels` (the rest), all heard by one stick at once |
+| `sdr_more_channels_mhz` | e.g. `151.525, 152.4`, or none | `receivers.sdr.moreChannels` alone |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
 | `sdr_ppm`, `sdr_sample_rate`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
@@ -129,13 +147,14 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.ports[]` | — | Per-port overrides: `{ match, type: auto/quansheng/ert-a2/gps/ignore, baud, name }`; `match` is a `/dev/serial/by-id/…` path, a `/dev` name or `vvvv:pppp` |
 | `receivers.extraPorts[]` | — | Non-USB ports to scan too |
 | `receivers.sdr.enabled` | true | Use RTL-SDR sticks |
-| `receivers.sdr.freqHz` | 151500000 | The ALERT channel |
-| `receivers.sdr.format` | BINARY | BINARY · ENHANCED_IFLOWS · ASCII (one at a time: alert-dsp.js explains why) |
-| `receivers.sdr.sampleRate` | 0 (auto) | 960000 on a 4-core Pi with ≥ 1 GB, else 240000 |
-| `receivers.sdr.offsetHz` | 0 (auto) | Tune this far below the channel (default rate/4) to keep the DC spike off it |
+| `receivers.sdr.freqHz` | 151500000 | The ALERT channel (a stick's own) |
+| `receivers.sdr.moreChannels` | [] | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz`; none listed twice |
+| `receivers.sdr.format` | BINARY | BINARY · ENHANCED_IFLOWS · ASCII (one per channel: alert-dsp.js explains why) |
+| `receivers.sdr.sampleRate` | 0 (auto) | 960000 on a 4-core Pi with ≥ 1 GB, else 240000 — or higher, as much as a stick's channels need (the setting is the least used) |
+| `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
-| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one. Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
+| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |

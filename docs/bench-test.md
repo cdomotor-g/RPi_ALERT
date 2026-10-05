@@ -64,6 +64,25 @@ the token's label, the clock **ok (ntp)**, and the location.
 5. Unplug one: it stays listed as *unplugged*. Press **Remove**: it is gone, and plugged in again
    it is found as a new stick (with the first free name).
 
+## 3b. Several channels on one stick
+
+1. **Settings → RTL-SDR → More channels on the same stick**: `151.525, 151.95, 152.4` (or whichever
+   of the networks' channels the bench can hear) and save. Expect the stick to restart at
+   1.92 Msps, tuned to about 151.85 MHz: its Receivers card lists four channels, each with its own
+   receiver id (`…-sdr1`, `…-sdr1-151.525`, `…-sdr1-151.950`, `…-sdr1-152.400`), and the spectrum
+   has a green line for each.
+2. Readings now come from every channel — the dashboard names each *RTL-SDR · 151.500* and so on.
+   Compare with MegaNet's Message Log, or a Quansheng radio on each channel in turn.
+3. Load: `top` while they run. A Pi 4 should keep up with four channels at 1.92 Msps; a *dropping
+   samples* warning in the log means too many for this Pi (fewer, or closer together). Note the
+   CPU per decoder thread in the report — it sets how many channels a Pi 4 and a Zero 2 W can take.
+4. With the V2 (a zero-IF FC0013): does a strong burst on one channel show up as an *undecoded*
+   burst on another? The agent tunes so that no channel sits on another's mirror image, so it
+   should not; report it if it does.
+5. Remove one channel and save: only it goes. The others keep their receiver ids and, when the
+   tuning did not change (dropping 151.525 from those four leaves it at 151.85 MHz), are not
+   restarted at all.
+
 ## 4. Quansheng radio
 
 Plug in by USB-C with the ALERT app running (F then 0). Expect *Quansheng radio*, recognised by USB id

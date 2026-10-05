@@ -338,11 +338,11 @@ class DeviceManager extends EventEmitter {
         this.log.info('found RTL-SDR ' + st.vid + ':' + st.pid + ' ' + [st.manufacturer, st.product, st.serial && 'SN ' + st.serial].filter(Boolean).join(' ')
           + ' in USB port ' + st.busPath + ' — ' + s.name() + ' (' + s.point.pointId + ')');
         s.start();
-        this.agent.deviceAttached(s);
+        s.attach();
         this.emit('change');
       } else {
         s.stick = st;
-        if (s.state === 'unplugged') { s.log.info('plugged back in, USB port ' + st.busPath); s.start(); this.agent.deviceAttached(s); this.emit('change'); }
+        if (s.state === 'unplugged') { s.log.info('plugged back in, USB port ' + st.busPath); s.start(); s.attach(); this.emit('change'); }
       }
     }
     this.agent.state.touchSdrs(live);
@@ -358,7 +358,7 @@ class DeviceManager extends EventEmitter {
       s.stop();
       s.state = 'unplugged';
       this.agent.state.sdrGone(key);
-      this.agent.deviceDetached(s);
+      s.detach();
       this.emit('change');
     }
   }
@@ -380,8 +380,9 @@ class DeviceManager extends EventEmitter {
     if (!s) return { ok: false, status: 404, error: 'no such receiver' };
     if (s.state !== 'unplugged') return { ok: false, status: 409, error: s.name() + ' is plugged in. Unplug it first — or, to stop using it, turn it off.' };
     const name = s.name();
-    const pt = sdr ? sdr.point : (port.type && port.type !== 'gps' ? this.agent.state.pointFor(key, port.type) : null);
-    if (pt) this.agent.uplink.forgetPoint(pt.pointId);
+    // A stick's receiver ids: one per channel it has listened on.
+    const ids = sdr ? sdr.pointIds() : port.type && port.type !== 'gps' ? [this.agent.state.pointFor(key, port.type).pointId] : [];
+    for (const id of ids) this.agent.uplink.forgetPoint(id);
     if (sdr) {
       sdr.stop();
       sdr.state = 'unplugged';

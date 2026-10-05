@@ -14,7 +14,8 @@
 //   longitude = 153.0251
 //   location_station = loudoun_br_al  …or the station it sits at (with its latitude/longitude)
 //   use_gps = yes                     a USB GPS fix, when there is one, wins
-//   sdr_frequency_mhz = 151.5
+//   sdr_frequency_mhz = 151.5         or several for one stick to hear at once: 151.5, 151.525, 152.4
+//   sdr_more_channels_mhz = none      just the more channels (152.4 eif: a format after one that differs)
 //   sdr_format = binary               binary | enhanced_iflows | ascii
 //   sdr_gain_db = 29.7                or auto
 //   sdr_ppm = 0
@@ -44,6 +45,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { Config, hashPassword } = require('./config');
+const Channels = require('../web/channels');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
@@ -97,7 +99,21 @@ function toPatch(kv) {
       case 'location_accuracy_m': set('location.accuracy_m', n(v)); break;
       case 'use_gps': set('location.useGps', !no(v)); break;
       case 'sdr': case 'sdr_enabled': set('receivers.sdr.enabled', !no(v)); break;
-      case 'sdr_frequency_mhz': case 'frequency_mhz': set('receivers.sdr.freqHz', Math.round(n(v) * 1e6)); break;
+      // One frequency: the channel. Several: the first, and the more channels
+      // the same stick hears at once (web/channels.js reads the list).
+      case 'sdr_frequency_mhz': case 'frequency_mhz': {
+        const p = Channels.parse(v);
+        if (p.error || !p.channels.length) { notes.push(k + ': ' + (p.error || 'a frequency in MHz, e.g. 151.5') + ' — not changed'); break; }
+        set('receivers.sdr.freqHz', p.channels[0].freqHz);
+        if (p.channels[0].format) set('receivers.sdr.format', p.channels[0].format);
+        if (p.channels.length > 1) set('receivers.sdr.moreChannels', p.channels.slice(1));
+        break;
+      }
+      case 'sdr_more_channels_mhz': case 'sdr_channels_mhz': {
+        const p = Channels.parse(v);
+        if (p.error) notes.push(k + ': ' + p.error + ' — not changed'); else set('receivers.sdr.moreChannels', p.channels);
+        break;
+      }
       case 'sdr_frequency_hz': set('receivers.sdr.freqHz', Math.round(n(v))); break;
       case 'sdr_format': case 'format': set('receivers.sdr.format', String(v).trim().toUpperCase().replace(/[\s-]+/g, '_')); break;
       case 'sdr_gain_db': case 'gain_db': set('receivers.sdr.gainDb', /^(auto|agc)$/i.test(v) ? null : n(v)); break;

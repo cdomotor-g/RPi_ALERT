@@ -10,6 +10,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
+const { MAX_CHANNELS, MAX_SPAN_HZ } = require('./devices/sdr-plan');
+const { mhz } = require('../web/channels');
 
 const CONFIG_PATH = process.env.RPI_ALERT_CONFIG || '/etc/rpi-alert/config.json';
 
@@ -25,8 +27,9 @@ const MEGANET_ENDPOINTS = [
 const MEGANET_APIKEY = 'sb_publishable_PV9VjCM8NQeGAJMuwa5TKA_yX9GWacY';
 
 const SDR_FORMATS = ['BINARY', 'ENHANCED_IFLOWS', 'ASCII'];
+const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 // What one stick can set for itself (receivers.sdrDevices[]), besides its name.
-const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
+const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'moreChannels', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
 const PORT_TYPES = ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'];
 const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
@@ -69,8 +72,13 @@ function defaults() {
       sdr: {
         enabled: true,
         freqHz: 151500000,
-        sampleRate: 0,         // 0: 960 ksps on a 4-core Pi with 1 GB+, 240 ksps otherwise
-        offsetHz: 0,           // 0: tune off-centre by a quarter of the rate, away from the DC spike
+        // More channels for the same stick to hear at once, each a receiver of
+        // its own (rpi-<host>-sdr<n>-<MHz>): [{ freqHz, format }] (format: the
+        // one below when left out). One stick hears channels up to 1.89 MHz
+        // apart (sdr-plan.js).
+        moreChannels: [],
+        sampleRate: 0,         // 0: 960 ksps on a 4-core Pi with 1 GB+, 240 ksps otherwise — or what the channels need
+        offsetHz: 0,           // 0: tune off-centre by a quarter of the rate, away from the DC spike (one channel)
         gainDb: 29.7,          // null: tuner AGC
         ppm: 0,
         format: 'BINARY',      // one at a time, on purpose — see alert-dsp.js
@@ -81,7 +89,7 @@ function defaults() {
         minVotesCrc: 4,
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
-      //   { key, name, enabled, freqHz, format, gainDb, ppm, biasTee, squelchDb }
+      //   { key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }
       // Anything left out is the shared setting above. (0.4 matched them by
       // { serial } alone, which every stick with that serial shares; still read.)
       sdrDevices: [],
@@ -118,6 +126,15 @@ function num(v, lo, hi) {
 }
 function isNum(v, lo, hi) { return typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi; }
 
+// The channels a stick hears besides its own: [{ freqHz, format? }], at most
+// MAX_CHANNELS in all.
+function moreOk(list) {
+  return Array.isArray(list) && list.length <= MAX_CHANNELS - 1
+    && list.every(m => isObj(m) && isNum(m.freqHz, 24e6, 1766e6) && (m.format === undefined || SDR_FORMATS.includes(m.format)));
+}
+const MORE_RULE = 'a list of up to ' + (MAX_CHANNELS - 1) + ' more channels, each { freqHz: 24–1766 MHz, format: '
+  + SDR_FORMATS.join(' | ') + ' (or left out: the stick\'s own) }';
+
 // One stick's own settings: which stick (its key; or a serial, as 0.4 wrote
 // them), then any setting that differs from the shared ones.
 function stickErrors(d) {
@@ -130,6 +147,7 @@ function stickErrors(d) {
   need(d.enabled === undefined || typeof d.enabled === 'boolean', 'enabled: true or false');
   need(d.freqHz === undefined || isNum(d.freqHz, 24e6, 1766e6), 'freqHz: 24–1766 MHz');
   need(d.format === undefined || SDR_FORMATS.includes(d.format), 'format: one of ' + SDR_FORMATS.join(', '));
+  need(d.moreChannels === undefined || moreOk(d.moreChannels), 'moreChannels: ' + MORE_RULE);
   need(d.gainDb === undefined || d.gainDb === null || isNum(d.gainDb, 0, 60), 'gainDb: 0–60 dB, or null for AGC');
   need(d.ppm === undefined || isNum(d.ppm, -200, 200), 'ppm: -200…200');
   need(d.biasTee === undefined || typeof d.biasTee === 'boolean', 'biasTee: true or false');
@@ -159,6 +177,7 @@ function validate(c) {
   need(Array.isArray(r.extraPorts) && r.extraPorts.every(p => typeof p === 'string' && /^\/dev\/[\w./-]+$/.test(p)), 'receivers.extraPorts: /dev paths');
   const s = r.sdr || {};
   need(num(s.freqHz, 24e6, 1766e6) !== undefined, 'receivers.sdr.freqHz: 24–1766 MHz');
+  need(moreOk(s.moreChannels), 'receivers.sdr.moreChannels: ' + MORE_RULE);
   need(s.sampleRate === 0 || [240000, 960000, 1200000, 1920000, 2400000].includes(s.sampleRate), 'receivers.sdr.sampleRate: 0 (auto), 240000, 960000, 1200000, 1920000 or 2400000');
   need(num(s.offsetHz, -1e6, 1e6) !== undefined, 'receivers.sdr.offsetHz: within ±1 MHz');
   need(s.gainDb === null || num(s.gainDb, 0, 60) !== undefined, 'receivers.sdr.gainDb: 0–60 dB, or null for AGC');
@@ -180,6 +199,42 @@ function validate(c) {
   need(KIOSK_MODES.includes((c.kiosk || {}).mode), 'kiosk.mode: one of ' + KIOSK_MODES.join(', '));
   const tz = (c.system || {}).timezone;
   need(tz === '' || /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(tz), 'system.timezone: e.g. Australia/Brisbane');
+  return errs;
+}
+
+// A stick's channels, its own first: [{ freqHz, format }], each more channel
+// in the stick's format unless it names one. own: the stick's entry in
+// receivers.sdrDevices, or null for what every stick shares.
+function channelsOf(sdr, own) {
+  const pick = (f) => (own && own[f] !== undefined ? own[f] : sdr[f]);
+  const format = pick('format');
+  return [{ freqHz: pick('freqHz'), format }].concat((pick('moreChannels') || []).map(m => ({ freqHz: m.freqHz, format: m.format || format })));
+}
+
+// Every stick's channels — the shared ones, and each stick's own — must fit
+// in what one stick hears, and none may be listed twice. Not part of
+// validate(): repair() tries one setting at a time against the defaults, and
+// this is about settings together. A save is refused for it; a settings file
+// that breaks it is loaded, and the stick decodes the channels that fit.
+function channelErrors(c) {
+  const r = (c && c.receivers) || {};
+  const errs = [];
+  const check = (where, list) => {
+    const seen = new Set();
+    for (const ch of list) {
+      const k = ch.freqHz + '/' + ch.format;
+      if (seen.has(k)) errs.push(where + ': ' + mhz(ch.freqHz) + ' MHz in ' + FORMAT_NAMES[ch.format] + ' is listed twice');
+      seen.add(k);
+    }
+    const freqs = list.map(ch => ch.freqHz), lo = Math.min(...freqs), hi = Math.max(...freqs);
+    if (hi - lo > MAX_SPAN_HZ) {
+      errs.push(where + ': ' + mhz(lo) + ' and ' + mhz(hi) + ' MHz are ' + ((hi - lo) / 1e6).toFixed(2) + ' MHz apart, and one stick hears channels up to '
+        + (MAX_SPAN_HZ / 1e6).toFixed(2) + ' MHz apart — give the far ones a stick of their own');
+    }
+  };
+  if (!isObj(r.sdr)) return errs;
+  check('receivers.sdr', channelsOf(r.sdr, null));
+  (r.sdrDevices || []).forEach((d, i) => { if (isObj(d)) check('receivers.sdrDevices[' + i + ']' + (d.key ? ' (' + d.key + ')' : ''), channelsOf(r.sdr, d)); });
   return errs;
 }
 
@@ -225,6 +280,8 @@ class Config extends EventEmitter {
         const errs = validate(merged);
         if (errs.length) this.loadError = 'settings file has problems (defaults used for them): ' + errs.join('; ');
         this.data = errs.length ? repair(merged) : merged;
+        const ch = channelErrors(this.data);
+        if (ch.length) this.loadError = (this.loadError ? this.loadError + '; ' : '') + 'channels one stick cannot hear together (only those that fit are decoded): ' + ch.join('; ');
       } catch (e) {
         this.loadError = 'settings file is not valid JSON (' + e.message + '); starting from defaults, the file is kept as .bad';
         try { fs.copyFileSync(this.file, this.file + '.bad'); } catch (_) {}
@@ -247,7 +304,8 @@ class Config extends EventEmitter {
   update(patch) {
     const next = merge(this.data, patch);
     // Arrays given in a patch replace the stored ones whole (merge() already does that).
-    const errors = validate(next);
+    let errors = validate(next);
+    if (!errors.length) errors = channelErrors(next);
     if (errors.length) return { ok: false, errors, changed: [] };
     const changed = changedPaths(this.data, next);
     if (!changed.length) return { ok: true, errors: [], changed };
@@ -308,6 +366,6 @@ function changedPaths(a, b) {
 }
 
 module.exports = {
-  Config, defaults, validate, stickErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
-  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES,
+  Config, defaults, validate, stickErrors, channelsOf, channelErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
+  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES,
 };

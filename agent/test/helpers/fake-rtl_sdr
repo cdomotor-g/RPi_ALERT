@@ -2,7 +2,8 @@
 'use strict';
 // A stand-in for rtl_sdr: takes the same arguments, says on stderr what a real
 // RTL-SDR Blog V4 says, and streams u8 IQ to stdout in real time — noise, with
-// an ALERT Binary burst (two frames) at its stick's channel every few seconds.
+// an ALERT Binary burst (two frames) at its stick's channel every few seconds,
+// or a burst on each of several channels.
 //
 // It plays librtlsdr too, as far as the agent can tell. It finds the sticks in
 // the fake sysfs (RPI_ALERT_SYSFS), numbers them as libusb does (in reverse
@@ -16,6 +17,10 @@
 //   RPI_ALERT_FAKE_FRAMES="2088:143,2089:12"     what they carry
 //   RPI_ALERT_FAKE_STICKS='{"1-1.4": {"channelHz": 151600000, "frames": "3001:77"}}'
 //                                                 per stick, by USB port
+//   RPI_ALERT_FAKE_BURSTS='[{"channelHz": 152400000, "frames": "4001:5", "format": "ENHANCED_IFLOWS"}, …]'
+//                                                 a burst on each of several channels, one after
+//                                                 another (also per stick: "bursts": […]); a burst
+//                                                 out of the slice rtl_sdr was told to tune is not sent
 //   RPI_ALERT_FAKE_FORMAT=BINARY|ENHANCED_IFLOWS
 //   RPI_ALERT_FAKE_ORDER=forward                  number the sticks in device-path order,
 //                                                 unlike libusb (the agent must notice)
@@ -99,18 +104,26 @@ if (DEV && st.busPath) {
   setInterval(() => { if (!fs.existsSync(st.dir)) { err('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); } }, 300);
 }
 
-let per = {};
+let per = {}, many = null;
 try { per = JSON.parse(process.env.RPI_ALERT_FAKE_STICKS || '{}'); } catch (_) {}
+try { many = JSON.parse(process.env.RPI_ALERT_FAKE_BURSTS || 'null'); } catch (_) {}
 const mine = (st.busPath && per[st.busPath]) || {};
-const channel = Number(mine.channelHz || process.env.RPI_ALERT_FAKE_CHANNEL_HZ || 151.5e6);
-const fmt = mine.format || process.env.RPI_ALERT_FAKE_FORMAT || 'BINARY';
-const frames = (mine.frames || process.env.RPI_ALERT_FAKE_FRAMES || '2088:143,2089:12').split(',').map(p => p.split(':').map(Number)).map(([id, v]) => D.encodeFrame(D[fmt], id, v));
+const frameList = (s, fmt) => s.split(',').map(p => p.split(':').map(Number)).map(([id, v]) => D.encodeFrame(D[fmt], id, v));
+const want = mine.bursts || many || [{ channelHz: mine.channelHz || process.env.RPI_ALERT_FAKE_CHANNEL_HZ || 151.5e6,
+  frames: mine.frames || process.env.RPI_ALERT_FAKE_FRAMES || '2088:143,2089:12', format: mine.format || process.env.RPI_ALERT_FAKE_FORMAT || 'BINARY' }];
 
 err('Found Rafael Micro R828D tuner\nRTL-SDR Blog V4 Detected\nSampling at ' + rate + ' S/s.\nTuned to ' + center + ' Hz.\nReading samples in async mode...\n');
 
-const seconds = 6;
-const offset = channel - center;
-const loop = D.synthIq({ fs: rate, seconds, snrDb: 28, seed: 7, bursts: [{ startSec: 2.0, frames, cfoHz: offset, amp: 40, polarity: 'NEG' }] });
+// One burst a channel, a second and a half apart (or at its own startSec, to
+// overlap), then quiet: the loop lasts at least six seconds — eleven with
+// several, so that each comes round again as a new reading (the decoder takes
+// the same reading within ten seconds for a repeat). Only what falls inside
+// the slice rtl_sdr was told to tune is on the air here.
+const bursts = want.map((b, i) => ({ startSec: b.startSec != null ? Number(b.startSec) : 2.0 + 1.5 * i, frames: frameList(String(b.frames), b.format || 'BINARY'),
+  cfoHz: Number(b.channelHz) - center, amp: 40, polarity: 'NEG' }))
+  .filter(b => Math.abs(b.cfoHz) < rate / 2 - 15000);
+const seconds = Math.max(want.length > 1 ? 11 : 6, ...bursts.map(b => b.startSec + 3));
+const loop = D.synthIq({ fs: rate, seconds, snrDb: 28, seed: 7, bursts });
 
 const chunk = Math.round(rate / 20) * 2;   // 50 ms
 let pos = 0;

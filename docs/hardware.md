@@ -40,12 +40,42 @@ for the live networks; Enhanced iFLOWS for an ERT-A2 set to it — one at a time
 The DVB-T modules (`dvb_usb_rtl28xxu`, `rtl2832`, `rtl2832_sdr`, `rtl2830`, `r820t`) are
 blacklisted. Only one program can hold a stick: stop `rtl_tcp`, SDR++ or GQRX while the agent runs.
 
+### Several channels on one stick
+
+A stick hands over a whole slice of the band at once — as wide as its sample rate — so it does not
+have to choose one channel: the agent decodes **every ALERT channel in the slice at the same time**,
+each with a decoder thread of its own, and each is a receiver of its own in MegaNet. List them under
+**Settings → RTL-SDR → More channels on the same stick** (or `rpi-alert sdr 1 freq 151.5, 151.525,
+152.4`, or `sdr_frequency_mhz = 151.5, 151.525, 152.4` on the SD card).
+
+- **How far apart**: channels within **1.89 MHz** of each other fit one stick (80% of the top rate,
+  2.4 Msps, less a channel's width at each end: the RTL2832U's filter rolls off at the edges). The
+  channels MegaNet's stations use — 151.500, 151.525, 151.950 and 152.400 MHz — span 900 kHz: one
+  stick hears all four. A channel further away needs a stick of its own (below); the settings say so.
+- **Where it is tuned**: the agent picks the sample rate (the lowest that holds the channels, never
+  below the setting) and the centre, keeping every channel at least 20 kHz — 100 kHz when there is
+  room — from the DC spike at the centre, and off every other channel's *mirror image* (a zero-IF
+  tuner like the V2's FC0013 shows a faint copy of each signal at the opposite offset; a strong
+  burst's copy landing on another channel would be decoded there too). For the four channels above:
+  1.92 Msps around 151.85 MHz — the nearest channel 100 kHz from the spike, no image within 200 kHz.
+  The Receivers page shows both. One channel alone is tuned as before: a quarter of the rate away.
+- **What it costs**: a decoder thread per channel, each working through the whole slice. On a Pi 4,
+  roughly 15–20% of a core per channel at 960 ksps and 30–40% at 1.92 Msps, plus a second or two
+  per burst decoded (estimated from a PC; [bench-test.md](bench-test.md) measures it). Four channels
+  at 1.92 Msps is well within a Pi 4; a Zero 2 W manages a few at 960 ksps. A decoder that cannot
+  keep up drops samples and says so in the log. At most 8 channels a stick; each uses ~30 MB.
+- **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
+  push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.
+  The format and squelch are each channel's (`152.4 EIF` for a channel sent in Enhanced iFLOWS; the
+  same frequency may even be listed twice, once in each format).
+
 ### Several sticks
 
 Plug in as many as the Pi's CPU and USB power allow — each is a receiver of its own with its own
-decoder thread, so a Pi 4 runs a few at 960 ksps (two V4s draw about 0.6 A; use a powered hub
-beyond that). Give each its own channel under **Settings → RTL-SDR → Each stick** (or
-`rpi-alert sdr 2 freq 151.525`), and one Pi listens to several networks at once.
+decoder threads, so a Pi 4 runs a few at 960 ksps (two V4s draw about 0.6 A; use a powered hub
+beyond that). Give each its own channels under **Settings → RTL-SDR → Each stick** (or
+`rpi-alert sdr 2 freq 151.525`), and one Pi listens to networks further apart than one stick can
+hear.
 
 Most sticks leave the factory with serial `00000001`, so the agent tells them apart by **USB port**:
 keep each stick in its port and it keeps its name, its settings and its MegaNet receiver id, however

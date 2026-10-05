@@ -38,10 +38,16 @@ request_token = yes
 #gps_bluetooth_pin = 123456
 
 # ── RTL-SDR ─────────────────────────────────────────────────────────────────
-# For every stick. With several, each can have a channel of its own once it
-# has been plugged in: the web page (Settings → RTL-SDR → Each stick), or
+# For every stick. With several sticks, each can have channels of its own once
+# it has been plugged in: the web page (Settings → RTL-SDR → Each stick), or
 # `rpi-alert sdr 2 freq 151.525` over SSH.
 #sdr_frequency_mhz = 151.5
+# One stick hears several channels at once when they are within about 1.9 MHz
+# of each other — each is a receiver of its own in MegaNet. List them, the
+# stick's own first; a channel sent in another format has it after it:
+#sdr_frequency_mhz = 151.5, 151.525, 151.95, 152.4 eif
+# Or just the more channels, beside sdr_frequency_mhz (none for none):
+#sdr_more_channels_mhz = 151.525, 152.4
 # binary (the 151.5 MHz networks) | enhanced_iflows (an ERT-A2 set to it) | ascii
 #sdr_format = binary
 # A number in dB, or auto

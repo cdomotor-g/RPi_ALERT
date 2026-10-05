@@ -20,8 +20,12 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
-- **Several channels on one stick** — at 960 ksps a stick sees ±480 kHz; several AlertDsp channels
-  could run off one stream. (Today it is one channel per stick, with as many sticks as the Pi takes.)
+- **A channeliser shared by a stick's channels** — each channel's decoder thread converts and
+  filters the stick's whole stream on its own (one stick, several channels, is done: see
+  [hardware.md](hardware.md#several-channels-on-one-stick)). If the bench Pi shows CPU is what limits
+  the channels a Pi can take, one thread per stick could convert the samples and cut out every
+  channel once (a polyphase filter bank), handing each decoder its own 240 ksps stream — a change to
+  MegaNet's `alert-dsp.js` first, so the website gains it too.
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
   frames the radio heard but did not report, as MegaNet's Serial Monitor does.
 - **Upload MegaNet's station table to a Quansheng radio** from the Receivers page
@@ -50,3 +54,5 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
   from browsers at a glance (today they share `serial-monitor/`, which MegaNet's joins and checks
   expect; `detail.app = "RPi ALERT"` already tells them apart).
 - An "ingest point" page in MegaNet listing base stations, their receivers and last report.
+- Several channels on one stick for MegaNet's own SDR Pi relay (`sdr-pi/relay.js`, read through
+  PuTTY), which still decodes one — the same approach: a decoder thread per channel on one stream.

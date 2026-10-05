@@ -8,11 +8,17 @@
 #   * a MegaNet stand-in on :8098 that prints what it receives.
 # The agent's dashboard is then on http://localhost:8099/.  Ctrl+C stops it all.
 #
-#   agent/scripts/simulate.sh [sticks]   (1–4 RTL-SDR sticks, default 1; needs node and socat)
+# With --channels, the first stick is on the air on four channels at once —
+# 151.5, 151.525, 151.95 (Enhanced iFLOWS) and 152.4 MHz, as one stick hears
+# them — and the settings listen on all four.
+#
+#   agent/scripts/simulate.sh [--channels] [sticks]   (1–4 RTL-SDR sticks, default 1; needs node and socat)
 set -euo pipefail
 A="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+channels=0
+if [[ "${1:-}" == "--channels" ]]; then channels=1; shift; fi
 n_sdr=${1:-1}
-[[ "$n_sdr" =~ ^[1-4]$ ]] || { echo "usage: simulate.sh [1-4]" >&2; exit 2; }
+[[ "$n_sdr" =~ ^[1-4]$ ]] || { echo "usage: simulate.sh [--channels] [1-4]" >&2; exit 2; }
 S=$(mktemp -d "${TMPDIR:-/tmp}/rpi-alert-sim.XXXXXX")
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; rm -rf "$S"; }
@@ -21,6 +27,12 @@ command -v socat >/dev/null || { echo "install socat first (apt install socat)" 
 
 mkdir -p "$S/dev" "$S/data" "$S/etc" "$S/bin"
 fake='{"1-1.3": {"frames": "2088:143,2089:12"}'
+sdr_cfg=''
+if (( channels )); then
+  fake='{"1-1.3": {"bursts": [{"channelHz": 151500000, "frames": "2088:143,2089:12"}, {"channelHz": 151525000, "frames": "2443:142"},'
+  fake+=' {"channelHz": 151950000, "frames": "4079:420", "format": "ENHANCED_IFLOWS"}, {"channelHz": 152400000, "frames": "6129:77"}]}'
+  sdr_cfg=', "receivers": { "sdr": { "moreChannels": [{ "freqHz": 151525000 }, { "freqHz": 151950000, "format": "ENHANCED_IFLOWS" }, { "freqHz": 152400000 }] } }'
+fi
 for ((i = 1; i <= n_sdr; i++)); do
   port="1-1.$((i + 2))"; d="$S/sys/bus/usb/devices/$port"
   mkdir -p "$d"
@@ -35,7 +47,7 @@ sleep 1
 cat > "$S/etc/config.json" <<JSON
 { "name": "Simulated base", "web": { "port": 8099 },
   "meganet": { "token": "mgn_test_token", "endpoints": ["http://127.0.0.1:8098/rest/v1"], "stationsUrls": ["http://127.0.0.1:8098/stations.json"] },
-  "location": { "source": "manual", "lat": -27.4698, "lon": 153.0251, "useGps": true } }
+  "location": { "source": "manual", "lat": -27.4698, "lon": 153.0251, "useGps": true }${sdr_cfg} }
 JSON
 node "$A/test/helpers/meganet-stub.js" 8098 & pids+=($!)
 PATH="$S/bin:$PATH" RPI_ALERT_CONFIG="$S/etc/config.json" RPI_ALERT_DATA="$S/data" RPI_ALERT_DEV="$S/dev" RPI_ALERT_SYSFS="$S/sys" \
@@ -46,6 +58,7 @@ sleep 2
 printf 'HDR,fw,4d06107f,schema,2\r\n' > "$S/peer0"
 echo "Dashboard: http://localhost:8099/   CLI: RPI_ALERT_PORT=8099 $A/bin/rpi-alert status"
 if (( n_sdr > 1 )); then echo "RTL-SDR 2 hears a station on 151.6 MHz: give it that channel under Settings → RTL-SDR, or: RPI_ALERT_PORT=8099 $A/bin/rpi-alert sdr 2 freq 151.6"; fi
+if (( channels )); then echo "RTL-SDR hears 151.5, 151.525, 151.95 and 152.4 MHz at once: Receivers → RTL-SDR, or: RPI_ALERT_PORT=8099 $A/bin/rpi-alert sdr 1"; fi
 k=0
 while true; do
   printf 'STA,,%d,-121,-124,0,7890,78,%d,%d,-104,OK,1045,5969,BUILTIN MegaNet:95f6f8d\r\n' $((k * 10000)) "$k" "$k" > "$S/peer0"

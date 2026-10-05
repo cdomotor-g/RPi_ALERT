@@ -43,7 +43,7 @@ function ago(ms) {
 function protoTag(p) { return '<span class="proto ' + (p === 'alert2' ? 'alert2' : 'alert') + '">' + (p === 'alert2' ? 'ALERT2' : 'ALERT') + '</span>'; }
 function stateLabel(s) {
   return { running: 'receiving', identifying: 'identifying…', opening: 'opening…', starting: 'starting…', disconnected: 'reconnecting…',
-    unplugged: 'unplugged', restarting: 'restarting…', error: 'error', ignored: 'ignored', disabled: 'off', stopped: 'stopped' }[s] || s;
+    unplugged: 'unplugged', restarting: 'restarting…', error: 'error', ignored: 'ignored', disabled: 'off', stopped: 'stopped', 'out-of-band': 'not decoded' }[s] || s;
 }
 const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 
@@ -215,20 +215,48 @@ document.addEventListener('click', (e) => {
 
 function allDevices() { return S.status ? [...S.status.devices.sdrs, ...S.status.devices.ports] : []; }
 
+// Every receiver: a serial device, a stick with one channel, or each channel
+// of a stick with several (each a receiver of its own, `stick` its stick).
+function receivers() {
+  const out = [];
+  for (const d of allDevices()) {
+    if (d.kind === 'sdr' && d.channels && d.channels.length > 1) {
+      for (const ch of d.channels) out.push(Object.assign({}, ch, { kind: 'sdr', protocol: 'alert', stick: d }));
+    } else out.push(d);
+  }
+  return out;
+}
+
 function renderStats() {
   const s = S.status;
   if (!s) return;
   const m = s.meganet;
+  const rx = receivers().filter(d => d.kind !== 'gps');
   const stats = [
     ['Readings heard', s.counts.readings], ['ALERT', s.counts.alert || 0], ['ALERT2', s.counts.alert2 || 0],
     ['Stored in MegaNet', m.accepted], ['Waiting to send', m.queued + m.waitingForClock],
-    ['Receivers receiving', allDevices().filter(d => d.kind !== 'gps' && d.state === 'running').length + ' / ' + allDevices().filter(d => d.kind !== 'gps').length],
+    ['Receivers receiving', rx.filter(d => d.state === 'running').length + ' / ' + rx.length],
   ];
   $('#stats').innerHTML = stats.map(([k, v]) => '<div class="stat"><div class="v">' + esc(v) + '</div><div class="k">' + esc(k) + '</div></div>').join('');
 }
 
+const NO_FIT = 'does not fit beside the stick\'s other channels — not decoded';
+
 function deviceLine(d) {
   const bits = [];
+  if (d.kind === 'sdr' && d.stick) {
+    // One channel of several: its name says the frequency.
+    const s = d.stick;
+    bits.push(FORMAT_NAMES[d.format] || d.format);
+    if (s.state === 'unplugged' || S.status.devices.sdrs.length > 1) bits.push('USB port ' + (s.device.port || '?'));
+    if (!d.inBand) bits.push('⚠ ' + NO_FIT);
+    else if (s.state === 'unplugged') { if (s.lastSeen) bits.push('last seen ' + ago(Date.now() - s.lastSeen)); }
+    else {
+      if (d.level) bits.push('channel ' + d.level.chDb + ' dB (floor ' + d.level.nfDb + ')' + (d.level.open ? ' · OPEN' : ''));
+      bits.push(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' decodes');
+    }
+    return bits.join(' · ');
+  }
   if (d.kind === 'sdr') {
     bits.push((d.freqHz / 1e6).toFixed(4) + ' MHz', FORMAT_NAMES[d.format] || d.format);
     // With several sticks, the port says which is which.
@@ -260,7 +288,7 @@ function deviceLine(d) {
 }
 
 function renderRxMini() {
-  const list = allDevices();
+  const list = receivers();
   $('#rx-mini').innerHTML = list.length ? list.map(d => '<div class="rx"><span class="dot ' + esc(d.state) + '"></span><b>' + esc(d.name) + '</b><span>'
     + (d.protocol ? protoTag(d.protocol) + ' ' : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span></span><div class="meta">' + esc(deviceLine(d)) + '</div></div>').join('')
     : '<div class="dim">No receivers found. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware (USB-C), an ERT-A2 (USB-serial cable) or a USB GPS — each is picked up within a few seconds.</div>';
@@ -340,7 +368,7 @@ function renderBursts() {
 
 function kv(rows) { return '<div class="kv">' + rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join('') + '</div>'; }
 
-const OWN_LABELS = { name: 'name', enabled: 'on/off', freqHz: 'frequency', format: 'format', gainDb: 'gain', ppm: 'ppm', biasTee: 'bias tee', squelchDb: 'squelch' };
+const OWN_LABELS = { name: 'name', enabled: 'on/off', freqHz: 'frequency', format: 'format', moreChannels: 'more channels', gainDb: 'gain', ppm: 'ppm', biasTee: 'bias tee', squelchDb: 'squelch' };
 
 // How rtl_sdr was pointed at the stick, and whether it was seen to open it.
 function openedText(o) {
@@ -364,7 +392,9 @@ function renderRxFull() {
       setHtml($('.body', card), rxBodyHtml(d));
       let cv = $('canvas', card);
       if (d.kind === 'sdr' && d.spectrum) {
-        if (!cv) { card.insertAdjacentHTML('beforeend', '<canvas height="120"></canvas><div class="dim small spec-note">Spectrum around the channel (green line); 1 s max hold.</div>'); cv = $('canvas', card); }
+        if (!cv) { card.insertAdjacentHTML('beforeend', '<canvas height="120"></canvas><div class="dim small spec-note"></div>'); cv = $('canvas', card); }
+        $('.spec-note', card).textContent = d.spectrum.channelsHz && d.spectrum.channelsHz.length > 1
+          ? 'The whole slice the stick hears; its channels are the green lines. 1 s max hold.' : 'Spectrum around the channel (green line); 1 s max hold.';
         drawSpectrum(cv, d);
       } else if (cv) { cv.remove(); $('.spec-note', card).remove(); }
     },
@@ -372,25 +402,40 @@ function renderRxFull() {
 }
 
 function rxBodyHtml(d) {
-  const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')], ['MegaNet receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']];
+  const multi = d.kind === 'sdr' && d.channels && d.channels.length > 1;
+  const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')]];
+  // A stick with several channels has a receiver id for each: in its table.
+  if (!multi) rows.push(['MegaNet receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']);
   if (d.kind === 'sdr') {
     rows.push(['Stick', esc([d.model, d.tuner, d.device.serial && 'SN ' + d.device.serial, 'USB ' + d.device.usb].filter(Boolean).join(' · '))]);
     rows.push(['USB port', esc(d.device.port || '?') + (d.opened ? ' <span class="dim">· ' + esc(openedText(d.opened)) + '</span>' : '')]);
     if (d.state === 'unplugged') rows.push(['Last seen', d.lastSeen ? esc(ago(Date.now() - d.lastSeen) + ' (' + new Date(d.lastSeen).toLocaleString() + ')') : '—']);
-    rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + d.sampleRate / 1000 + ' ksps, gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? ', bias tee ON' : ''))]);
-    rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format)]);
+    const tuner = ', gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? ', bias tee ON' : '');
+    if (multi) {
+      const t = d.tune || {};
+      rows.push(['Tuned', esc((d.centerHz / 1e6).toFixed(4) + ' MHz centre, ' + d.sampleRate / 1000 + ' ksps' + (t.raised ? ' (raised to hold every channel)' : '') + tuner)
+        + (t.dcHz != null ? ' <span class="dim">· the nearest channel ' + Math.round(t.dcHz / 1000) + ' kHz from the DC spike, '
+          + Math.round(t.mirrorHz / 1000) + ' kHz from another\'s mirror image</span>' : '')]);
+    } else {
+      rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + d.sampleRate / 1000 + ' ksps' + tuner)]);
+      rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format)]);
+    }
     rows.push(['Settings', esc(d.own.length ? 'its own ' + d.own.map(f => OWN_LABELS[f] || f).join(', ') + '; the rest shared' : 'the shared ones') + ' — <a href="#settings-sdr">change</a>']);
-    if (d.level) rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '') + ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : ''))]);
-    rows.push(['Heard', esc(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
-    if (d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
-    if (d.lastBurst) {
+    if (d.level) {
+      rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '')
+        + (multi ? '' : ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : '')))]);
+    }
+    rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
+    if (!multi && d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
+    if (!multi && d.lastBurst) {
       const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;
       rows.push(['Last burst', esc('peak ' + b.peakDb + ' dBFS over floor ' + b.nfDb + ' · ' + (sat ? '≥ ' : '') + snrText(b.snrDb) + ' · ' + b.ms + ' ms, ' + ago(Date.now() - b.t))
         + (sat ? ' <span style="color: var(--warn)">⚠ saturated — reached the ADC full scale; lower the gain until bursts peak below ' + SATURATED_DBFS + ' dBFS</span>' : '')]);
     }
-    if (d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
+    if (!multi && d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
     rows.push(['Samples', esc(d.rateKsps + ' ksps arriving' + (d.counts.restarts ? ', rtl_sdr restarted ' + d.counts.restarts + '×' : '') + (d.counts.dropped ? ', ' + Math.round(d.counts.dropped / 1e6) + ' MB dropped (CPU)' : ''))]);
     if (d.stderr && d.stderr.length) rows.push(['rtl_sdr says', '<span class="mono small">' + esc(d.stderr.join(' | ')) + '</span>']);
+    if (multi) return kv(rows) + channelTable(d);
   } else {
     rows.push(['Port', '<code>' + esc(d.port.byId || d.port.dev) + '</code>' + (d.port.usb ? ' <span class="dim">USB ' + esc(d.port.usb.vid + ':' + d.port.usb.pid + ' ' + [d.port.usb.manufacturer, d.port.usb.product].filter(Boolean).join(' ')) + '</span>' : '')]);
     rows.push(['Line', esc((d.port.acm ? 'USB CDC' : (d.port.baud || '?') + ' baud 8N1') + (d.port.driver ? ' · ' + d.port.driver : ''))]);
@@ -419,6 +464,21 @@ function rxBodyHtml(d) {
   return kv(rows);
 }
 
+// A stick's channels, a row each: each one a receiver of its own.
+function channelTable(d) {
+  const unplugged = d.state === 'unplugged';
+  const rows = d.channels.map(ch => {
+    const lv = ch.level, c = ch.counts, ld = ch.lastDecode;
+    const signal = !ch.inBand ? '<span style="color: var(--warn)">⚠ ' + esc(NO_FIT) + '</span>'
+      : lv ? esc(lv.chDb + ' dB, floor ' + lv.nfDb + (lv.open ? ' · OPEN' : '')) : '<span class="dim">' + (unplugged ? '—' : 'starting…') + '</span>';
+    return '<tr><td>' + esc(Channels.mhz(ch.freqHz)) + ' MHz</td><td>' + esc(FORMAT_NAMES[ch.format] || ch.format) + '</td><td><code class="small">' + esc(ch.pointId) + '</code></td>'
+      + '<td>' + signal + '</td><td>' + esc(c.bursts + ' bursts, ' + c.decodes + ' readings' + (c.undecoded ? ', ' + c.undecoded + ' undecoded' : '')) + '</td>'
+      + '<td>' + (ld ? esc(ld.id + ' = ' + ld.value + ' (' + ld.votes + ' votes) ' + ago(Date.now() - ld.t)) : '<span class="dim">—</span>') + '</td></tr>';
+  });
+  return '<div class="table-wrap chans"><table><thead><tr><th>Channel</th><th>Format</th><th>MegaNet receiver id</th><th>Signal</th><th>Heard</th><th>Last decode</th></tr></thead><tbody>'
+    + rows.join('') + '</tbody></table></div>';
+}
+
 function drawSpectrum(c, d) {
   if (!c) return;
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
@@ -429,9 +489,12 @@ function drawSpectrum(c, d) {
   g.strokeStyle = css.getPropertyValue('--accent'); g.lineWidth = 1.2; g.beginPath();
   db.forEach((v, i) => { const x = i / (db.length - 1) * w, y = h - 4 - (v - lo) / span * (h - 10); i ? g.lineTo(x, y) : g.moveTo(x, y); });
   g.stroke();
-  const rate = d.spectrum.rate, off = d.spectrum.channelHz - d.spectrum.centerHz;
-  const cx = (0.5 + off / rate) * w;
-  g.strokeStyle = css.getPropertyValue('--ok'); g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, h); g.stroke();
+  const rate = d.spectrum.rate;
+  g.strokeStyle = css.getPropertyValue('--ok');
+  for (const hz of d.spectrum.channelsHz || [d.spectrum.channelHz]) {
+    const cx = (0.5 + (hz - d.spectrum.centerHz) / rate) * w;
+    g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, h); g.stroke();
+  }
 }
 
 // ── settings ────────────────────────────────────────────────────────────────
@@ -463,6 +526,7 @@ function fillForms() {
 
   const fs = $('#f-sdr'), sd = c.receivers.sdr;
   fs.freq.value = (sd.freqHz / 1e6).toFixed(4);
+  fs.more.value = Channels.text(sd.moreChannels, sd.format);
   fs.format.value = sd.format;
   fs.gain.value = sd.gainDb == null ? '' : sd.gainDb;
   fs.rate.value = String(sd.sampleRate);
@@ -523,6 +587,7 @@ const STICK_ROW = '<div class="stick-head"><span class="who"></span><span class=
   + '<div class="cols">'
   + '<label>Name <input name="sname" maxlength="60"></label>'
   + '<label>Frequency, MHz <input name="sfreq" type="number" step="0.0001" min="24" max="1766"></label>'
+  + '<label>More channels, MHz <input name="smore" autocomplete="off" spellcheck="false" title="Other channels for this stick to hear at once, e.g. 151.525, 152.4 EIF; none for only its own frequency; blank for the setting above"></label>'
   + '<label>Frame format <select name="sformat"><option value=""></option>'
   + Object.entries(FORMAT_NAMES).map(([v, t]) => '<option value="' + v + '">' + t + '</option>').join('') + '</select></label>'
   + '<label>Gain, dB <input name="sgain" title="A number, auto for the tuner\'s AGC, or blank for the setting above"></label>'
@@ -554,6 +619,8 @@ function fillStick(row, d) {
   const put = (n, v, hint) => { const el = $('[name=' + n + ']', row); el.value = v; if (hint != null) el.placeholder = hint; };
   put('sname', own.name || '', 'RTL-SDR' + (d.n > 1 ? ' ' + d.n : ''));
   put('sfreq', own.freqHz != null ? (own.freqHz / 1e6).toFixed(4) : '', (sd.freqHz / 1e6).toFixed(4));
+  put('smore', own.moreChannels ? (own.moreChannels.length ? Channels.text(own.moreChannels, own.format || sd.format) : 'none') : '',
+    Channels.text(sd.moreChannels, own.format || sd.format) || 'none');
   $('[name=sformat]', row).options[0].textContent = 'As above — ' + (FORMAT_NAMES[sd.format] || sd.format);
   put('sformat', own.format || '');
   put('sgain', own.gainDb === undefined ? '' : own.gainDb === null ? 'auto' : String(own.gainDb), sd.gainDb == null ? 'auto' : String(sd.gainDb));
@@ -594,6 +661,7 @@ function stickEntries() {
     const e = { key: row.dataset.key };
     if (v('sname')) e.name = v('sname');
     if (v('sfreq')) { const mhz = Number(v('sfreq')); if (!(mhz >= 24 && mhz <= 1766)) return { error: who + 'a frequency of 24–1766 MHz' }; e.freqHz = Math.round(mhz * 1e6); }
+    if (v('smore')) { const p = Channels.parse(v('smore')); if (p.error) return { error: who + 'more channels: ' + p.error }; e.moreChannels = p.channels; }
     if (v('sformat')) e.format = v('sformat');
     if (v('sgain')) {
       const g = v('sgain');
@@ -692,9 +760,11 @@ function wireSettings() {
     e.preventDefault();
     const f = e.target;
     const g = f.gain.value.trim();
+    const more = Channels.parse(f.more.value);
+    if (more.error) { flash(f, 'More channels: ' + more.error, false); return; }
     const sticks = stickEntries();
     if (sticks.error) { flash(f, sticks.error, false); return; }
-    save(f, { receivers: { sdr: { freqHz: Math.round(Number(f.freq.value) * 1e6), format: f.format.value, gainDb: g === '' || /auto/i.test(g) ? null : Number(g),
+    save(f, { receivers: { sdr: { freqHz: Math.round(Number(f.freq.value) * 1e6), moreChannels: more.channels, format: f.format.value, gainDb: g === '' || /auto/i.test(g) ? null : Number(g),
       sampleRate: Number(f.rate.value), ppm: Number(f.ppm.value) || 0, squelchDb: Number(f.squelch.value) || 8, enabled: f.enabled.checked, biasTee: f.biasTee.checked },
     sdrDevices: sticks.list } });
   });

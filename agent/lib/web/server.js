@@ -171,7 +171,9 @@ class WebServer {
     if (p === '/api/token/test' && req.method === 'POST') {
       const token = String(body.token || a.config.get().meganet.token || '').trim();
       if (!token) return this.json(res, 400, { error: 'no token to test' });
-      const sample = [...a.devices.all()].find(s => s.state === 'running' && (s.kind === 'sdr' || s.type && s.type !== 'gps'));
+      const found = [...a.devices.all()].find(s => s.state === 'running' && (s.kind === 'sdr' || s.type && s.type !== 'gps'));
+      // A stick is a receiver per channel: its first.
+      const sample = found && found.kind === 'sdr' ? found.channels[0] : found;
       const payload = sample ? a.describe(sample, sample.kind === 'sdr' ? 'sdr' : sample.type, typeof sample.point === 'function' ? sample.point() : sample.point)
         : { point_id: 'rpi-' + a.state.data.hostId + '-test', name: a.baseName() + ' — token check', receiver: 'serial', detail: { app: 'RPi ALERT', check: true }, location_source: 'none' };
       try { return this.json(res, 200, await a.uplink.testToken(token, payload)); }

@@ -103,21 +103,23 @@
 
     <form id="f-sdr" class="card form">
       <h2>RTL-SDR</h2>
-      <p class="hint">Every RTL-SDR stick listens on this channel unless it has its own below. ALERT Binary is what the 151.5 MHz networks send; Enhanced iFLOWS is what an ERT-A2 set to it sends. One format per stick, on purpose.</p>
+      <p class="hint">Every RTL-SDR stick listens on these channels unless it has its own below. ALERT Binary is what the 151.5 MHz networks send; Enhanced iFLOWS is what an ERT-A2 set to it sends. One format per channel, on purpose.</p>
       <div class="cols">
         <label>Frequency, MHz <input name="freq" type="number" step="0.0001" min="24" max="1766"></label>
         <label>Frame format
           <select name="format"><option value="BINARY">ALERT Binary</option><option value="ENHANCED_IFLOWS">Enhanced iFLOWS</option><option value="ASCII">ALERT ASCII</option></select></label>
         <label>Gain, dB <input name="gain" placeholder="auto" title="Blank for the tuner's AGC"></label>
         <label>Sample rate
-          <select name="rate"><option value="0">Automatic</option><option value="240000">240 ksps (light)</option><option value="960000">960 ksps</option><option value="1920000">1.92 Msps</option><option value="2400000">2.4 Msps</option></select></label>
+          <select name="rate"><option value="0">Automatic</option><option value="240000">240 ksps (light)</option><option value="960000">960 ksps</option><option value="1200000">1.2 Msps</option><option value="1920000">1.92 Msps</option><option value="2400000">2.4 Msps</option></select></label>
         <label>Frequency correction, ppm <input name="ppm" type="number" step="1" min="-200" max="200"></label>
         <label>Squelch, dB over the noise floor <input name="squelch" type="number" step="1" min="2" max="40"></label>
       </div>
+      <label>More channels on the same stick, MHz <input name="more" autocomplete="off" spellcheck="false" placeholder="none — e.g. 151.525, 151.95, 152.4"></label>
+      <p class="hint">One stick hears every channel in a stretch of the band about 1.9 MHz wide, all at once, and each is a receiver of its own in MegaNet. Put a format after a channel sent in another one: <code>152.4 EIF</code>. The sample rate goes up by itself to hold them — more channels and a higher rate take more of the Pi.</p>
       <label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label>
       <label class="check"><input type="checkbox" name="biasTee"> Bias tee (4.5 V on the antenna socket — only for an LNA that wants it)</label>
       <h3>Each stick</h3>
-      <p class="hint">Give a stick a channel of its own to hear two networks — or two formats — at once. A blank field is the setting above. Sticks that share a serial number (most do) are told apart by the USB port they are in, so keep each in its port.</p>
+      <p class="hint">Give a stick channels of its own to hear networks — or formats — further apart than one stick can. A blank field is the setting above; <code>none</code> in <i>More channels</i> leaves a stick with only its own frequency. Sticks that share a serial number (most do) are told apart by the USB port they are in, so keep each in its port.</p>
       <div id="sdr-sticks"></div>
       <div class="row-actions"><button>Save</button><span class="status small"></span></div>
     </form>
@@ -216,6 +218,7 @@
 
 <footer class="dim small"><span id="foot"></span></footer>
 <script src="qr.js"></script>
+<script src="channels.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
