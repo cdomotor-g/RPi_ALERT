@@ -32,6 +32,8 @@ itself after an unplug or a power cut.
 | **Reconnects** | USB ports are rescanned every 2 s; a device that hangs up is reopened when it returns (under any `/dev` name); `rtl_sdr` is restarted if it stalls or exits; the Quansheng's DTR is toggled when it goes quiet; systemd restarts the agent; the hardware watchdog reboots a hung Pi. |
 | **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it. |
 | **Headless** | The same dashboard on `http://rpi-alert.local/` from any computer on the network, `rpi-alert setup` / `status` / `top` over SSH (PuTTY), or an `rpi-alert.conf` file dropped on the SD card's boot partition. |
+| **Managed from MegaNet** | Checks in with MegaNet's **Base Stations** tab once a minute — MegaNet never connects to it — so its health is on one list with every other base station, and an administrator can change its settings, restart it, install updates and read its log from there. Never the token, where readings go, the web password or SSH keys; `report` or `off` on the Pi narrows or ends it. [docs/remote-management.md](docs/remote-management.md) |
+| **Getting in, years later** | The same maintenance account on every Pi, **`alert`**, with no password: SSH keys only, each a person's, listed on the Pi — from the SD card, a team's GitHub accounts, or MegaNet's team keys. Nobody leaves with the only password. Locked out? `alert_password` on the SD card. [docs/access.md](docs/access.md) |
 | **Chirps** | A speaker on the audio jack plays each burst: an SDR's real demodulated audio, or a re-synthesised ALERT burst for radios and ERT-A2s. |
 | **GPS** | A USB GPS, when there is one, becomes the base station's location (the only one MegaNet records as exact) and its clock when there is no internet. Until then, a fixed location. |
 
@@ -52,8 +54,8 @@ itself after an unplug or a power cut.
 
 Then open **http://rpi-alert.local/** (or the Pi's own screen), press **Request a token**,
 and approve it from your phone on MegaNet's **Admin** tab after checking the code matches —
-scanning the QR code on the Pi opens the request. Set the location. Details:
-[docs/install.md](docs/install.md).
+scanning the QR code on the Pi opens the request. Set the location. Over SSH: `ssh alert@rpi-alert.local`
+with a key you gave it on the set-up page. Details: [docs/install.md](docs/install.md).
 
 > **Why not flash from the web page?** No browser can write a whole SD card — WebUSB
 > refuses USB storage and the File System Access API cannot open raw disks, by design.
@@ -79,8 +81,10 @@ Hardware notes, including the RTL-SDR V4 and power supplies: [docs/hardware.md](
 
 ```
 agent/            the RPi ALERT agent (Node.js, no npm dependencies)
-  bin/rpi-alert     daemon + command line (status, top, setup, token, config, …)
-  lib/              devices (serial ports, sniffing, drivers, SDR), uplink, token request, clock, web server
+  bin/rpi-alert     daemon + command line (status, top, setup, token, config, remote, access, …)
+  bin/rpi-alert-access  the root helper for SSH access (the alert account's keys)
+  lib/              devices (serial ports, sniffing, drivers, SDR), uplink, token request, remote
+                    management, SSH access, clock, web server
   vendor/meganet/   MegaNet's decoders, verbatim (see SOURCE; scripts/sync-meganet.sh)
   web/              the dashboard and settings page (and qr.js, its QR codes)
   test/             node --test: real off-air vector, protocol vectors, MegaNet stand-in,
@@ -90,14 +94,15 @@ os/               install.sh (Pi or image chroot), bootstrap.sh, systemd units, 
                   sudoers, the root helper, kiosk, updater, boot-partition files
 build/            build-image.sh — Raspberry Pi OS Lite + install.sh in a qemu chroot
 site/             the GitHub Pages set-up page (and the Imager repository, os_list.json)
-docs/             install, configuration, hardware, how it works, research, roadmap, bench test
+docs/             install, configuration, remote management, SSH access, hardware, how it works,
+                  research, roadmap, bench test
 ```
 
 ## Developing
 
 ```sh
 cd agent
-node --test test/*.test.js       # 65 tests; the pty and serial end-to-end ones need socat
+node --test test/*.test.js       # 79 tests; the pty and serial end-to-end ones need socat, one sshd
 scripts/simulate.sh [sticks]     # a simulated base station on http://localhost:8099/ (1–4 RTL-SDR sticks)
 scripts/simulate.sh --channels   # …with the first stick on the air on four channels at once
 ```
@@ -110,6 +115,8 @@ Building an image needs Linux with root, `qemu-user-static` (binfmt), `fdisk`, `
 
 How it fits together: [docs/how-it-works.md](docs/how-it-works.md) ·
 Settings reference: [docs/configuration.md](docs/configuration.md) ·
+MegaNet's Base Stations tab: [docs/remote-management.md](docs/remote-management.md) ·
+SSH access: [docs/access.md](docs/access.md) ·
 What is next: [docs/roadmap.md](docs/roadmap.md) ·
 First test on the bench Pi: [docs/bench-test.md](docs/bench-test.md)
 

@@ -41,12 +41,13 @@ kbd { font: .85em var(--mono); border: 1px solid var(--line); border-bottom-widt
 .form fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px; padding: 8px 14px 10px; min-width: 0; }
 .form legend { font-weight: 600; padding: 0 4px; }
 .form label { display: block; margin: 6px 0; }
-.form label > input:not([type=checkbox]), .form label > select { display: block; width: 100%; margin-top: 3px; }
+.form label > input:not([type=checkbox]), .form label > select, .form label > textarea { display: block; width: 100%; margin-top: 3px; }
 .form label > .small { display: block; color: var(--dim); margin-top: 2px; }
 .form .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; align-items: end; }
 .form .check { display: flex; gap: 8px; align-items: center; }
-input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
-input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { font: .85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; }
 button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 8px 16px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
 button.ghost { background: transparent; color: var(--text); border-color: var(--line); font-weight: 500; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }

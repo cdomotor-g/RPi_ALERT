@@ -177,6 +177,42 @@
       <div class="row-actions"><button type="button" id="pw-save">Set password</button><span class="status small" id="pw-status"></span></div>
     </div>
 
+    <form id="f-remote" class="card form">
+      <h2>Remote management</h2>
+      <p class="hint">This base station checks in with MegaNet's <b>Base Stations</b> tab once a minute — MegaNet never connects to it, and there is nothing here for anyone else to connect to. MegaNet's administrators see its health and, if you allow it, change its settings, restart it and install updates. Never from there: the ingest token, where readings go, the web page's password, SSH keys, or this choice — it is made here.</p>
+      <label>MegaNet may
+        <select name="mode">
+          <option value="manage">See its health, and manage it — settings, restarts, updates, the log</option>
+          <option value="report">See its health only — anything asked is refused</option>
+          <option value="off">Nothing — no check-ins at all</option>
+        </select></label>
+      <p class="small" id="remote-state" aria-live="polite"></p>
+      <div id="remote-history"></div>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
+    <div class="card form" id="f-access">
+      <h2>SSH access</h2>
+      <p class="hint">Log in as <b class="mono">alert</b> with an SSH key on this list — the same user name on every RPi ALERT, and no password to forget or pass on. Each key is one person's: take it off the list when they move on. Keys come only from the SD card, <code>sudo rpi-alert access add-key</code>, or the GitHub accounts and MegaNet team keys you choose to accept — never from this page or from MegaNet's requests.</p>
+      <div id="access-body"><p class="small dim">Loading…</p></div>
+      <div class="cols">
+        <label>SSH <select id="acc-ssh"><option value="on">On</option><option value="off">Off</option></select></label>
+        <label>Password login over SSH <select id="acc-password"><option value="unchanged">As Raspberry Pi Imager set it</option><option value="off">Off — keys only</option><option value="on">On</option></select></label>
+        <label>MegaNet's team keys <select id="acc-meganet"><option value="off">Not accepted</option><option value="on">May log in as alert</option></select></label>
+        <label title="Private networks: the site's LAN, or a VPN (10.x, 172.16–31.x, 192.168.x, 100.64.x and their IPv6 kin)">Keys from GitHub and MegaNet work from <select id="acc-from"><option value="private">Private networks only</option><option value="any">Anywhere</option></select></label>
+      </div>
+      <div class="row-actions"><button type="button" class="ghost" id="acc-sync">Fetch the keys again now</button><span class="status small" id="acc-status"></span></div>
+      <details>
+        <summary>Adding a key — and getting in when nobody can</summary>
+        <ul class="small">
+          <li><b>On the SD card:</b> a line <code>ssh_key = ssh-ed25519 AAAA… you@laptop</code> in <code>rpi-alert.conf</code> on its <i>bootfs</i> drive (the set-up page writes it). The card's lines replace the ones before.</li>
+          <li><b>A team's GitHub accounts:</b> <code>ssh_github = name, name</code> on the card — their public keys, fetched every hour.</li>
+          <li><b>Over SSH, with sudo:</b> <code>sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"</code>; <code>rpi-alert access</code> lists them.</li>
+          <li><b>Nobody can get in:</b> put <code>alert_password = …</code> in <code>rpi-alert.conf</code> on the card, boot, and log in as <b>alert</b> at the console (or over SSH, if password login is on). It is wiped from the card once applied.</li>
+        </ul>
+      </details>
+    </div>
+
     <form id="f-system" class="card form">
       <h2>System</h2>
       <label>Time zone (ALERT2 frame times are local) <input name="timezone" placeholder="Australia/Brisbane"></label>

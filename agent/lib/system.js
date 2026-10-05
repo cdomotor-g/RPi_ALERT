@@ -75,4 +75,22 @@ function displayConnected() {
   return names.some(n => read('/sys/class/drm/' + n + '/status') === 'connected');
 }
 
-module.exports = { run, priv, privAvailable, info, addresses, displayConnected, PRIV };
+// rpi-alert-priv update-status: the timer's state, whether an install is running,
+// then the last outcome (update-status.json, written by rpi-alert-update).
+async function updateStatus() {
+  const r = await priv('update-status');
+  if (r.code !== 0) return { available: false, error: (r.stderr || '').trim().slice(0, 300) || 'not available on this machine' };
+  const [timer = '', running = '', ...rest] = r.stdout.split('\n');
+  let last = null;
+  try { last = JSON.parse(rest.join('\n')); } catch (_) {}
+  return { available: true, auto: timer.trim() === 'enabled', running: running.trim() === 'running', last: last && last.state ? last : null };
+}
+
+// rpi-alert-priv access-status: who may log in over SSH, and how (lib/access.js).
+async function accessStatus() {
+  const r = await priv('access-status');
+  if (r.code !== 0) return { available: false, error: (r.stderr || '').trim().slice(0, 300) || 'not available on this machine' };
+  try { return Object.assign({ available: true }, JSON.parse(r.stdout)); } catch (_) { return { available: false, error: 'unreadable answer' }; }
+}
+
+module.exports = { run, priv, privAvailable, info, addresses, displayConnected, updateStatus, accessStatus, PRIV };

@@ -6,6 +6,7 @@
 //   uplink            the queue to MegaNet: readings, receptions, receiver reports
 //   stations          MegaNet's register, for naming what is heard
 //   audio             the chirps
+//   remote            MegaNet's Base Stations tab: health out, a few requests in
 //   web/server        the dashboard and settings, on port 80
 //
 // A reading's life: a driver decodes it → deviceReading() times it (arrival,
@@ -20,6 +21,7 @@ const { State, KINDS, DATA_DIR } = require('./state');
 const { Clock } = require('./clock');
 const { Uplink } = require('./uplink');
 const { TokenRequest } = require('./token-request');
+const { Remote } = require('./remote');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -50,6 +52,9 @@ class Agent extends EventEmitter {
     this.stations = new Stations({ dataDir: this.dataDir, log: this.log.child('stations'), getUrls: () => this.config.get().meganet.stationsUrls }).load();
     this.audio = new Audio({ log: this.log.child('audio'), getCfg: () => this.config.get().audio });
     this.devices = new DeviceManager(this);
+    // Checks in with MegaNet's Base Stations tab (remote.mode), through the
+    // uplink's own door and token.
+    this.remote = new Remote(this, opts.remote);
     this.recent = [];
     this.bursts = [];
     this.counts = { readings: 0, alert: 0, alert2: 0, receptions: 0 };
@@ -67,6 +72,8 @@ class Agent extends EventEmitter {
     this.stations.start();
     this.devices.start();
     this.devices.on('change', () => this.emit('devices'));
+    this.remote.start();
+    this.remote.on('change', () => this.emit('remote'));
     this.config.on('change', (changed) => {
       this.log.info('settings changed: ' + changed.join(', '));
       this.emit('config', changed);
@@ -82,6 +89,7 @@ class Agent extends EventEmitter {
 
   async stop() {
     this.timers.forEach(clearInterval);
+    this.remote.stop();
     await this.devices.stop();
     this.tokenRequest.stop();
     this.uplink.stop();
@@ -294,6 +302,7 @@ class Agent extends EventEmitter {
       devices: this.devices.status(), audio: this.audio.status(), counts: this.counts,
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
+      remote: this.remote.statusForPage(),
     };
   }
 }

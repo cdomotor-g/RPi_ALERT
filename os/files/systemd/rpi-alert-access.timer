@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly refresh of the SSH keys RPi ALERT fetches from GitHub and MegaNet
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/access.md
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1h
+# Spread out, so a fleet does not ask GitHub and MegaNet at the same minute.
+RandomizedDelaySec=10min
+Unit=rpi-alert-access.service
+
+[Install]
+WantedBy=timers.target

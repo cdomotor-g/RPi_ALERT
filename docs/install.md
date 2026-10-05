@@ -32,9 +32,11 @@ it with RPi ALERT's:
 
 1. **Device** → your Pi. **Operating System** → **RPi ALERT (arm64)** (or armhf for a Pi 1/2/Zero).
    **Storage** → the SD card.
-2. Accept **customisation**: user name and password (needed to log in over SSH), Wi-Fi, time
-   zone, and **Enable SSH**. RPi ALERT images keep Raspberry Pi OS's cloud-init, so this works
-   exactly as for Raspberry Pi OS.
+2. Accept **customisation**: user name and password, Wi-Fi, time zone, and **Enable SSH**.
+   RPi ALERT images keep Raspberry Pi OS's cloud-init, so this works exactly as for Raspberry Pi
+   OS. Then give the card your SSH key on the set-up page (below), and you — or whoever comes
+   after you — log in as `alert`, the same on every RPi ALERT, without that password at all
+   ([access.md](access.md)).
 3. Write. When it finishes, **leave the card in** if you want to add its settings
    (below), otherwise eject it.
 
@@ -103,6 +105,14 @@ and writes what it did to `rpi-alert-boot.log` on the same drive.
 5. **Dashboard**: each receiver appears within seconds of being plugged in; readings appear as they
    are heard, with the station each address belongs to.
 6. **Settings → Web page password**: set one, so others on the network cannot change things.
+
+**SSH:** `ssh alert@rpi-alert.local` with a key you put on the card (`ssh_key`, or the GitHub
+accounts in `ssh_github`), or the user you made in Imager. `rpi-alert access` shows who may log in;
+[access.md](access.md) has the rest — and the way back in when nobody can.
+
+**MegaNet's Base Stations tab:** once the token is approved, the Pi checks in there once a minute,
+and MegaNet's administrators see its health and can manage it. **Settings → Remote management**
+narrows that to health only, or turns it off ([remote-management.md](remote-management.md)).
 
 Over SSH instead: `ssh <user>@rpi-alert.local`, then `rpi-alert setup` (questions for the
 essentials — press Enter at the token question and the Pi asks MegaNet for one) and

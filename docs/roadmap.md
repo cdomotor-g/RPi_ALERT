@@ -41,8 +41,10 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
   of the clock.
 - **systemd watchdog for the agent** (the code is there; the unit leaves it off until it has run on
   hardware).
-- **Remote fleet view**: MegaNet already records each receiver's reports; an admin page there could
-  show every RPi ALERT base station's health.
+- **Remote management, further** (the Base Stations tab and SSH access are done, in 0.7 —
+  [remote-management.md](remote-management.md), [access.md](access.md)): per-station team keys
+  rather than one list for the fleet; an alert when a base station goes quiet; SSH certificates
+  signed by MegaNet for short-lived access, if the key lists ever grow unwieldy.
 - **Cellular backhaul**: a USB LTE modem through NetworkManager/ModemManager (the udev rules already
   keep ModemManager off the receivers).
 - **UPS HAT / Pi 5 RTC** status on the dashboard.
@@ -53,4 +55,5 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
 - A `path` prefix of its own (`rpi-alert/`) for Pi receivers, if MegaNet wants to tell them apart
   from browsers at a glance (today they share `serial-monitor/`, which MegaNet's joins and checks
   expect; `detail.app = "RPi ALERT"` already tells them apart).
-- An "ingest point" page in MegaNet listing base stations, their receivers and last report.
+- ~~An "ingest point" page in MegaNet listing base stations, their receivers and last report.~~
+  Done: MegaNet's Base Stations tab (0049).

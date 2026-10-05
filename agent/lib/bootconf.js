@@ -36,6 +36,16 @@
 //   gps_bluetooth = 58:A8:39:01:93:61 a Bluetooth GPS (an Emlid Reach with its position output
 //   gps_bluetooth_pin = 123456        set to Bluetooth, NMEA): paired, kept connected, and read
 //                                     as /dev/rpi-alert-gps; gps_bluetooth = off removes it
+//   remote_management = manage        what MegaNet's Base Stations tab may do: manage | report | off
+//   ssh_key = ssh-ed25519 AAAA… name  a key that may log in as alert (one line each; the lines
+//                                     on a card replace the ones before; ssh_key = none clears them)
+//   ssh_github = name, name           GitHub accounts whose public keys may log in as alert
+//   ssh_meganet_keys = yes            MegaNet's team keys may log in as alert
+//   ssh_from = private                where GitHub and MegaNet keys work from: private | any
+//   ssh_password_login = off          SSH password login: on | off (left as Imager set it if absent)
+//   alert_password = …                a password for the alert account (the console; SSH too if
+//                                     password login is on) — the way back in when nobody has a
+//                                     key; removed from the card. alert_password = none removes it
 //
 // Once applied the file is renamed rpi-alert.conf.applied with the secrets
 // blanked out, and what happened is appended to rpi-alert-boot.log beside it.
@@ -49,7 +59,9 @@ const Channels = require('../web/channels');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
-const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin']);
+const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin', 'alert_password']);
+// Keys a card may give more than once, each line one more value.
+const MULTI = new Set(['ssh_key', 'ssh_authorized_key']);
 const BT_GPS_PORT = '/dev/rpi-alert-gps';
 const BT_GPS_CONF = process.env.RPI_ALERT_BTGPS_CONF || '/etc/rpi-alert/bluetooth-gps.conf';
 
@@ -66,7 +78,8 @@ function parse(text) {
     if (!SECRET.has(key)) v = v.replace(/\s+#.*$/, '');
     v = v.trim();
     if ((v.startsWith('"') && v.endsWith('"') && v.length > 1) || (v.startsWith("'") && v.endsWith("'") && v.length > 1)) v = v.slice(1, -1);
-    out[key] = v;
+    if (MULTI.has(key)) (out[key] = Array.isArray(out[key]) ? out[key] : []).push(v);
+    else out[key] = v;
   });
   return out;
 }
@@ -78,6 +91,7 @@ const no = (v) => /^(0|n|no|off|false|disable|disabled)$/i.test(String(v).trim()
 function toPatch(kv) {
   const patch = {}, system = {}, notes = [];
   let btGps = null, btPin = '', btChannel = null;
+  const access = {};
   const set = (p, v) => { const ks = p.split('.'); let c = patch; ks.slice(0, -1).forEach(k => { c = c[k] = c[k] || {}; }); c[ks[ks.length - 1]] = v; };
   const n = (v) => { const x = Number(String(v).replace(',', '.')); return Number.isFinite(x) ? x : NaN; };
   for (const [k, v] of Object.entries(kv)) {
@@ -144,6 +158,29 @@ function toPatch(kv) {
         break;
       }
       case 'gps_bluetooth_pin': btPin = v.trim(); break;
+      case 'remote_management': case 'remote': case 'meganet_management': {
+        const m = no(v) ? 'off' : yes(v) ? 'manage' : String(v).trim().toLowerCase();
+        if (['manage', 'report', 'off'].includes(m)) set('remote.mode', m); else notes.push('remote_management: manage, report or off');
+        break;
+      }
+      case 'ssh_key': case 'ssh_authorized_key': {
+        const lines = [].concat(v).map(x => String(x).trim()).filter(Boolean);
+        access.keys = lines.some(x => no(x) || /^none$/i.test(x)) ? [] : lines;
+        break;
+      }
+      case 'ssh_github': case 'ssh_github_users':
+        access.github = no(v) || /^none$/i.test(v.trim()) ? [] : v.split(/[\s,;]+/).map(x => x.trim().replace(/^@/, '')).filter(Boolean);
+        break;
+      case 'ssh_meganet_keys': case 'ssh_team_keys': access.meganet = yes(v) ? 'on' : no(v) ? 'off' : (notes.push('ssh_meganet_keys: yes or no'), undefined); break;
+      case 'ssh_from': {
+        const f = String(v).trim().toLowerCase();
+        if (f === 'private' || f === 'any') access.from = f; else notes.push('ssh_from: private or any');
+        break;
+      }
+      case 'ssh_password_login': case 'ssh_passwords':
+        access.password = yes(v) ? 'on' : no(v) ? 'off' : /^unchanged$/i.test(v.trim()) ? 'unchanged' : (notes.push('ssh_password_login: on or off'), undefined);
+        break;
+      case 'alert_password': access.alertPassword = no(v) || /^none$/i.test(v) ? '' : v; break;
       case 'gps_bluetooth_channel': {
         const c = Number(v.trim());
         if (Number.isInteger(c) && c >= 1 && c <= 30) btChannel = c; else notes.push('gps_bluetooth_channel: a number, 1–30');
@@ -159,6 +196,8 @@ function toPatch(kv) {
     if (!('use_gps' in kv)) set('location.useGps', true);
   }
   if (btGps) system.btGps = btGps;
+  for (const k of Object.keys(access)) if (access[k] === undefined) delete access[k];
+  if (Object.keys(access).length) system.access = access;
   // A location: typed coordinates, or a station's (which the flasher page fills in).
   const L = patch.location;
   if (L && Number.isFinite(L.lat) && Number.isFinite(L.lon)) L.source = L.station ? 'station' : 'manual';
@@ -200,6 +239,7 @@ function applySystem(s, log) {
     log(r.ok ? 'Wi-Fi network "' + s.wifiSsid + '" added (joins when in range)' : 'could not add Wi-Fi "' + s.wifiSsid + '": ' + r.out);
   }
   if (s.btGps) applyBtGps(s.btGps, log);
+  if (s.access) applyAccess(s.access, log);
   if (s.ssh) {
     const r = s.ssh === 'on' ? sh('systemctl', ['enable', '--now', 'ssh']) : sh('systemctl', ['disable', '--now', 'ssh']);
     log(r.ok ? 'SSH ' + s.ssh : 'could not turn SSH ' + s.ssh + ': ' + r.out);
@@ -236,6 +276,39 @@ function applyBtGps(b, log) {
   sh('systemctl', ['restart', '--no-block', 'rpi-alert-btgps.service']);
   log(r1.ok && r2.ok ? 'Bluetooth GPS ' + b.address + ' — pairs and connects in the background, read as ' + BT_GPS_PORT
     : 'could not turn on the Bluetooth GPS: ' + [r1, r2].filter(r => !r.ok).map(r => r.out).join('; '));
+}
+
+// SSH access (lib/access.js): this runs as root, so the card may do what the
+// web page and MegaNet may not — put keys on the list, and set the alert
+// account's password. The lists fetched from GitHub and MegaNet are fetched
+// in the background (rpi-alert-access.service), once the network is up.
+function applyAccess(a, log) {
+  const access = require('./access');
+  const acct = access.ensureAccount();
+  if (!acct.ok) { log('could not make the alert account: ' + acct.error); return; }
+  if (acct.created) log('made the alert account (SSH keys only)');
+  if (a.keys) {
+    const r = access.replaceLocalKeys(a.keys);
+    log('SSH keys for alert: ' + r.keys + ' from the card' + (r.errors.length ? ' (refused: ' + r.errors.join('; ') + ')' : ''));
+  }
+  const setp = (what, value, said) => {
+    try { access.setPolicy(what, value); log(said); } catch (e) { log('SSH ' + what + ': ' + e.message); }
+  };
+  if (a.github) setp('github', a.github, a.github.length ? 'SSH keys of GitHub accounts ' + a.github.join(', ') + ' may log in as alert' : 'no GitHub accounts\' keys');
+  if (a.meganet) setp('meganet', a.meganet, 'MegaNet\'s team SSH keys ' + (a.meganet === 'on' ? 'may log in as alert' : 'off'));
+  if (a.from) setp('from', a.from, 'fetched SSH keys work from ' + (a.from === 'private' ? 'private networks only' : 'anywhere'));
+  if (a.password) {
+    setp('password', a.password, 'SSH password login ' + a.password);
+    const d = access.applyDropin();
+    if (!d.ok) log(d.error);
+  }
+  if (a.alertPassword !== undefined) {
+    const r = access.setAccountPassword(a.alertPassword);
+    log(r.ok ? (r.password ? 'the alert account has a password now (removed from the card)' : 'the alert account\'s password is removed: keys only') : 'could not set the alert account\'s password: ' + r.error);
+  }
+  // The list from what is kept now; then the fetching, once there is a network.
+  access.sync({ fetch: false }).catch((e) => log('SSH keys: ' + e.message));
+  sh('systemctl', ['start', '--no-block', 'rpi-alert-access.service']);
 }
 
 // The Bluetooth GPS's port in (or out of) the agent's extra ports, keeping the rest.
@@ -292,4 +365,4 @@ function main(args) {
   try { fs.appendFileSync(path.join(dir, 'rpi-alert-boot.log'), logLines.join('\r\n') + '\r\n'); } catch (_) {}
 }
 
-module.exports = { parse, toPatch, redactText, withBtGpsPort, main, BT_GPS_PORT };
+module.exports = { parse, toPatch, redactText, withBtGpsPort, main, BT_GPS_PORT, MULTI };

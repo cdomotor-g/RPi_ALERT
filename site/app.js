@@ -76,6 +76,12 @@ function confText() {
   put('kiosk', v('kiosk'));
   put('web_password', v('web_password'));
   if (v('wifi_ssid')) { put('wifi_country', v('wifi_country').toUpperCase()); put('wifi_ssid', v('wifi_ssid')); put('wifi_password', v('wifi_password')); }
+  // SSH keys for the alert account (docs/access.md): a line each.
+  for (const k of v('ssh_keys').split(/\r?\n/).map(x => x.trim()).filter(Boolean)) put('ssh_key', k);
+  put('ssh_github', v('ssh_github').split(/[\s,;]+/).map(x => x.replace(/^@/, '')).filter(Boolean).join(', '));
+  if (f.elements.ssh_meganet_keys.checked) put('ssh_meganet_keys', 'yes');
+  if (f.elements.ssh_password_off.checked) put('ssh_password_login', 'off');
+  if (v('remote_management') !== 'manage') put('remote_management', v('remote_management'));
   put('hostname', v('hostname').toLowerCase());
   put('timezone', v('timezone'));
   put('ssh', f.elements.ssh.checked ? 'on' : 'off');
@@ -94,11 +100,18 @@ function problems() {
   if (pw && (pw.length < 8 || pw.length > 63)) out.push('a Wi-Fi password is 8–63 characters');
   const bt = f.elements.gps_bluetooth.value.trim();
   if (bt && !/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(bt)) out.push('a Bluetooth address looks like 58:A8:39:01:93:61');
+  const keys = f.elements.ssh_keys.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const KEY = /^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa) [A-Za-z0-9+/]+={0,2}( .*)?$/;
+  const badKey = keys.find(k => !KEY.test(k));
+  if (badKey) out.push('"' + badKey.slice(0, 24) + '…" is not an SSH public key — paste the whole .pub line (it starts ssh-ed25519)');
+  const gh = f.elements.ssh_github.value.split(/[\s,;]+/).map(x => x.replace(/^@/, '')).filter(Boolean);
+  if (gh.some(u => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(u))) out.push('GitHub user names are letters, digits and dashes');
+  if (f.elements.ssh_password_off.checked && !keys.length && !gh.length && !f.elements.ssh_meganet_keys.checked) out.push('with password login off and no key, nobody could log in over SSH — add a key or a GitHub account');
   return out;
 }
 
 function preview() {
-  const red = confText().replace(/^(token|web_password|wifi_password|gps_bluetooth_pin) = .+$/gm, (m, k) => k + ' = ••••••••');
+  const red = confText().replace(/^(token|web_password|wifi_password|gps_bluetooth_pin|alert_password) = .+$/gm, (m, k) => k + ' = ••••••••');
   $('#preview').textContent = red;
 }
 

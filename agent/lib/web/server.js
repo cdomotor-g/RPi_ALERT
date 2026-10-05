@@ -79,6 +79,7 @@ class WebServer {
     const a = this.agent;
     a.on('reading', (r) => this.broadcast('reading', r));
     a.on('token-request', (t) => this.broadcast('token-request', t));
+    a.on('remote', () => this.broadcast('remote', {}));
     a.on('burst', (b) => this.broadcast('burst', b));
     a.on('tick', () => this.broadcast('tick', { t: Date.now() }));
     let devTimer = null;
@@ -239,6 +240,38 @@ class WebServer {
       const r = await system.priv('update-install');
       return this.json(res, r.code === 0 ? 200 : 500, r.code === 0 ? { ok: true } : { error: (r.stderr || r.stdout).trim().slice(0, 300) || 'could not start the update' });
     }
+    // MegaNet's Base Stations tab (lib/remote.js): how it is going, and how much
+    // MegaNet may do — set here, on the Pi, and never from MegaNet.
+    if (p === '/api/remote' && req.method === 'GET') return this.json(res, 200, a.remote.statusForPage());
+    if (p === '/api/remote' && req.method === 'POST') {
+      const patch = {};
+      if (body.mode !== undefined) patch.mode = body.mode;
+      if (body.idleS !== undefined) patch.idleS = Number(body.idleS);
+      const r = a.config.update({ remote: patch });
+      if (!r.ok) return this.json(res, 400, { error: 'Not saved: ' + r.errors.join('; ') });
+      if (r.changed.length) this.log.info('remote management: ' + r.changed.map(k => k + ' ' + JSON.stringify(a.config.get().remote[k.split('.')[1]])).join(', '));
+      return this.json(res, 200, a.remote.statusForPage());
+    }
+    // SSH access (lib/access.js, through rpi-alert-priv): who may log in, and the
+    // few settings the web page may change. No key is ever added here — the SD
+    // card or `sudo rpi-alert access add-key` does that — so the web password
+    // is never a way to a shell.
+    if (p === '/api/access' && req.method === 'GET') return this.json(res, 200, await system.accessStatus());
+    if (p === '/api/access' && req.method === 'POST') {
+      let r;
+      if (body.sync) r = await system.priv('access-sync');
+      else {
+        const what = String(body.set || ''), value = String(body.value || '');
+        const ok = { meganet: ['on', 'off'], from: ['private', 'any'], password: ['on', 'off', 'unchanged'], ssh: ['on', 'off'] };
+        if (!ok[what] || !ok[what].includes(value)) return this.json(res, 400, { error: 'set meganet on|off, from private|any, password on|off|unchanged, or ssh on|off' });
+        this.log.warn('SSH access: ' + what + ' ' + value + ' (from the web page)');
+        r = await system.priv('access-set', what, value);
+      }
+      if (r.code !== 0) return this.json(res, r.missing ? 501 : 400, { error: (r.stderr || r.stdout).trim().slice(0, 400) || 'not changed' });
+      // MegaNet sees the change at the next check-in.
+      a.remote.slowAt = 0; a.remote.wantFull = true;
+      return this.json(res, 200, await system.accessStatus());
+    }
     if (p === '/api/system/update/auto' && req.method === 'POST') {
       const on = !!body.on;
       const r = await system.priv('update-auto', on ? 'on' : 'off');
@@ -344,16 +377,7 @@ function audioDevices() {
   });
 }
 
-// rpi-alert-priv update-status: the timer's state, whether an install is running,
-// then the last outcome (update-status.json, written by rpi-alert-update).
-async function updateStatus() {
-  const r = await system.priv('update-status');
-  if (r.code !== 0) return { available: false, error: (r.stderr || '').trim().slice(0, 300) || 'not available on this machine' };
-  const [timer = '', running = '', ...rest] = r.stdout.split('\n');
-  let last = null;
-  try { last = JSON.parse(rest.join('\n')); } catch (_) {}
-  return { available: true, auto: timer.trim() === 'enabled', running: running.trim() === 'running', last: last && last.state ? last : null };
-}
+const updateStatus = system.updateStatus;
 
 function parseWifi(text) {
   const seen = new Map();

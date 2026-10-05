@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+'use strict';
+// rpi-alert-access — who may log in over SSH (lib/access.js, docs/access.md).
+// Root only: it writes the key list sshd reads. People use it through
+// `sudo rpi-alert access …`; the agent through rpi-alert-priv, which passes on
+// only status, sync and the three settings that put no key of its choosing on
+// the list; rpi-alert-access.service runs `sync` every hour.
+//
+//   rpi-alert-access status [--json]            accounts, keys, where each came from, sshd
+//   rpi-alert-access sync [--offline]           fetch the GitHub / MegaNet lists, write the key list
+//   rpi-alert-access apply                      the sshd drop-in from the policy (install.sh)
+//   rpi-alert-access ensure-account             make the alert account if it is missing
+//   rpi-alert-access set meganet on|off         take MegaNet's team keys, or not
+//   rpi-alert-access set from private|any       where fetched keys work from
+//   rpi-alert-access set password on|off|unchanged   SSH password login
+//   rpi-alert-access set ssh on|off             the SSH service
+//   rpi-alert-access github <user>… | none      GitHub accounts whose keys may log in
+//   rpi-alert-access add-key <public key>|-     a local key (- : several, a line each, on stdin)
+//   rpi-alert-access remove-key <fingerprint|comment>
+//   rpi-alert-access alert-password [--none]    the alert account's password, from stdin
+
+const path = require('node:path');
+const access = require(path.join(__dirname, '..', 'lib', 'access'));
+
+const argv = process.argv.slice(2);
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+const fail = (msg, code) => { process.stderr.write(msg + '\n'); process.exit(code || 2); };
+
+async function main() {
+  const [verb, a, b] = argv;
+  if (verb !== 'status' && typeof process.getuid === 'function' && process.getuid() !== 0) fail('run as root: sudo rpi-alert access …', 1);
+  switch (verb) {
+    case 'status': return out(access.status());
+    case 'sync': {
+      const s = await access.sync({ fetch: !argv.includes('--offline') });
+      if (!argv.includes('--quiet') || !s.ok) out(s);
+      return;
+    }
+    case 'apply': {
+      const r = access.applyDropin();
+      out(r);
+      if (!r.ok) process.exit(1);
+      return;
+    }
+    case 'ensure-account': return out(access.ensureAccount());
+    case 'set': {
+      if (a === 'ssh') {
+        if (!['on', 'off'].includes(b)) fail('set ssh on|off');
+        const r = access.setSsh(b === 'on');
+        if (!r.ok) fail(r.error, 1);
+        return out({ ok: true, ssh: b });
+      }
+      let p;
+      try { p = access.setPolicy(a, b); } catch (e) { fail(e.message); }
+      if (a === 'password') {
+        const r = access.applyDropin(p);
+        if (!r.ok) fail(r.error, 1);
+      } else await access.sync({ fetch: a === 'meganet' && b === 'on' });
+      return out({ ok: true, policy: p });
+    }
+    case 'github': {
+      let p;
+      try { p = access.setPolicy('github', argv.slice(1)); } catch (e) { fail(e.message); }
+      const s = await access.sync();
+      return out({ ok: true, github: p.github, sync: s });
+    }
+    case 'add-key': {
+      // One key as its words (the shell splits it), or several, a line each, on stdin (-).
+      const text = a === '-' ? require('node:fs').readFileSync(0, 'utf8') : argv.slice(1).join(' ');
+      const r = access.addLocalKeys(text.split(/\r?\n/));
+      if (!r.ok) fail(r.error);
+      await access.sync({ fetch: false });
+      return out(r);
+    }
+    case 'remove-key': {
+      const r = access.removeLocalKey(argv.slice(1).join(' '));
+      if (!r.ok) fail(r.error);
+      await access.sync({ fetch: false });
+      return out(r);
+    }
+    case 'alert-password': {
+      let pw = '';
+      if (!argv.includes('--none')) {
+        pw = require('node:fs').readFileSync(0, 'utf8').replace(/\r?\n$/, '');
+        if (!pw) fail('give the password on stdin, or --none to take it away');
+      }
+      const r = access.setAccountPassword(pw);
+      if (!r.ok) fail(r.error, 1);
+      return out(r);
+    }
+    default:
+      process.stdout.write(require('node:fs').readFileSync(__filename, 'utf8').split('\n')
+        .filter(l => l.startsWith('//   rpi-alert-access')).map(l => l.slice(5)).join('\n') + '\n');
+      process.exit(verb ? 2 : 0);
+  }
+}
+
+main().catch((e) => fail('rpi-alert-access: ' + (e && e.message || e), 1));

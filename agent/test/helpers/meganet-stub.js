@@ -11,6 +11,13 @@
 // and withdraw_ingest_token_request() answer for that token alone. approve(),
 // deny() and expire() are the administrator; an approved token is accepted by
 // every other call from then on.
+//
+// And the Base Stations tab (MegaNet 0049), as tools/check_base_stations.sql
+// holds the real one: base_station_checkin() records the heartbeat and the
+// status, takes the answers to what was asked, and hands each request over
+// once — to a station that manages, never to one that only reports, whose
+// requests fail there and then. ask() is an administrator asking; watch() one
+// with the station open. base_station_keys() answers the team SSH keys.
 
 const http = require('node:http');
 
@@ -22,6 +29,10 @@ function start(opts) {
   const seen = new Set();
   const calls = [];
   let nCode = 0;
+  // The Base Stations tab: one station (per token), what was asked of it, team keys.
+  const station = { checkins: 0, status: null, beat: null, mode: null, version: null, watch: false, wantStatus: false, keysHash: null, payloads: [] };
+  const asked = [];                    // { id, verb, args, status: queued|sent|done|failed, result, error }
+  const teamKeys = { hash: 'k0', keys: [] };
   const stateOf = (token) => {
     const r = requests.find(x => x.token === token);
     if (r && r.status === 'approved') return { status: 'approved', label: r.label };
@@ -40,6 +51,17 @@ function start(opts) {
     req.on('end', () => {
       const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
       if (req.method === 'GET' && req.url.endsWith('/stations.json')) return send(200, stations);
+      // An administrator on the Base Stations tab, for scripts/simulate.sh:
+      //   curl -d '{"verb":"log","args":{"lines":20}}' localhost:8098/__admin/ask
+      //   curl -d '{"on":true}' localhost:8098/__admin/watch        curl localhost:8098/__admin/asked
+      if (req.url.startsWith('/__admin/')) {
+        let a = {};
+        try { a = body ? JSON.parse(body) : {}; } catch (_) { return send(400, { message: 'bad json' }); }
+        if (req.url === '/__admin/ask') { const c = { id: 100 + asked.length, verb: String(a.verb || ''), args: a.args || {}, status: 'queued' }; asked.push(c); return send(200, c); }
+        if (req.url === '/__admin/watch') { station.watch = a.on !== false; return send(200, { watch: station.watch }); }
+        if (req.url === '/__admin/asked') return send(200, { asked, station: Object.assign({}, station, { payloads: undefined }) });
+        return send(404, { message: 'no route' });
+      }
       const m = /\/rpc\/(\w+)$/.exec(req.url);
       if (!m) return send(404, { message: 'no route' });
       const h = req.headers;
@@ -75,6 +97,29 @@ function start(opts) {
       }
       if (!tokens.has(tok)) return send(401, { message: 'invalid ingest token' });
       if (!p || typeof p !== 'object') return send(400, { message: 'payload missing' });
+      if (m[1] === 'base_station_checkin' || m[1] === 'base_station_keys') {
+        if (opts.noBaseStations) return send(404, { code: 'PGRST202', message: 'Could not find the function meganet.' + m[1] });
+        if (m[1] === 'base_station_keys') return send(200, teamKeys);
+        if (p.v !== 1 || !['manage', 'report', 'off'].includes(p.mode)) return send(400, { code: '22023', message: 'v 1 and a mode' });
+        if (p.status !== undefined && (typeof p.status !== 'object' || JSON.stringify(p.status).length > 16384)) return send(400, { code: '22023', message: 'status: an object of at most 16 KB' });
+        station.checkins++; station.payloads.push(p); station.mode = p.mode; station.version = p.agent && p.agent.version;
+        if (p.beat) station.beat = p.beat;
+        if (p.status) { station.status = p.status; station.wantStatus = false; }
+        if (p.keys_hash) station.keysHash = p.keys_hash;
+        for (const r of p.results || []) {
+          const c = asked.find(x => x.id === r.id && (x.status === 'sent' || x.status === 'queued'));
+          if (c) Object.assign(c, { status: r.ok ? 'done' : 'failed', result: r.result, error: r.error || null });
+        }
+        const commands = [];
+        for (const c of asked.filter(x => x.status === 'queued')) {
+          if (p.mode === 'manage' || opts.deliverAlways) {
+            // Ten at a time, as MegaNet hands them over.
+            if (commands.length < 10) { c.status = 'sent'; commands.push({ id: c.id, verb: c.verb, args: c.args }); }
+          } else { c.status = 'failed'; c.error = 'the base station only reports'; }
+        }
+        return send(200, { next_s: station.watch ? 5 : commands.length ? 2 : p.idle_s || 60, watch: station.watch, want_status: station.wantStatus,
+          commands, keys_hash: teamKeys.hash, label: 'Stub base' });
+      }
       if (m[1] === 'ingest_http') {
         if (!Array.isArray(p.readings)) return send(400, { message: 'readings must be an array' });
         if (p.readings.length > 1000) return send(400, { message: 'batch too large' });
@@ -111,7 +156,10 @@ function start(opts) {
   };
   return new Promise((resolve) => server.listen(opts.port || 0, '127.0.0.1', () => {
     resolve({ server, calls, requests, tokens, port: server.address().port, url: 'http://127.0.0.1:' + server.address().port, close: () => new Promise(r => server.close(r)), opts,
-      approve: (code, label) => decide(code, 'approved', label), deny: (code) => decide(code, 'denied'), expire: (code) => decide(code, 'expired') });
+      approve: (code, label) => decide(code, 'approved', label), deny: (code) => decide(code, 'denied'), expire: (code) => decide(code, 'expired'),
+      station, asked, teamKeys,
+      ask: (verb, args) => { const c = { id: 100 + asked.length, verb, args: args || {}, status: 'queued' }; asked.push(c); return c; },
+      watch: (on) => { station.watch = on !== false; }, wantStatus: () => { station.wantStatus = true; } });
   }));
 }
 

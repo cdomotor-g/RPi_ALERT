@@ -34,6 +34,7 @@ const PORT_TYPES = ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'];
 const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
 const LOC_SOURCES = ['none', 'manual', 'station', 'gps'];
+const REMOTE_MODES = ['manage', 'report', 'off'];
 
 function defaults() {
   return {
@@ -105,6 +106,16 @@ function defaults() {
     web: { port: 80, passwordHash: '' },
     kiosk: { mode: 'auto' },
     system: { timezone: '' },
+    // MegaNet's Base Stations tab (lib/remote.js). The base station checks in
+    // with MegaNet — MegaNet never connects to it — saying how it is, and
+    // collects anything an administrator asked of it:
+    //   manage  health, and the fixed list of things MegaNet may ask (settings
+    //           but never the token, the endpoints, the web password or this;
+    //           restarts; updates; the log)
+    //   report  health only; anything asked is refused
+    //   off     nothing
+    // Only this base station can change it: MegaNet cannot widen its own reach.
+    remote: { mode: 'manage', idleS: 60 },
   };
 }
 
@@ -199,6 +210,9 @@ function validate(c) {
   need(KIOSK_MODES.includes((c.kiosk || {}).mode), 'kiosk.mode: one of ' + KIOSK_MODES.join(', '));
   const tz = (c.system || {}).timezone;
   need(tz === '' || /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(tz), 'system.timezone: e.g. Australia/Brisbane');
+  const rm = c.remote || {};
+  need(REMOTE_MODES.includes(rm.mode), 'remote.mode: one of ' + REMOTE_MODES.join(', '));
+  need(Number.isInteger(rm.idleS) && rm.idleS >= 30 && rm.idleS <= 900, 'remote.idleS: 30–900 seconds');
   return errs;
 }
 
@@ -371,5 +385,5 @@ function changedPaths(a, b) {
 
 module.exports = {
   Config, defaults, validate, stickErrors, channelsOf, channelErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
-  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES,
+  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
 };

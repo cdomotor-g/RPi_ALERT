@@ -26,7 +26,15 @@ administrator, then press Approve there. Unplug them when you are done.
 
 Over SSH (PuTTY on Windows)
 ---------------------------
-ssh <your user>@rpi-alert.local, then:   rpi-alert status   rpi-alert setup
+ssh alert@rpi-alert.local with an SSH key you put on the card (ssh_key = ...
+in rpi-alert.conf), or ssh <your user>@rpi-alert.local, then:
+    rpi-alert status   rpi-alert setup   rpi-alert access
 No token yet?   rpi-alert request-token   (shows a code and a QR code to approve)
+
+Nobody can log in?
+------------------
+Put a line   alert_password = something-long   in rpi-alert.conf on this drive,
+boot the Pi, and log in as alert at its console. The password is removed from
+the card once applied. (Or add your key:  ssh_key = ssh-ed25519 AAAA...)
 
 Everything else: https://github.com/cdomotor-g/RPi_ALERT

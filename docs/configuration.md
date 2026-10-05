@@ -20,8 +20,10 @@ mode 0600 because it holds the ingest token):
   USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
   that is unplugged.
 - **Settings** — MegaNet, location, RTL-SDR (the settings every stick shares, and each stick's
-  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), web password, time
-  zone, restart/reboot/shut down, update check.
+  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), web password,
+  remote management (what MegaNet's Base Stations tab may do, and what it last asked), SSH access
+  (the `alert` account, its keys and where each came from, password login, MegaNet's team keys),
+  time zone, restart/reboot/shut down, update check.
 
 **Several channels on one stick.** One stick decodes every channel in a stretch of the band about
 1.9 MHz wide, all at the same time. Under **Settings → RTL-SDR**, *Frequency* is the stick's own
@@ -88,6 +90,11 @@ rpi-alert sdr 1 freq 151.5, 151.525, 152.4 eif
 rpi-alert sdr 1 channels 151.95  just its more channels ("none" for none, "shared" for the shared)
 rpi-alert sdr remove 3           forget an unplugged stick (name, settings, receiver id)
 rpi-alert password               the web page password
+rpi-alert remote [manage|report|off]   what MegaNet's Base Stations tab may do; how check-ins go
+rpi-alert access                 who may log in over SSH (docs/access.md)
+sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"   remove-key <fingerprint> · github <name…>|none
+rpi-alert access meganet on|off · from private|any · password-login on|off|unchanged · ssh on|off · sync
+sudo rpi-alert access alert-password [--none]   the alert account's password (the console)
 rpi-alert readings [n] · log [n] · test-audio [alert|alert2|beep] · send-now · version
 sudo journalctl -u rpi-alert -f  the full log
 sudo systemctl restart rpi-alert
@@ -126,6 +133,13 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `hostname` | e.g. mt-stuart-base | system hostname (after a reboot) |
 | `wifi_ssid`, `wifi_password`, `wifi_country` | | a NetworkManager connection `rpi-alert-wifi` |
 | `ssh` | on / off | the SSH service |
+| `ssh_key` | `ssh-ed25519 AAAA… you@laptop` | a key that may log in as `alert` — a line each; the card's lines replace the ones before; `none` clears them ([access.md](access.md)) |
+| `ssh_github` | names | GitHub accounts whose public keys may log in as `alert`, fetched hourly |
+| `ssh_meganet_keys` | yes / no | MegaNet's team keys may log in as `alert` (off by default) |
+| `ssh_from` | private / any | where keys fetched from GitHub and MegaNet work from (private networks by default) |
+| `ssh_password_login` | on / off | SSH password login (absent: as Raspberry Pi Imager set it) |
+| `alert_password` | text, or none | a password for `alert` — the console, and SSH if password login is on; wiped from the card |
+| `remote_management` | manage / report / off | `remote.mode`: what MegaNet's Base Stations tab may do ([remote-management.md](remote-management.md)) |
 | `auto_update` | on / off | install new releases nightly, 3–4 am (off by default) |
 | `update` | now | install the latest release once, at this boot |
 
@@ -159,6 +173,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |
 | `system.timezone` | — | Set from the page; ALERT2 frame times are local |
+| `remote.mode` | manage | manage · report · off — what MegaNet's Base Stations tab may do. Set only on the Pi: MegaNet cannot change it |
+| `remote.idleS` | 60 | How often to check in with MegaNet while nobody has the base station open (30–900 s) |
 
 Environment variables (for development and tests): `RPI_ALERT_CONFIG`, `RPI_ALERT_DATA`,
 `RPI_ALERT_DEV`, `RPI_ALERT_SYSFS`, `RPI_ALERT_PRIV`, `RPI_ALERT_ASSUME_CLOCK=1`,

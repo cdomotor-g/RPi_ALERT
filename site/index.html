@@ -107,6 +107,15 @@
           <label>Web page password <input name="web_password" type="password" autocomplete="new-password" placeholder="recommended"></label>
         </fieldset>
         <fieldset>
+          <legend>Getting in later — SSH keys and MegaNet</legend>
+          <p class="small">Every RPi ALERT has the same maintenance account, <b>alert</b>, with no password to forget: it logs in with SSH keys. Give it yours here — and your team's — so whoever looks after this Pi next year is not stuck with a password that left with somebody.</p>
+          <label>SSH public keys, one per line <textarea name="ssh_keys" rows="3" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><span class="small">What is in <code>~/.ssh/id_ed25519.pub</code> (Windows: <code>C:\Users\you\.ssh\id_ed25519.pub</code>; make one with <code>ssh-keygen -t ed25519</code>). Public keys are not secrets.</span></label>
+          <label>…and GitHub accounts whose keys may log in <input name="ssh_github" placeholder="e.g. cdomotor-g, a-colleague" spellcheck="false"><span class="small">Their public keys (github.com/<i>name</i>.keys), fetched every hour — so a team's own accounts decide who gets in.</span></label>
+          <label class="check"><input type="checkbox" name="ssh_meganet_keys"> MegaNet's team SSH keys may log in too — its administrators keep that list, and those keys work from private networks only</label>
+          <label class="check"><input type="checkbox" name="ssh_password_off"> Keys only: turn SSH password login off</label>
+          <label>MegaNet's <b>Base Stations</b> tab may <select name="remote_management"><option value="manage">see its health and manage it — settings, restarts, updates</option><option value="report">see its health only</option><option value="off">nothing — no check-ins</option></select><span class="small">The Pi calls MegaNet, never the other way round; MegaNet can never change its token, its web password or its SSH keys.</span></label>
+        </fieldset>
+        <fieldset>
           <legend>Network and system <span class="dim small">(skip if Raspberry Pi Imager's customisation did these)</span></legend>
           <div class="row">
             <label>Wi-Fi name <input name="wifi_ssid"></label>
@@ -134,7 +143,7 @@
       <ul class="plain">
         <li>Put the card in the Pi. Plug in the receivers — RTL-SDR stick with its antenna, the Quansheng radio by USB-C (ALERT app running), the ERT-A2 by its USB-serial cable — then the network and the power.</li>
         <li>Give it two minutes the first time. Then open <a href="http://rpi-alert.local/">http://rpi-alert.local/</a> from a computer on the same network (or the Pi's address from your router).</li>
-        <li>With a monitor plugged in, the same dashboard appears full screen. Over SSH (PuTTY on Windows): <code>ssh &lt;user&gt;@rpi-alert.local</code>, then <code>rpi-alert status</code> or <code>rpi-alert setup</code>.</li>
+        <li>With a monitor plugged in, the same dashboard appears full screen. Over SSH (PuTTY on Windows): <code>ssh alert@rpi-alert.local</code> with a key you gave it (or the user you set up in Imager), then <code>rpi-alert status</code> or <code>rpi-alert setup</code>. Nobody can get in? Put <code>alert_password = …</code> in <code>rpi-alert.conf</code> on the card and log in as <b>alert</b> at the console.</li>
         <li>A speaker in the audio jack (Pi 3/4) plays each ALERT burst. The Pi 5 and Zero have no jack: use HDMI audio or a USB sound card.</li>
       </ul>
     </li>

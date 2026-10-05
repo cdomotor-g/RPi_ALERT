@@ -21,6 +21,8 @@ lib/serial/port.js         a serial port with no native module (non-blocking fd 
 lib/serial/scan.js         ports, USB ids and RTL-SDR sticks from sysfs
 lib/uplink.js, meganet.js  the queue on disk; ingest_http / report_ingest_point / report_receptions
 lib/token-request.js       asking MegaNet for the token: a code, approved on MegaNet's Admin tab (0048)
+lib/remote.js              checking in with MegaNet's Base Stations tab: health out, a fixed list of requests in (0049)
+lib/access.js              SSH access: the alert account's keys (SD card, GitHub, MegaNet), run as root by bin/rpi-alert-access
 lib/clock.js               is the time trustworthy (NTP, GPS); monotonic holding
 lib/state.js               receiver ids, what each port was, and every RTL-SDR stick seen (by model, serial and USB port)
 lib/stations.js            MegaNet's register, for names

@@ -99,6 +99,8 @@ function renderHeader() {
   if (s.system.power && s.system.power.underVoltageNow) chips.push(['bad', 'Under-voltage']);
   else if (s.system.power && s.system.power.underVoltageSinceBoot) chips.push(['warn', 'Under-voltage since boot']);
   if (s.system.tempC != null) chips.push([s.system.tempC > 75 ? 'bad' : s.system.tempC > 65 ? 'warn' : 'ok', s.system.tempC + ' °C']);
+  // An administrator has this base station open on MegaNet's Base Stations tab.
+  if (s.remote && s.remote.watch && s.remote.state === 'ok') chips.push(['ok', 'MegaNet: an administrator is looking']);
   $('#chips').innerHTML = chips.map(([c, t]) => '<span class="chip ' + c + '">' + esc(t) + '</span>').join('');
 
   const banners = [];
@@ -546,6 +548,7 @@ function fillForms() {
   loadAudioDevices();
 
   $('#f-display').kiosk.value = c.kiosk.mode;
+  if (c.remote) $('#f-remote').mode.value = c.remote.mode;
   $('#f-system').timezone.value = c.system.timezone || (S.status ? S.status.clock.timezone : '');
   $('#pw-state').textContent = c.web.passwordSet
     ? 'A password is set. Other computers must log in to change settings; this Pi\'s own screen does not.'
@@ -792,6 +795,7 @@ function wireSettings() {
     try { await api('/api/system/power', { method: 'POST', body: { action: b.dataset.power } }); flash($('#f-system'), 'Done — this page reconnects by itself.', true); } catch (e) { flash($('#f-system'), e.message, false); }
   }));
   bindUpdates();
+  bindRemote();
 
   $('#wifi-scan').addEventListener('click', async () => {
     const box = $('#wifi-list'); box.innerHTML = '<div class="dim small">Scanning…</div>';
@@ -880,7 +884,7 @@ async function refresh() {
     S.status = await api('/api/status');
     renderHeader(); renderStats(); renderRxMini();
     if (S.tab === 'rx') renderRxFull();
-    if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); }
+    if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); renderRemote(); }
     renderBursts();
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;
@@ -901,6 +905,7 @@ function connectEvents() {
     refresh();
     if (t && t.last && t.last.status === 'approved' && S.tab === 'settings') loadConfig().catch(() => {});
   });
+  es.addEventListener('remote', () => { if (S.tab === 'settings') refresh(); });
   es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') renderLog(); });
   es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
 }
@@ -966,13 +971,113 @@ function bindUpdates() {
   });
 }
 
+// ── remote management (MegaNet's Base Stations tab) ─────────────────────────
+
+const REMOTE_STATES = {
+  ok: 'checking in', starting: 'starting', 'no-token': 'waiting for a MegaNet token', off: 'off — this base station does not check in',
+  unsupported: 'MegaNet does not take check-ins yet', refused: 'MegaNet refused the ingest token', error: 'cannot reach MegaNet just now',
+};
+
+function renderRemote() {
+  const r = S.status && S.status.remote;
+  if (!r) return;
+  const bits = [REMOTE_STATES[r.state] || r.state];
+  if (r.state === 'ok' && r.lastOkAt) bits.push('last ' + ago(Date.now() - r.lastOkAt));
+  if (r.state === 'ok' && r.label) bits.push('as “' + r.label + '”');
+  if (r.watch && r.state === 'ok') bits.push('an administrator has it open, so it checks in every few seconds');
+  if (r.lastError && r.state !== 'ok') bits.push(r.lastError);
+  const st = $('#remote-state');
+  st.textContent = 'Now: ' + bits.join(' · ') + '.';
+  st.className = 'small ' + (r.state === 'refused' || r.state === 'error' ? 'status bad' : '');
+  const hist = (r.history || []);
+  setHtml($('#remote-history'), hist.length
+    ? '<div class="small dim">Asked from MegaNet:</div><ul class="small remote-history">' + hist.map(h => '<li>' + esc(hhmmss(h.at)) + ' — ' + esc(h.label)
+      + (h.detail ? ' <span class="dim">(' + esc(h.detail) + ')</span>' : '') + ' — ' + (h.ok ? '<span class="status ok">done</span>' : '<span class="status bad">not done: ' + esc(h.error || '') + '</span>') + '</li>').join('') + '</ul>'
+    : '<p class="small dim">Nothing asked from MegaNet since the agent started.</p>');
+}
+
+// ── SSH access ──────────────────────────────────────────────────────────────
+
+const KEY_SOURCES = { local: 'this Pi (SD card or sudo)', github: 'GitHub', meganet: 'MegaNet team keys' };
+const KEY_TYPES = { 'ssh-ed25519': 'Ed25519', 'sk-ssh-ed25519@openssh.com': 'Ed25519, security key', 'ssh-rsa': 'RSA',
+  'sk-ecdsa-sha2-nistp256@openssh.com': 'ECDSA, security key' };
+const keyType = (t) => KEY_TYPES[t] || (/^ecdsa/.test(t) ? 'ECDSA' : t);
+// "cameron (password, 2 keys)" — or how it cannot log in.
+const loginText = (l) => l.user + ' (' + ([l.password === 'set' ? 'password' : l.password === 'empty' ? 'EMPTY password' : null,
+  l.keys ? l.keys + ' key' + (l.keys === 1 ? '' : 's') : null].filter(Boolean).join(', ') || 'no password or key') + ')';
+
+function renderAccess(a) {
+  const box = $('#access-body');
+  const ctl = $$('#f-access select, #acc-sync');
+  if (!a || !a.available) {
+    box.innerHTML = '<p class="small dim">SSH access is set by the Pi\'s system helper, which is not installed here' + (a && a.error ? ' (' + esc(a.error) + ')' : '') + '.</p>';
+    ctl.forEach(el => { el.disabled = true; });
+    return;
+  }
+  ctl.forEach(el => { el.disabled = false; });
+  const acct = a.account || {}, ssh = a.ssh || {}, pol = a.policy || {};
+  $('#acc-ssh').value = ssh.enabled || ssh.active ? 'on' : 'off';
+  $('#acc-password').value = pol.passwordLogin || 'unchanged';
+  $('#acc-meganet').value = pol.meganetKeys ? 'on' : 'off';
+  $('#acc-from').value = pol.from || 'private';
+  const rows = [];
+  rows.push(['SSH', esc((ssh.active ? 'on' : ssh.enabled ? 'on (starting)' : 'off') + (ssh.port ? ', port ' + ssh.port : '')
+    + (ssh.passwordLogin === true ? ' · passwords accepted' : ssh.passwordLogin === false ? ' · keys only' : ''))
+    + (ssh.passwordLogin && !(a.keys || []).length ? ' <span class="dim">— add a key, then turn password login off</span>' : '')]);
+  rows.push(['The alert account', !acct.exists ? '<span class="status bad">missing — reinstall, or sudo rpi-alert-access ensure-account</span>'
+    : esc((acct.password === 'set' ? 'has a password (the console' + (ssh.passwordLogin ? ' and SSH' : '') + ')' : 'no password — keys only') + (acct.sudo ? ' · may use sudo' : '') + ' · ' + (acct.keys || 0) + ' key' + (acct.keys === 1 ? '' : 's'))]);
+  if ((a.logins || []).length) rows.push(['Accounts that can log in', esc(a.logins.map(loginText).join(' · '))]);
+  if ((pol.github || []).length) rows.push(['GitHub accounts', esc(pol.github.join(', '))]);
+  if (a.lastSync) rows.push(['Keys last fetched', esc(ago(Date.now() - a.lastSync.at) + (a.lastSync.ok ? '' : ' — some could not be fetched')) + ((a.lastSync.notes || []).length ? '<br><span class="dim">' + esc(a.lastSync.notes.slice(0, 3).join(' · ')) + '</span>' : '')]);
+  const keys = a.keys || [];
+  box.innerHTML = kv(rows) + (keys.length
+    ? '<div class="table-wrap"><table class="readings"><thead><tr><th>Key</th><th>Whose</th><th>From</th><th>Works from</th></tr></thead><tbody>'
+      + keys.map(k => '<tr><td class="mono small" title="' + esc(k.fingerprint) + '">' + esc(k.fingerprint.slice(0, 20) + '…') + ' <span class="dim">' + esc(keyType(k.type)) + '</span></td><td>' + esc(k.comment || '—')
+        + '</td><td class="small">' + esc(KEY_SOURCES[k.source] || k.source) + '</td><td class="small">' + (k.restricted ? 'private networks' : 'anywhere') + '</td></tr>').join('')
+      + '</tbody></table></div>'
+    : '<p class="small">No key yet, so nobody can log in as <b class="mono">alert</b>. See below for how to add one.</p>');
+}
+
+async function loadAccess() {
+  try { renderAccess(await api('/api/access')); } catch (e) { $('#access-body').innerHTML = '<p class="small status bad">' + esc(e.message) + '</p>'; }
+}
+
+async function accessSet(body, confirmText) {
+  if (confirmText && !confirm(confirmText)) { loadAccess(); return; }
+  const st = $('#acc-status');
+  st.textContent = 'Working…'; st.className = 'small';
+  try { renderAccess(await api('/api/access', { method: 'POST', body })); st.textContent = 'Done.'; st.className = 'small status ok'; }
+  catch (e) { st.textContent = e.message; st.className = 'small status bad'; loadAccess(); }
+}
+
+function bindRemote() {
+  $('#f-remote').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await api('/api/remote', { method: 'POST', body: { mode: f.mode.value } });
+      flash(f, f.mode.value === 'off' ? 'Saved — MegaNet is told once, then nothing.' : 'Saved.', true);
+      loadConfig().catch(() => {}); refresh();
+    } catch (err) { flash(f, err.message, false); }
+  });
+  $('#acc-ssh').addEventListener('change', (e) => accessSet({ set: 'ssh', value: e.target.value },
+    e.target.value === 'off' ? 'Turn SSH off? Nobody can log in over the network until it is turned on again (here, or ssh = on on the SD card).' : null));
+  $('#acc-password').addEventListener('change', (e) => accessSet({ set: 'password', value: e.target.value },
+    e.target.value === 'on' ? 'Accept passwords over SSH? Anyone who can reach this Pi can then try them.' : null));
+  $('#acc-meganet').addEventListener('change', (e) => accessSet({ set: 'meganet', value: e.target.value },
+    e.target.value === 'on' ? 'Let MegaNet\'s team SSH keys log in as alert (with sudo)? Its administrators keep that list.' : null));
+  $('#acc-from').addEventListener('change', (e) => accessSet({ set: 'from', value: e.target.value },
+    e.target.value === 'any' ? 'Let keys fetched from GitHub and MegaNet work from any address, not only private networks?' : null));
+  $('#acc-sync').addEventListener('click', () => accessSet({ sync: true }));
+}
+
 function showTab(t) {
   S.tab = t;
   renderHeader();
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'rx') renderRxFull();
-  if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); }
+  if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
   if (t === 'dash') renderBursts();
 }

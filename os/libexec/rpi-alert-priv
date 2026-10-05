@@ -15,6 +15,12 @@
 #   update-install            install it now (rpi-alert-update.service, in the background)
 #   update-auto on|off        the nightly install-if-newer timer
 #   update-status             the last install's outcome and whether the timer is on
+#   access-status             who may log in over SSH, and how (JSON; docs/access.md)
+#   access-sync               fetch the GitHub and MegaNet key lists now
+#   access-set meganet on|off | from private|any | password on|off|unchanged | ssh on|off
+#                             nothing here puts a key on the list: keys come only
+#                             from the SD card, sudo rpi-alert access, or the lists
+#                             root itself fetches (rpi-alert-access)
 set -u
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
 
@@ -78,5 +84,15 @@ case "$verb" in
     systemctl is-enabled rpi-alert-update-auto.timer 2>/dev/null || echo disabled
     if systemctl is-active --quiet rpi-alert-update.service || systemctl is-active --quiet rpi-alert-update-auto.service; then echo running; else echo idle; fi
     cat /var/lib/rpi-alert/update-status.json 2>/dev/null || echo '{}' ;;
+  access-status) exec /usr/bin/node /opt/rpi-alert/bin/rpi-alert-access status ;;
+  # Through its own unit, so the hourly timer and this share one log
+  # (journalctl -u rpi-alert-access); start waits for the oneshot to finish.
+  access-sync) exec systemctl start rpi-alert-access.service ;;
+  access-set)
+    case "${1:-}:${2:-}" in
+      meganet:on|meganet:off|from:private|from:any|password:on|password:off|password:unchanged|ssh:on|ssh:off) ;;
+      *) die "access-set meganet on|off | from private|any | password on|off|unchanged | ssh on|off" ;;
+    esac
+    exec /usr/bin/node /opt/rpi-alert/bin/rpi-alert-access set "$1" "$2" ;;
   *) die "unknown verb: $verb" ;;
 esac

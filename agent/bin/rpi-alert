@@ -23,6 +23,18 @@
 //                                    <stick>: its number (2 for "RTL-SDR 2"), name or USB port
 //   rpi-alert sdr remove <stick>     forget an unplugged stick: name, settings, MegaNet receiver id
 //   rpi-alert password               set the web page password
+//   rpi-alert remote [manage|report|off]
+//                                    what MegaNet's Base Stations tab may do, and how the
+//                                    check-ins are going (manage: health, settings, restarts,
+//                                    updates; report: health only; off: no check-ins)
+//   rpi-alert access                 who may log in over SSH: the alert account, its keys and
+//                                    where each came from, password login, the GitHub and
+//                                    MegaNet lists
+//   sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop" | remove-key <fingerprint>
+//   sudo rpi-alert access github <name…>|none     GitHub accounts whose keys may log in as alert
+//   rpi-alert access meganet on|off | from private|any | password-login on|off|unchanged
+//                    | ssh on|off | sync
+//   sudo rpi-alert access alert-password [--none] a password for the alert account (the console)
 //   rpi-alert readings [n]           the last n readings
 //   rpi-alert log [n]                the agent's recent log (journalctl -u rpi-alert for all of it)
 //   rpi-alert test-audio [alert|alert2|beep]
@@ -30,9 +42,9 @@
 //   rpi-alert import-boot-config     apply /boot/firmware/rpi-alert.conf (root; done at every boot)
 //   rpi-alert version
 //
-// Everything but `daemon` and `import-boot-config` talks to the running agent
-// on http://127.0.0.1 — over SSH (PuTTY on Windows) that is all a headless
-// base station needs.
+// Everything but `daemon`, `import-boot-config` and the SSH keys of `sudo
+// rpi-alert access` talks to the running agent on http://127.0.0.1 — over SSH
+// (PuTTY on Windows) that is all a headless base station needs.
 
 const path = require('node:path');
 const lib = path.join(__dirname, '..', 'lib');
@@ -53,6 +65,8 @@ async function main() {
     case 'config': return config(argv[1], argv[2], argv.slice(3).join(' '));
     case 'sdr': case 'sdrs': return sdr(argv.slice(1));
     case 'password': return password();
+    case 'remote': return remote(argv[1]);
+    case 'access': return access(argv.slice(1));
     case 'readings': return readings(Number(argv[1]) || 20);
     case 'log': case 'logs': return showLog(Number(argv[1]) || 60);
     case 'test-audio': return post('/api/audio/test', { kind: argv[1] || 'alert' }).then(() => console.log('Playing a test chirp.'));
@@ -481,6 +495,113 @@ async function requestToken(o) {
     if (last.status !== 'approved') process.exitCode = 1;
     return;
   }
+}
+
+// ── remote management ────────────────────────────────────────────────────────
+
+const REMOTE_STATES = { ok: 'checking in', starting: 'starting', 'no-token': 'waiting for a MegaNet token', off: 'off — no check-ins',
+  unsupported: 'MegaNet does not take check-ins yet (its migration 0049)', refused: 'MegaNet refused the ingest token', error: 'cannot reach MegaNet just now' };
+const REMOTE_MODES = { manage: 'health, and manage it (settings, restarts, updates, the log)', report: 'health only', off: 'nothing' };
+
+async function remote(mode) {
+  if (mode) {
+    if (!REMOTE_MODES[mode]) throw new Error('rpi-alert remote manage | report | off');
+    await post('/api/remote', { mode });
+  }
+  const r = await api('/api/remote');
+  console.log(C.b + 'Remote management' + C.x + '  MegaNet\'s Base Stations tab may see ' + REMOTE_MODES[r.mode] + (mode ? C.g + '  (saved)' + C.x : ''));
+  const col = r.state === 'ok' || r.state === 'off' ? C.g : r.state === 'error' || r.state === 'refused' ? C.r : C.y;
+  console.log('  ' + col + (REMOTE_STATES[r.state] || r.state) + C.x + (r.lastOkAt ? C.d + ', last ' + ago(Date.now() - r.lastOkAt) + C.x : '')
+    + (r.label ? C.d + ' as "' + r.label + '"' + C.x : '') + (r.watch ? C.c + ' — an administrator has it open' + C.x : ''));
+  if (r.lastError && r.state !== 'ok') console.log('  ' + C.y + r.lastError + C.x);
+  if ((r.history || []).length) {
+    console.log('\nAsked from MegaNet:');
+    for (const h of r.history) console.log('  ' + new Date(h.at).toLocaleTimeString() + '  ' + h.label + (h.detail ? C.d + ' (' + h.detail + ')' + C.x : '') + '  ' + (h.ok ? C.g + 'done' : C.r + 'not done: ' + h.error) + C.x);
+  }
+  if (!mode) console.log(C.d + '\nChange it: rpi-alert remote manage | report | off' + C.x);
+}
+
+// ── SSH access ───────────────────────────────────────────────────────────────
+
+const ACCESS_HELPER = path.join(__dirname, 'rpi-alert-access');
+const isRoot = () => typeof process.getuid === 'function' && process.getuid() === 0;
+
+function helper(args, input) {
+  const { spawnSync } = require('node:child_process');
+  const r = spawnSync(process.execPath, [ACCESS_HELPER, ...args], { input, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error((r.stderr || r.stdout || '').trim() || 'rpi-alert-access ' + args[0] + ' failed');
+  try { return JSON.parse(r.stdout.trim().split('\n').pop()); } catch (_) { return {}; }
+}
+
+function printAccess(a) {
+  if (!a || a.available === false) { console.log(C.y + 'SSH access is set by the system helper, which is not installed here' + (a && a.error ? ' (' + a.error + ')' : '') + '.' + C.x); return; }
+  const ssh = a.ssh || {}, acct = a.account || {}, pol = a.policy || {};
+  const SRC = { local: 'this Pi', github: 'GitHub', meganet: 'MegaNet' };
+  console.log(C.b + 'SSH' + C.x + '        ' + (ssh.active || ssh.enabled ? C.g + 'on' : C.y + 'off') + C.x + (ssh.port ? ', port ' + ssh.port : '')
+    + (ssh.passwordLogin === true ? C.y + ', passwords accepted' + C.x : ssh.passwordLogin === false ? ', keys only' : '') + C.d + '  (password login: ' + pol.passwordLogin + ')' + C.x);
+  console.log(C.b + 'alert' + C.x + '      ' + (!acct.exists ? C.r + 'missing — sudo rpi-alert-access ensure-account' + C.x
+    : (acct.password === 'set' ? 'has a password (console)' : 'no password — keys only') + (acct.sudo ? ', sudo' : '') + ', ' + (acct.keys || 0) + ' key(s)'));
+  const keys = a.keys || [];
+  if (!keys.length) console.log(C.y + '           no key yet: nobody can log in as alert — sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"' + C.x);
+  for (const k of keys) console.log('  ' + k.fingerprint.slice(0, 27) + '…  ' + String(k.comment || '—').slice(0, 34).padEnd(34) + ' ' + (SRC[k.source] || k.source).padEnd(9) + C.d + (k.restricted ? ' private networks only' : ' from anywhere') + C.x);
+  if ((a.logins || []).length) console.log(C.b + 'Accounts' + C.x + '   ' + a.logins.map(l => l.user + ' (' + ([l.password === 'set' ? 'password' : l.password === 'empty' ? 'EMPTY password' : null, l.keys ? l.keys + ' key(s)' : null].filter(Boolean).join(', ') || 'no password or key') + ')').join(', '));
+  console.log(C.b + 'Lists' + C.x + '      GitHub: ' + ((pol.github || []).join(', ') || 'none') + ' · MegaNet team keys: ' + (pol.meganetKeys ? 'accepted' : 'not accepted') + ' · fetched keys work from ' + (pol.from === 'any' ? 'anywhere' : 'private networks only'));
+  if (a.lastSync) console.log(C.d + '           last fetched ' + ago(Date.now() - a.lastSync.at) + ((a.lastSync.notes || []).length ? ': ' + a.lastSync.notes.slice(0, 3).join('; ') : '') + C.x);
+}
+
+async function access(args) {
+  const [sub, ...rest] = args;
+  const status = async () => (isRoot() ? Object.assign({ available: true }, helper(['status'])) : api('/api/access'));
+  if (!sub || sub === 'status') return printAccess(await status());
+  // The settings that put no key on the list: through the agent (as the web
+  // page does) or, as root, straight to the helper.
+  const viaAgent = { meganet: 'meganet', from: 'from', 'password-login': 'password', password: 'password', ssh: 'ssh' };
+  if (viaAgent[sub]) {
+    const value = rest[0];
+    if (!value) throw new Error('rpi-alert access ' + sub + ' <value>');
+    if (isRoot()) helper(['set', viaAgent[sub], value]);
+    else await post('/api/access', { set: viaAgent[sub], value });
+    console.log(C.g + 'Saved.' + C.x);
+    return printAccess(await status());
+  }
+  if (sub === 'sync') {
+    if (isRoot()) helper(['sync']); else await post('/api/access', { sync: true });
+    return printAccess(await status());
+  }
+  // Keys, GitHub accounts and the password: root only, never through the agent.
+  if (!['add-key', 'remove-key', 'github', 'alert-password'].includes(sub)) throw new Error('rpi-alert access [status | add-key | remove-key | github | meganet | from | password-login | ssh | sync | alert-password]');
+  if (!isRoot()) throw new Error('that needs root: sudo rpi-alert access ' + args.join(' '));
+  if (sub === 'alert-password') {
+    if (rest.includes('--none')) { helper(['alert-password', '--none']); console.log('The alert account has no password now: SSH keys only.'); return; }
+    const pw = await hidden('New password for the alert account (8+ characters): ');
+    if (!pw) return;
+    if (await hidden('Again: ') !== pw) throw new Error('the two did not match — nothing changed');
+    helper(['alert-password'], pw + '\n');
+    console.log(C.g + 'Set.' + C.x + ' Log in as alert at the console' + C.d + ' (and over SSH if password login is on)' + C.x + '.');
+    return;
+  }
+  const r = sub === 'add-key' ? helper(['add-key', rest.join(' ')]) : sub === 'remove-key' ? helper(['remove-key', rest.join(' ')]) : helper(['github', ...rest]);
+  if (r.added) console.log(C.g + (r.added.length ? 'Added ' + r.added.join(', ') : 'That key was on the list already') + C.x);
+  if (r.removed) console.log(C.g + 'Removed ' + r.removed.join(', ') + C.x);
+  printAccess(await status());
+}
+
+// A line typed without showing it.
+function hidden(prompt) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stdout.write(prompt);
+    if (!stdin.isTTY) { let d = ''; stdin.on('data', c => { d += c; }); stdin.on('end', () => resolve(d.split('\n')[0])); return; }
+    let line = '';
+    stdin.setRawMode(true); stdin.resume(); stdin.setEncoding('utf8');
+    const onData = (ch) => {
+      if (ch === '\r' || ch === '\n' || ch === '\u0004') { stdin.setRawMode(false); stdin.pause(); stdin.off('data', onData); process.stdout.write('\n'); resolve(line); }
+      else if (ch === '\u0003') { stdin.setRawMode(false); process.stdout.write('\n'); process.exit(130); }
+      else if (ch === '\u007f' || ch === '\b') line = line.slice(0, -1);
+      else line += ch;
+    };
+    stdin.on('data', onData);
+  });
 }
 
 async function readings(n) {

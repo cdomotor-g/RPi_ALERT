@@ -54,13 +54,18 @@ FW=/boot/firmware; [ -d "$FW" ] || FW=/boot
 # ── uninstall ────────────────────────────────────────────────────────────────
 if [ "$UNINSTALL" = 1 ]; then
   say "Removing RPi ALERT"
-  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service rpi-alert-btgps.service rpi-alert-update-auto.timer 2>/dev/null || true
+  systemctl disable --now rpi-alert.service rpi-alert-boot-config.service rpi-alert-kiosk.service rpi-alert-btgps.service rpi-alert-update-auto.timer rpi-alert-access.timer 2>/dev/null || true
   rm -f /dev/rpi-alert-gps
   rm -f /etc/systemd/system/rpi-alert*.service /etc/systemd/system/rpi-alert*.timer /etc/udev/rules.d/60-rpi-alert.rules /etc/modprobe.d/rpi-alert-blacklist-dvb.conf \
         /etc/sudoers.d/rpi-alert /etc/pam.d/rpi-alert-kiosk /etc/systemd/journald.conf.d/rpi-alert.conf \
         /etc/systemd/system.conf.d/rpi-alert-watchdog.conf /etc/issue.d/rpi-alert.issue /etc/profile.d/rpi-alert.sh /usr/local/bin/rpi-alert
+  # SSH: the key list and its drop-in go (the alert account's keys with them);
+  # every other account's ~/.ssh/authorized_keys was never touched.
+  rm -f /etc/ssh/sshd_config.d/10-rpi-alert.conf /etc/sudoers.d/rpi-alert-maint
+  rm -rf /etc/ssh/rpi-alert /var/lib/rpi-alert-access
+  systemctl try-reload-or-restart ssh.service 2>/dev/null || true
   rm -rf "$PREFIX"
-  if [ "$PURGE" = 1 ]; then rm -rf /etc/rpi-alert /var/lib/rpi-alert /var/lib/rpi-alert-kiosk; userdel rpi-alert 2>/dev/null || true; userdel rpi-alert-kiosk 2>/dev/null || true; fi
+  if [ "$PURGE" = 1 ]; then rm -rf /etc/rpi-alert /var/lib/rpi-alert /var/lib/rpi-alert-kiosk; userdel rpi-alert 2>/dev/null || true; userdel rpi-alert-kiosk 2>/dev/null || true; userdel -r alert 2>/dev/null || true; fi
   systemctl daemon-reload || true
   say "Done.$([ "$PURGE" = 1 ] || echo ' Settings kept in /etc/rpi-alert and data in /var/lib/rpi-alert (--purge removes them).')"
   exit 0
@@ -129,6 +134,17 @@ if [ "$KIOSK" = 1 ]; then
   id rpi-alert-kiosk >/dev/null 2>&1 || useradd --system --user-group --create-home --home-dir /var/lib/rpi-alert-kiosk --shell /usr/sbin/nologin --comment "RPi ALERT screen" rpi-alert-kiosk
   for g in video render input audio; do getent group "$g" >/dev/null && usermod -aG "$g" rpi-alert-kiosk; done
 fi
+# The maintenance account (docs/access.md): the same user name on every base
+# station, no password — SSH keys only, from the list `rpi-alert access` shows
+# — and sudo. With no key on the list, nobody can log in as it. A system user
+# id, so the person Raspberry Pi Imager sets up at first boot still gets 1000.
+if ! id alert >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir /home/alert --shell /bin/bash --comment "RPi ALERT maintenance (SSH keys; docs/access.md)" alert
+  # '*': no password that can be typed, and not a locked account (which sshd
+  # would refuse even with a key).
+  usermod -p '*' alert
+fi
+for g in adm systemd-journal dialout plugdev video audio; do getent group "$g" >/dev/null && usermod -aG "$g" alert; done
 
 # ── the agent ────────────────────────────────────────────────────────────────
 say "Installing the agent in $PREFIX"
@@ -142,7 +158,7 @@ install -m 0755 "$SRC/os/libexec/"* "$NEW/libexec/"
 # The Bluetooth GPS bridge is Python, kept apart from the shell helpers in libexec.
 install -m 0755 "$SRC/os/files/btgps/rpi-alert-btgps" "$NEW/libexec/"
 chown -R root:root "$NEW"
-chmod 0755 "$NEW/bin/rpi-alert"
+chmod 0755 "$NEW/bin/rpi-alert" "$NEW/bin/rpi-alert-access"
 if [ -d "$PREFIX" ]; then rm -rf "$PREFIX.old"; mv "$PREFIX" "$PREFIX.old"; fi
 mv "$NEW" "$PREFIX"
 rm -rf "$PREFIX.old"
@@ -161,6 +177,8 @@ install -m 0644 "$F/systemd/rpi-alert.service" "$F/systemd/rpi-alert-boot-config
 # (off until turned on in Settings → System or with auto_update = on in
 # rpi-alert.conf; an upgrade leaves it as it was).
 install -m 0644 "$F/systemd/rpi-alert-update.service" "$F/systemd/rpi-alert-update-auto.service" "$F/systemd/rpi-alert-update-auto.timer" /etc/systemd/system/
+# SSH keys fetched from GitHub and MegaNet, refreshed hourly (rpi-alert-access).
+install -m 0644 "$F/systemd/rpi-alert-access.service" "$F/systemd/rpi-alert-access.timer" /etc/systemd/system/
 [ "$KIOSK" = 1 ] && install -m 0644 "$F/systemd/rpi-alert-kiosk.service" /etc/systemd/system/
 install -m 0644 "$F/udev/60-rpi-alert.rules" /etc/udev/rules.d/
 install -m 0644 "$F/modprobe/rpi-alert-blacklist-dvb.conf" /etc/modprobe.d/
@@ -168,9 +186,20 @@ install -d /etc/systemd/journald.conf.d && install -m 0644 "$F/journald/rpi-aler
 install -d /etc/issue.d && install -m 0644 "$F/issue/rpi-alert.issue" /etc/issue.d/
 install -m 0644 "$F/profile/rpi-alert.sh" /etc/profile.d/
 install -m 0644 "$F/pam/rpi-alert-kiosk" /etc/pam.d/
-install -m 0440 "$F/sudoers/rpi-alert" /etc/sudoers.d/rpi-alert.tmp
-if visudo -cf /etc/sudoers.d/rpi-alert.tmp >/dev/null; then mv /etc/sudoers.d/rpi-alert.tmp /etc/sudoers.d/rpi-alert
-else rm -f /etc/sudoers.d/rpi-alert.tmp; die "the sudoers rule did not validate"; fi
+for s in rpi-alert rpi-alert-maint; do
+  install -m 0440 "$F/sudoers/$s" "/etc/sudoers.d/$s.tmp"
+  if visudo -cf "/etc/sudoers.d/$s.tmp" >/dev/null; then mv "/etc/sudoers.d/$s.tmp" "/etc/sudoers.d/$s"
+  else rm -f "/etc/sudoers.d/$s.tmp"; die "the sudoers rule $s did not validate"; fi
+done
+# The alert account's key list: root's, outside /etc/rpi-alert (the agent owns
+# that directory, and sshd rightly refuses a key file another user could
+# replace). The drop-in that points sshd at it is checked with sshd -t before
+# it is kept — see lib/access.js.
+install -d -m 0755 /etc/ssh/rpi-alert
+[ -f /etc/ssh/rpi-alert/alert.keys ] || install -m 0644 /dev/null /etc/ssh/rpi-alert/alert.keys
+if [ -d /etc/ssh ]; then
+  if ! out=$(RPI_ALERT_ACCESS_NO_RELOAD=$IMAGE node "$PREFIX/bin/rpi-alert-access" apply 2>&1); then warn "SSH key login for the alert account is not set up: $out"; fi
+fi
 if [ "$WATCHDOG" = 1 ]; then
   install -d /etc/systemd/system.conf.d && install -m 0644 "$F/system-conf/rpi-alert-watchdog.conf" /etc/systemd/system.conf.d/
 fi
@@ -204,13 +233,14 @@ fi
 
 # ── go ───────────────────────────────────────────────────────────────────────
 sysd daemon-reload
-sysd enable rpi-alert.service rpi-alert-boot-config.service
+sysd enable rpi-alert.service rpi-alert-boot-config.service rpi-alert-access.timer
 if [ "$IMAGE" = 0 ]; then
   udevadm control --reload-rules 2>/dev/null || true
   udevadm trigger --subsystem-match=usb --subsystem-match=tty 2>/dev/null || true
   # Let go of any RTL-SDR the TV driver already holds (the blacklist covers the next boot).
   for m in dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830 r820t; do modprobe -r "$m" 2>/dev/null || true; done
   systemctl restart rpi-alert.service
+  systemctl start rpi-alert-access.timer 2>/dev/null || true
   sleep 2
   host=$(hostname)
   ip4=$(hostname -I 2>/dev/null | awk '{print $1}')

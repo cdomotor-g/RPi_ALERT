@@ -1,0 +1,13 @@
+[Unit]
+Description=RPi ALERT SSH keys: fetch the GitHub and MegaNet lists, write the alert account's keys
+Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/access.md
+# Started hourly by rpi-alert-access.timer, at boot after the SD card's
+# settings, and by the agent when MegaNet says its team keys changed. With no
+# GitHub accounts and MegaNet's keys off it fetches nothing.
+Wants=network-online.target
+After=network-online.target rpi-alert-boot-config.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/rpi-alert/bin/rpi-alert-access sync --quiet
+TimeoutStartSec=90

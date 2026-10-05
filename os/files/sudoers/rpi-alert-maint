@@ -1,0 +1,5 @@
+# RPi ALERT: the maintenance account (docs/access.md). It has no password — it
+# logs in with the SSH keys `rpi-alert access` lists, each one a person's — so
+# sudo cannot ask it for one. A key on that list is the way in; take it off the
+# list to shut that person out.
+alert ALL=(ALL:ALL) NOPASSWD: ALL

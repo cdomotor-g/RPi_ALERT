@@ -65,8 +65,11 @@ tr.fresh td { animation: flash 2s ease-out; }
 .dot.running { background: var(--ok); } .dot.identifying, .dot.starting, .dot.opening { background: var(--accent); }
 .dot.disconnected, .dot.unplugged, .dot.restarting, .dot.error { background: var(--warn); }
 .rx .meta { color: var(--dim); font-size: .85em; grid-column: 2 / 4; }
-.rxcard .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; }
-.rxcard .kv div:nth-child(odd) { color: var(--dim); }
+.rxcard .kv, #f-access .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
+.rxcard .kv div:nth-child(odd), #f-access .kv div:nth-child(odd) { color: var(--dim); }
+#f-access .kv div { min-width: 0; overflow-wrap: anywhere; }
+.remote-history { margin: 4px 0 8px; padding-left: 1.2em; }
+#f-access details ul { margin: 6px 0; padding-left: 1.2em; }
 .rxcard canvas { width: 100%; height: 120px; display: block; margin-top: 10px; background: var(--panel2); border-radius: 6px; }
 .rxcard .chans { margin-top: 10px; font-size: .9em; }
 .rxcard .chans td:nth-child(4) { white-space: normal; }

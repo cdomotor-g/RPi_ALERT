@@ -21,11 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Tools the tests use (socat for pseudo-terminal receivers)
-        run: sudo apt-get update -q && sudo apt-get install -y -q socat
+      - name: Tools the tests use (socat for pseudo-terminal receivers; sshd checks the SSH drop-in)
+        run: sudo apt-get update -q && sudo apt-get install -y -q socat openssh-server
       - name: Syntax
         run: |
-          for f in $(git ls-files 'agent/*.js' 'site/*.js') agent/bin/rpi-alert agent/test/helpers/fake-rtl_sdr; do node --check "$f"; done
+          for f in $(git ls-files 'agent/*.js' 'site/*.js') agent/bin/rpi-alert agent/bin/rpi-alert-access agent/test/helpers/fake-rtl_sdr; do node --check "$f"; done
       - name: Tests
         working-directory: agent
         run: node --test test/*.test.js

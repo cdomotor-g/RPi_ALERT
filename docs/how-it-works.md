@@ -14,10 +14,12 @@ flowchart LR
     g --> clock[clock<br/>NTP / GPS]
     g --> agent
     agent --> up[uplink<br/>queue on disk]
+  agent --> rm[remote<br/>check-in, once a minute]
     agent --> web[web server :80<br/>dashboard · API · SSE]
     agent --> audio[aplay<br/>chirps]
   end
   up -- "HTTPS + X-Ingest-Token" --> mn[(MegaNet<br/>ingest_http · report_ingest_point · report_receptions)]
+  rm -- "health out, requests back" --> mn
   web --> kiosk[cage + Chromium<br/>on a monitor]
   web --> lan[browsers on the LAN]
 ```
@@ -37,7 +39,8 @@ Chromium. The image turns off Bluetooth and triggerhappy, and caps the journal a
 | `rpi-alert.service` | The agent, as user `rpi-alert` (groups dialout, plugdev, audio, video), port 80 through `CAP_NET_BIND_SERVICE`. `Restart=always`. |
 | `rpi-alert-boot-config.service` | Applies `rpi-alert.conf` from the boot partition before the agent starts. |
 | `rpi-alert-kiosk.service` | cage + Chromium on tty7, started and stopped *by the agent* as a monitor is connected and disconnected (`/sys/class/drm/*/status`), so a headless Pi spends no memory on it. |
-| `/opt/rpi-alert/libexec/rpi-alert-priv` | The only thing the agent may run as root (sudoers): a fixed list of verbs — kiosk, reboot, Wi-Fi, hostname, time zone, set the clock from GPS — each argument checked. |
+| `/opt/rpi-alert/libexec/rpi-alert-priv` | The only thing the agent may run as root (sudoers): a fixed list of verbs — kiosk, reboot, Wi-Fi, hostname, time zone, set the clock from GPS, updates, SSH access status and settings — each argument checked. |
+| `alert`, `rpi-alert-access` | The maintenance account — the same on every Pi, SSH keys only, sudo — and the root helper that keeps its key list (from the SD card, GitHub accounts, MegaNet's team keys); `rpi-alert-access.timer` refreshes the fetched lists hourly. [access.md](access.md) |
 | udev / modprobe | RTL-SDR permissions, USB autosuspend off for receivers, ModemManager kept off serial receivers, DVB-T driver blacklisted. |
 | Hardware watchdog | `RuntimeWatchdogSec=15`: a hung Pi reboots itself. |
 | `/etc/issue.d`, `/etc/profile.d` | The console and SSH logins say where the dashboard is. |
@@ -172,9 +175,23 @@ trusts the clock when systemd-timesyncd says it is synchronised
 valid time (and then also sets the system clock, at most every ten minutes, never to before 2025 —
 GPS week-rollover bugs). The Quansheng radio's own clock is set from the Pi's once it is trusted.
 
+## Remote management
+
+Every minute the agent checks in with MegaNet's Base Stations tab (`base_station_checkin`, MegaNet's
+0049) through the same door and token as the readings: a heartbeat, the whole status when it
+changed, and the answers to what was asked last time; MegaNet answers with when to check in next
+(every five seconds while an administrator has this base station open) and anything asked — from
+a fixed list: settings but never the token, the endpoints, the web password or what MegaNet may do;
+restarts; updates; the log. Nothing listens for MegaNet. [remote-management.md](remote-management.md)
+
 ## Security
 
 - The agent is not root. Root actions go through one helper with a fixed verb list.
+- Nothing listens but the web page. MegaNet's Base Stations tab is reached by the Pi checking in,
+  and may only ask for a fixed list of things (`remote.mode` on the Pi narrows or ends it).
+- SSH: one maintenance account, `alert`, keys only, each key a person's; keys come only from the SD
+  card, `sudo`, or lists root fetches (GitHub, MegaNet's team keys) — never through the web page or
+  the agent — and fetched keys work from private networks only. [access.md](access.md)
 - The ingest token lives in a 0600 file owned by the agent and is never sent back out by the API.
   It is made on the Pi (when it asks MegaNet for one) and MegaNet only ever stores its hash.
 - The web page: the Pi's own screen and shell are trusted; from the network, a password once set

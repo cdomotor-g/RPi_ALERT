@@ -80,3 +80,31 @@ test('rpi-alert.conf: a Bluetooth GPS is paired, read as a port, and its PIN bla
   const c = tmpConfig();
   assert.ok(c.update(Object.assign({}, patch, { receivers: { extraPorts: boot.withBtGpsPort([], system.btGps) } })).ok, 'the port passes validation');
 });
+
+test('settings: remote management — manage by default, its own owner\'s to change, held to its shape', () => {
+  const c = tmpConfig();
+  assert.deepEqual(c.get().remote, { mode: 'manage', idleS: 60 });
+  assert.ok(c.update({ remote: { mode: 'report' } }).ok);
+  assert.match(c.update({ remote: { mode: 'everything' } }).errors[0], /remote\.mode/);
+  assert.match(c.update({ remote: { idleS: 5 } }).errors[0], /30–900/, 'not more often than every 30 s by itself');
+  assert.ok(!('remote' in c.redacted()) || c.redacted().remote.mode === 'report');
+});
+
+test('rpi-alert.conf: SSH keys a line each, GitHub accounts, MegaNet\'s keys, and the alert password blanked', () => {
+  const ed = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPe8hvW1PCMkuoplQxeOFxa2TvuF2q0PFfleQ85hNXHo jo@laptop';
+  const ec = 'ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLbLD/E41tmQJt+U1fetJOuOc0jgqqf/guPCE8hi44NkDIBLOTPkxOA4ARYwct0+ql87t1YZVUb+dK5Ornw5xqg= sam';
+  const text = 'remote_management = report\nssh_key = ' + ed + '\nssh_key = ' + ec + '\nssh_github = @cdomotor-g, someone-else\nssh_meganet_keys = yes\nssh_from = any\nssh_password_login = off\nalert_password = c0rrect#horse\n';
+  const kv = boot.parse(text);
+  assert.deepEqual(kv.ssh_key, [ed, ec], 'every ssh_key line kept, in order');
+  const { patch, system, notes } = boot.toPatch(kv);
+  assert.deepEqual(notes, []);
+  assert.equal(patch.remote.mode, 'report');
+  assert.deepEqual(system.access, { keys: [ed, ec], github: ['cdomotor-g', 'someone-else'], meganet: 'on', from: 'any', password: 'off', alertPassword: 'c0rrect#horse' });
+  assert.ok(tmpConfig().update(patch).ok);
+  const red = boot.redactText(text);
+  assert.ok(!red.includes('c0rrect'), 'the password is wiped from the card');
+  assert.ok(red.includes(ed), 'public keys are not secrets');
+  assert.deepEqual(boot.toPatch(boot.parse('ssh_key = none\nalert_password = none\n')).system.access, { keys: [], alertPassword: '' }, 'none clears them');
+  assert.equal(boot.toPatch(boot.parse('remote_management = no\n')).patch.remote.mode, 'off');
+  assert.ok(boot.toPatch(boot.parse('ssh_from = moon\n')).notes.some(n => /ssh_from/.test(n)));
+});

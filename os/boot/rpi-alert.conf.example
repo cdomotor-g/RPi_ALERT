@@ -68,6 +68,27 @@ request_token = yes
 # ── Web page password (stored hashed; removed from the card) ───────────────
 #web_password = choose-something
 
+# ── Getting in later: SSH ───────────────────────────────────────────────────
+# Every RPi ALERT has the maintenance account "alert": no password, SSH keys
+# only. Give it yours (a line each — these replace the ones a card gave before;
+# ssh_key = none clears them), and/or the GitHub accounts whose keys may log in.
+#ssh_key = ssh-ed25519 AAAA… you@laptop
+#ssh_github = your-github-name, a-colleague
+# MegaNet's team keys (its administrators keep the list) may log in too:
+#ssh_meganet_keys = yes
+# Keys from GitHub and MegaNet work from private networks only, unless: any
+#ssh_from = private
+# SSH password login: off for keys only (left as Raspberry Pi Imager set it if absent)
+#ssh_password_login = off
+# Locked out? A password for "alert" — the console (and SSH, if password login
+# is on). Removed from the card once applied; alert_password = none takes it away.
+#alert_password = choose-something-long
+
+# ── MegaNet's Base Stations tab ─────────────────────────────────────────────
+# The Pi checks in with MegaNet once a minute (MegaNet never connects to it).
+# manage: health, settings, restarts, updates | report: health only | off
+#remote_management = manage
+
 # ── The Pi ──────────────────────────────────────────────────────────────────
 #timezone = Australia/Brisbane
 #hostname = rpi-alert
