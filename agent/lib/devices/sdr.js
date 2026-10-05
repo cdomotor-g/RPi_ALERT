@@ -19,7 +19,7 @@
 //
 // The SDR hears legacy ALERT (300-baud AFSK): ALERT Binary, Enhanced iFLOWS or
 // ALERT ASCII, one format per channel (alert-dsp.js explains why there is no
-// "both" — though the same frequency may be listed twice, once in each).
+// "both", and why a frequency is never listed twice, even in two formats).
 // Readings go to MegaNet as protocol "alert".
 //
 // Each stick is a session of its own — its own rtl_sdr — and may have its own

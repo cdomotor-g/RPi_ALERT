@@ -74,7 +74,8 @@ test('tuning: one channel as it always was; several share one slice, off the DC 
   holds(p, 'two at 240k');
   assert.equal(p.sampleRate, 240000);
   assert.equal(P.plan(MHz(151.5, 151.525), { sampleRate: 2400000, baseRate: 240000 }).sampleRate, 2400000);
-  // Channels written twice (two formats) are one frequency to the tuner.
+  // Channels written twice (two formats — refused by the settings, but a
+  // hand-edited file may have them) are one frequency to the tuner.
   p = P.plan([{ freqHz: 151500000, format: 'BINARY' }, { freqHz: 151500000, format: 'ENHANCED_IFLOWS' }], { baseRate: 960000 });
   assert.deepEqual(p.channels.map(c => c.offsetHz), [240000, 240000]);
   // Any channels within 1.5 MHz of each other fit, whatever they are.
@@ -105,8 +106,9 @@ test('settings: more channels are checked one by one, and together', () => {
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.match(r.errors.join(), /moreChannels/);
   }
-  assert.match(c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 151500000 }] } } }).errors.join(), /151\.500 MHz in ALERT Binary is listed twice/);
-  assert.ok(c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 151500000, format: 'ENHANCED_IFLOWS' }] } } }).ok, 'the same channel in another format');
+  assert.match(c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 151500000 }] } } }).errors.join(), /151\.500 MHz is listed twice — each channel is decoded in one format/);
+  assert.match(c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 151500000, format: 'ENHANCED_IFLOWS' }] } } }).errors.join(), /151\.500 MHz is listed twice/,
+    'the same channel in another format: the CRC-valid ghosts MegaNet\'s decoder will not make');
   assert.match(c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 154000000 }] } } }).errors.join(), /151\.500 and 154\.000 MHz are 2\.50 MHz apart/);
   // A stick's own: its own list replaces the shared one; [] is none.
   c.update({ receivers: { sdr: { moreChannels: [{ freqHz: 152400000 }] } } });

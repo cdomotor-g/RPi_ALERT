@@ -54,5 +54,3 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
   from browsers at a glance (today they share `serial-monitor/`, which MegaNet's joins and checks
   expect; `detail.app = "RPi ALERT"` already tells them apart).
 - An "ingest point" page in MegaNet listing base stations, their receivers and last report.
-- Several channels on one stick for MegaNet's own SDR Pi relay (`sdr-pi/relay.js`, read through
-  PuTTY), which still decodes one — the same approach: a decoder thread per channel on one stream.

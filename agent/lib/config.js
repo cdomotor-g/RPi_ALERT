@@ -212,7 +212,9 @@ function channelsOf(sdr, own) {
 }
 
 // Every stick's channels — the shared ones, and each stick's own — must fit
-// in what one stick hears, and none may be listed twice. Not part of
+// in what one stick hears, and no frequency may be listed twice, even in two
+// formats: Enhanced iFLOWS read off a strong Binary burst makes CRC-valid
+// ghosts (MegaNet's alert-dsp.js: there is no "both"). Not part of
 // validate(): repair() tries one setting at a time against the defaults, and
 // this is about settings together. A save is refused for it; a settings file
 // that breaks it is loaded, and the stick decodes the channels that fit.
@@ -222,9 +224,11 @@ function channelErrors(c) {
   const check = (where, list) => {
     const seen = new Set();
     for (const ch of list) {
-      const k = ch.freqHz + '/' + ch.format;
-      if (seen.has(k)) errs.push(where + ': ' + mhz(ch.freqHz) + ' MHz in ' + FORMAT_NAMES[ch.format] + ' is listed twice');
-      seen.add(k);
+      if (seen.has(ch.freqHz)) {
+        errs.push(where + ': ' + mhz(ch.freqHz) + ' MHz is listed twice — each channel is decoded in one format: Enhanced iFLOWS read off a strong '
+          + 'ALERT Binary burst makes ghosts with a valid CRC');
+      }
+      seen.add(ch.freqHz);
     }
     const freqs = list.map(ch => ch.freqHz), lo = Math.min(...freqs), hi = Math.max(...freqs);
     if (hi - lo > MAX_SPAN_HZ) {

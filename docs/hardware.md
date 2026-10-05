@@ -66,8 +66,10 @@ each with a decoder thread of its own, and each is a receiver of its own in Mega
   keep up drops samples and says so in the log. At most 8 channels a stick; each uses ~30 MB.
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
   push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.
-  The format and squelch are each channel's (`152.4 EIF` for a channel sent in Enhanced iFLOWS; the
-  same frequency may even be listed twice, once in each format).
+  Each channel gates on its own power, at the stick's squelch, and has a format of its own
+  (`152.4 EIF` for a channel sent in Enhanced iFLOWS) — one format a channel: a frequency listed
+  twice, even in two formats, is refused, because Enhanced iFLOWS read off a strong ALERT Binary
+  burst makes ghosts with a valid CRC (the reason MegaNet's decoder reads one format at a time).
 
 ### Several sticks
 
