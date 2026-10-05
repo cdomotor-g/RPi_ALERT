@@ -2,7 +2,7 @@
 # rpi-alert-update — check for, or install, a newer RPi ALERT.
 #
 #   rpi-alert-update --check          compare this Pi with the latest release
-#   sudo rpi-alert-update             install the latest release
+#   sudo rpi-alert-update             install the latest release (even an older one)
 #   sudo rpi-alert-update --if-newer  …only if it is newer than this Pi (the nightly timer)
 #   sudo rpi-alert-update --ref main  install the current main branch (testing)
 #
@@ -31,13 +31,22 @@ done
 
 version() { node -p "require('/opt/rpi-alert/package.json').version" 2>/dev/null || echo unknown; }
 current=$(version)
+# Is release $1 newer than this Pi's version? A Pi installed from main, or from
+# a build-only image, can be ahead of every release; it must not be "updated"
+# back to one. An unknown version on this Pi counts as older.
+newer() {
+  [ -n "$1" ] || return 1
+  [ "$current" = unknown ] && return 0
+  [ "$1" != "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$1" | sort -V | tail -1)" = "$1" ]
+}
 latest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)
 
 if [ "$CHECK" = 1 ]; then
   echo "This Pi runs RPi ALERT $current."
   if [ -z "$latest" ]; then echo "No published release found (or no internet)."
   elif [ "$latest" = "$current" ]; then echo "That is the latest release."
-  else echo "Release $latest is available."; fi
+  elif newer "$latest"; then echo "Release $latest is available."
+  else echo "That is ahead of the latest release ($latest); there is nothing newer to install."; fi
   exit 0
 fi
 
@@ -58,6 +67,7 @@ trap 'status failed "the update stopped unexpectedly (line $LINENO); see: journa
 if [ -z "$REF" ]; then
   if [ -z "$latest" ]; then status failed "no published release found (or no internet)"; exit 1; fi
   if [ "$IF_NEWER" = 1 ] && [ "$latest" = "$current" ]; then status current "RPi ALERT $current is the latest release." "$current"; exit 0; fi
+  if [ "$IF_NEWER" = 1 ] && ! newer "$latest"; then status current "RPi ALERT $current is ahead of the latest release ($latest); nothing to install." "$current"; exit 0; fi
   REF="v$latest"
 fi
 

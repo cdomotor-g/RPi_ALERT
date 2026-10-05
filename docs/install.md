@@ -136,6 +136,11 @@ Updates install over the network; the SD card never needs re-flashing for a new 
 - **Once, from the SD card:** `update = now` in `rpi-alert.conf` installs the latest at the next boot.
 - **Over SSH:** `sudo rpi-alert-update` (`--ref main` for the development branch).
 
+Only a release newer than the version the Pi runs is offered or installed automatically. A Pi
+running something newer than the latest release (installed with `--ref main`, or from a
+build-only image) is told it is ahead, and the nightly timer leaves it alone. `sudo
+rpi-alert-update` over SSH always installs the latest release, so it is also the way back to it.
+
 Every route runs `rpi-alert-update.service`, which downloads the release and the version the Pi
 runs now, installs, and waits up to two minutes for the agent to answer as the new version. If it
 does not, the previous version is put back. Settings, the queue and the receiver ids are kept.
