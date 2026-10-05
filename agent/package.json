@@ -1,6 +1,6 @@
 {
   "name": "rpi-alert",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Raspberry Pi ALERT/ALERT2 receiver agent: decodes ALERT flood-warning telemetry from RTL-SDR sticks, Quansheng ALERT radios and ELPRO ERT-A2 receivers and posts it to MegaNet.",
   "license": "MIT",
   "private": true,
