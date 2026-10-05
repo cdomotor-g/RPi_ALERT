@@ -108,3 +108,40 @@ test('rpi-alert.conf: SSH keys a line each, GitHub accounts, MegaNet\'s keys, an
   assert.equal(boot.toPatch(boot.parse('remote_management = no\n')).patch.remote.mode, 'off');
   assert.ok(boot.toPatch(boot.parse('ssh_from = moon\n')).notes.some(n => /ssh_from/.test(n)));
 });
+
+test('rpi-alert.conf: ssh = on makes missing host keys before starting sshd, and says why when it still fails', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rpi-alert-ssh-'));
+  const fake = (results) => {
+    const calls = [];
+    return { calls, run: (cmd, args) => { const c = cmd + ' ' + args.join(' '); calls.push(c); return results[c] || { ok: true, out: '' }; } };
+  };
+  let logs = [];
+  const log = (m) => logs.push(m);
+
+  // First boot: no host keys yet — they are made, then sshd started.
+  let f = fake({});
+  boot.applySsh('on', log, { run: f.run, sshDir: dir });
+  assert.deepEqual(f.calls, ['systemctl enable ssh', 'ssh-keygen -A', 'systemctl start ssh']);
+  assert.deepEqual(logs, ['SSH on (made its host keys)']);
+
+  // Keys already there: left alone.
+  fs.writeFileSync(path.join(dir, 'ssh_host_ed25519_key'), 'x');
+  f = fake({}); logs = [];
+  boot.applySsh('on', log, { run: f.run, sshDir: dir });
+  assert.deepEqual(f.calls, ['systemctl enable ssh', 'systemctl start ssh']);
+  assert.deepEqual(logs, ['SSH on']);
+
+  // It still fails: sshd -t's own words, not systemd's "Job for ssh.service failed".
+  f = fake({ 'systemctl start ssh': { ok: false, out: 'Job for ssh.service failed because the control process exited with error code.' },
+    'sshd -t': { ok: false, out: '/etc/ssh/sshd_config line 3: Bad configuration option: Nope' } });
+  logs = [];
+  boot.applySsh('on', log, { run: f.run, sshDir: dir });
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /next boot.*Bad configuration option/);
+
+  f = fake({}); logs = [];
+  boot.applySsh('off', log, { run: f.run, sshDir: dir });
+  assert.deepEqual(f.calls, ['systemctl disable --now ssh']);
+  assert.deepEqual(logs, ['SSH off']);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

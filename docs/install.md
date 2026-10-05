@@ -109,6 +109,11 @@ and writes what it did to `rpi-alert-boot.log` on the same drive.
 **SSH:** `ssh alert@rpi-alert.local` with a key you put on the card (`ssh_key`, or the GitHub
 accounts in `ssh_github`), or the user you made in Imager. `rpi-alert access` shows who may log in;
 [access.md](access.md) has the rest — and the way back in when nobody can.
+`ssh = on` only turns the SSH server on; it makes no account to log in with. The `rpi-alert.conf`
+the flasher page writes does not create a user either — for a password login, create the user and
+password in Raspberry Pi Imager's customisation (Route 1, step 2); otherwise log in as `alert`
+with a key from `ssh_key`/`ssh_github`/`ssh_meganet_keys`, or set `alert_password`.
+If SSH did not start, `rpi-alert-boot.log` on the card says why.
 
 **MegaNet's Base Stations tab:** once the token is approved, the Pi checks in there once a minute,
 and MegaNet's administrators see its health and can manage it. **Settings → Remote management**

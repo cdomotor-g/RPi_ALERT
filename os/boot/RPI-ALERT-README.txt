@@ -30,6 +30,11 @@ ssh alert@rpi-alert.local with an SSH key you put on the card (ssh_key = ...
 in rpi-alert.conf), or ssh <your user>@rpi-alert.local, then:
     rpi-alert status   rpi-alert setup   rpi-alert access
 No token yet?   rpi-alert request-token   (shows a code and a QR code to approve)
+ssh = on turns the SSH server on but makes no user. A password login needs
+the user and password set in Raspberry Pi Imager's customisation (the
+rpi-alert.conf the flasher page writes does not make one); otherwise log in
+as alert with a key (ssh_key, ssh_github) or set alert_password. If SSH did
+not start, rpi-alert-boot.log on this drive says why.
 
 Nobody can log in?
 ------------------

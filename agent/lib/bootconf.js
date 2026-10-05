@@ -240,10 +240,7 @@ function applySystem(s, log) {
   }
   if (s.btGps) applyBtGps(s.btGps, log);
   if (s.access) applyAccess(s.access, log);
-  if (s.ssh) {
-    const r = s.ssh === 'on' ? sh('systemctl', ['enable', '--now', 'ssh']) : sh('systemctl', ['disable', '--now', 'ssh']);
-    log(r.ok ? 'SSH ' + s.ssh : 'could not turn SSH ' + s.ssh + ': ' + r.out);
-  }
+  if (s.ssh) applySsh(s.ssh, log);
   if (s.autoUpdate) {
     const r = sh('systemctl', [s.autoUpdate === 'on' ? 'enable' : 'disable', '--now', 'rpi-alert-update-auto.timer']);
     log(r.ok ? 'automatic updates ' + s.autoUpdate : 'could not turn automatic updates ' + s.autoUpdate + ': ' + r.out);
@@ -253,6 +250,41 @@ function applySystem(s, log) {
     const r = sh('systemctl', ['start', '--no-block', 'rpi-alert-update.service']);
     log(r.ok ? 'installing the latest release (see Settings → System on the web page)' : 'could not start the update: ' + r.out);
   }
+}
+
+// SSH on or off. On a card's first boot this runs before the host keys exist:
+// Raspberry Pi OS makes them later in the boot (cloud-init's ssh module, or
+// regenerate_ssh_host_keys, ordered only Before=ssh.service), and sshd will
+// not start without them ("sshd: no hostkeys available -- exiting" from its
+// ExecStartPre=sshd -t). So: enable it (that persists whatever happens next),
+// make any missing host keys — ssh-keygen -A only adds the ones that are not
+// there — and only then start it. If it still does not start, say why: sshd -t
+// says what is wrong with its configuration or keys, which "Job for ssh.service
+// failed" does not.
+function applySsh(state, log, opt) {
+  const run = (opt && opt.run) || sh;
+  const sshDir = (opt && opt.sshDir) || '/etc/ssh';
+  if (state !== 'on') {
+    const r = run('systemctl', ['disable', '--now', 'ssh']);
+    log(r.ok ? 'SSH off' : 'could not turn SSH off: ' + r.out);
+    return;
+  }
+  const en = run('systemctl', ['enable', 'ssh']);
+  if (!en.ok) { log('could not turn SSH on: ' + en.out); return; }
+  let made = '';
+  if (!hostKeys(sshDir).length) {
+    const k = run('ssh-keygen', ['-A']);
+    made = k.ok ? ' (made its host keys)' : '';
+    if (!k.ok) log('could not make SSH host keys: ' + k.out);
+  }
+  const st = run('systemctl', ['start', 'ssh']);
+  if (st.ok) { log('SSH on' + made); return; }
+  const t = run('sshd', ['-t']);
+  const why = !t.ok && t.out ? t.out : !hostKeys(sshDir).length ? 'no host keys in ' + sshDir : st.out;
+  log('SSH is turned on for the next boot, but did not start now: ' + why);
+}
+function hostKeys(dir) {
+  try { return fs.readdirSync(dir).filter(f => /^ssh_host_\w+_key$/.test(f)); } catch (_) { return []; }
 }
 
 // A Bluetooth GPS: the settings for rpi-alert-btgps, and Bluetooth and that
@@ -365,4 +397,4 @@ function main(args) {
   try { fs.appendFileSync(path.join(dir, 'rpi-alert-boot.log'), logLines.join('\r\n') + '\r\n'); } catch (_) {}
 }
 
-module.exports = { parse, toPatch, redactText, withBtGpsPort, main, BT_GPS_PORT, MULTI };
+module.exports = { parse, toPatch, redactText, withBtGpsPort, applySsh, main, BT_GPS_PORT, MULTI };
