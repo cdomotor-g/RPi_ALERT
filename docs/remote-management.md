@@ -19,7 +19,7 @@ get out, behind any NAT, firewall or cellular modem — once a minute:
 
 ```
 POST <endpoint>/rpc/base_station_checkin    apikey · X-Ingest-Token · Content-Profile: meganet
-{"payload": {"v": 1, "agent": {"app": "RPi ALERT", "version": "0.7.1"}, "mode": "manage", "idle_s": 60,
+{"payload": {"v": 1, "agent": {"app": "RPi ALERT", "version": "0.8.0"}, "mode": "manage", "idle_s": 60,
              "beat": {…}, "status": {…}, "results": [{"id": 17, "ok": true, "result": …}], "keys_hash": "…"}}
 → {"next_s": 60, "watch": false, "want_status": false, "commands": [{"id": 18, "verb": "log", "args": {"lines": 200}}],
    "keys_hash": "…", "label": "Mt Stuart base"}
