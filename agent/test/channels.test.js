@@ -191,6 +191,7 @@ test('a stick\'s channels: each a receiver with its own name, receiver id and de
 
 test('one stick, four channels at once: each decoded on its own channel and posted as its own receiver; channels come and go without disturbing the rest', { timeout: 180000 }, async (t) => {
   const m = await stub.start();
+  t.after(() => m.close());
   const dir = tmp('rpa-chan-');
   for (const d of ['dev', 'data', 'etc', 'bin']) fs.mkdirSync(path.join(dir, d));
   const usb = path.join(dir, 'sys', 'bus', 'usb', 'devices', '1-1.3');
@@ -219,7 +220,7 @@ test('one stick, four channels at once: each decoded on its own channel and post
   const agent = spawn(process.execPath, [path.join(__dirname, '..', 'bin', 'rpi-alert'), 'daemon'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
   let log = '';
   agent.stderr.on('data', (d) => { log += d; });
-  t.after(async () => { agent.kill('SIGTERM'); await m.close(); });
+  t.after(() => { agent.kill('SIGTERM'); });
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const until = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(200); } return false; };
   const get = async (p) => { try { return await (await fetch('http://127.0.0.1:' + port + p)).json(); } catch (_) { return null; } };

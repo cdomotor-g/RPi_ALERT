@@ -36,9 +36,11 @@ function rig(m, over, dir) {
   return { dir, cfg, up, tr: make(), make };
 }
 
-test('token request: the Pi asks with a token it made, shows the code, and on approval sends what it kept with it', async () => {
+test('token request: the Pi asks with a token it made, shows the code, and on approval sends what it kept with it', async (t) => {
   const m = await stub.start();
   const { dir, cfg, up, tr } = rig(m);
+  // However it ends: a failed assertion must not leave the poller holding the run.
+  t.after(() => { tr.stop(); up.stop(); return m.close(); });
   up.load().start();
   tr.load().start();
   up.addReading({ point: 'rpi-abc-sdr1', protocol: 'alert', alert_id: 6129, value_raw: 1599, ts: Date.now() });
@@ -68,7 +70,6 @@ test('token request: the Pi asks with a token it made, shows the code, and on ap
   assert.ok(!fs.existsSync(saved), 'nothing left waiting');
   assert.ok(await until(() => m.calls.some(c => c.fn === 'ingest_http' && c.headers['x-ingest-token'] === token)), 'what was kept is sent with it');
   assert.ok(await until(() => up.status().accepted === 1));
-  tr.stop(); up.stop(); await m.close();
 });
 
 test('token request: asking again while one waits is the same request; Stop asking withdraws it', async () => {

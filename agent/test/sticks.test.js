@@ -21,6 +21,7 @@ async function until(fn, ms) { const t0 = Date.now(); while (Date.now() - t0 < (
 
 test('two sticks with one serial: the first keeps its name, each hears its own channel from its own stick, and an unplugged one can be removed', { timeout: 180000 }, async (t) => {
   const m = await stub.start();
+  t.after(() => m.close());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rpa-sticks-'));
   for (const d of ['dev', 'data', 'etc', 'bin']) fs.mkdirSync(path.join(dir, d));
   const usb = path.join(dir, 'sys', 'bus', 'usb', 'devices');
@@ -53,7 +54,7 @@ test('two sticks with one serial: the first keeps its name, each hears its own c
     agent.stderr.on('data', (d) => { log += d; });
   };
   const stop = () => new Promise((resolve) => { if (!agent || agent.exitCode !== null) return resolve(); agent.once('exit', resolve); agent.kill('SIGTERM'); });
-  t.after(async () => { await stop(); await m.close(); });
+  t.after(stop);
   const get = async (p) => { try { const r = await fetch('http://127.0.0.1:' + port + p); return await r.json(); } catch (_) { return null; } };
   const send = async (p, body, method) => {
     const r = await fetch('http://127.0.0.1:' + port + p, { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

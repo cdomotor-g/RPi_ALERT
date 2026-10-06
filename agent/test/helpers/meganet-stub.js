@@ -167,8 +167,12 @@ function start(opts) {
     if (status === 'approved') { r.label = label || r.label; tokens.add(r.token); }
     return r;
   };
+  // fetch() keeps its connections alive, and before Node 19 server.close()
+  // waits for every one of them: an agent still checking in would hold it open
+  // for ever. Closing is closing — the connections go with the server.
+  const close = () => new Promise((r) => { server.close(r); server.closeAllConnections(); });
   return new Promise((resolve) => server.listen(opts.port || 0, '127.0.0.1', () => {
-    resolve({ server, calls, requests, tokens, port: server.address().port, url: 'http://127.0.0.1:' + server.address().port, close: () => new Promise(r => server.close(r)), opts,
+    resolve({ server, calls, requests, tokens, port: server.address().port, url: 'http://127.0.0.1:' + server.address().port, close, opts,
       approve: (code, label) => decide(code, 'approved', label), deny: (code) => decide(code, 'denied'), expire: (code) => decide(code, 'expired'),
       station, asked, teamKeys, stored,
       ask: (verb, args) => { const c = { id: 100 + asked.length, verb, args: args || {}, status: 'queued' }; asked.push(c); return c; },
