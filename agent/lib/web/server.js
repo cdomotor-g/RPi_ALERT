@@ -186,6 +186,7 @@ class WebServer {
     // answers the one that waits.
     if (p === '/api/token/request' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.request());
     if (p === '/api/token/request/cancel' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.cancel());
+    if (p === '/api/hotspot' && req.method === 'GET') return this.json(res, 200, a.hotspot.status(true));
     if (p === '/api/survey' && req.method === 'GET') return this.json(res, 200, await a.survey.status());
     if (p === '/api/survey' && req.method === 'POST') {
       try {

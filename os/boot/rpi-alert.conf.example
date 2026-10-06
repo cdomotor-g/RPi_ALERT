@@ -89,6 +89,13 @@ request_token = yes
 # manage: health, settings, restarts, updates | report: health only | off
 #remote_management = manage
 
+# ── The Pi's own Wi-Fi network ──────────────────────────────────────────────
+# Where there is no network, a phone joins this and opens http://10.42.0.1/.
+# auto: up after three minutes with no network, gone the moment one appears.
+#hotspot = auto
+#hotspot_ssid = Mt Mee survey
+#hotspot_password = choose-one-8-to-63-chars
+
 # ── Site survey ─────────────────────────────────────────────────────────────
 # Leave this Pi at a candidate site for a few days: it starts listening at this
 # power-up, keeps everything on the card, and sends what it heard to MegaNet

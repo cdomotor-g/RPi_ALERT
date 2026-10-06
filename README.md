@@ -32,6 +32,7 @@ itself after an unplug or a power cut.
 | **Site surveys** | Leave a Pi at a candidate repeater or base-station site for a day or three, network or not: the dashboard's **Survey** page says whether it is ready to be left (receivers, location, clock, room on the card, power), tallies every station it hears — good and bad frames, signal, SNR — and, back on a network, what it heard goes to MegaNet as receptions for the Reception Map's **Site surveys** panel to set beside what the network itself received. [docs/survey.md](docs/survey.md) |
 | **Reconnects** | USB ports are rescanned every 2 s; a device that hangs up is reopened when it returns (under any `/dev` name); `rtl_sdr` is restarted if it stalls or exits; the Quansheng's DTR is toggled when it goes quiet; systemd restarts the agent; the hardware watchdog reboots a hung Pi. |
 | **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it. |
+| **No network at all** | Its own Wi-Fi network comes up after three minutes with none — join **RPi-ALERT-…** from a phone and open `http://10.42.0.1/` — and gives way the moment Ethernet or a known Wi-Fi network is there. |
 | **Headless** | The same dashboard on `http://rpi-alert.local/` from any computer on the network, `rpi-alert setup` / `status` / `top` over SSH (PuTTY), or an `rpi-alert.conf` file dropped on the SD card's boot partition. |
 | **Managed from MegaNet** | Checks in with MegaNet's **Base Stations** tab once a minute — MegaNet never connects to it — so its health is on one list with every other base station, and an administrator can change its settings, restart it, install updates and read its log from there. Never the token, where readings go, the web password or SSH keys; `report` or `off` on the Pi narrows or ends it. [docs/remote-management.md](docs/remote-management.md) |
 | **Getting in, years later** | The same maintenance account on every Pi, **`alert`**, with no password: SSH keys only, each a person's, listed on the Pi — from the SD card, a team's GitHub accounts, or MegaNet's team keys. Nobody leaves with the only password. Locked out? `alert_password` on the SD card. [docs/access.md](docs/access.md) |
@@ -103,7 +104,7 @@ docs/             install, configuration, remote management, SSH access, hardwar
 
 ```sh
 cd agent
-node --test test/*.test.js       # 108 tests; the pty and serial end-to-end ones need socat, one sshd
+node --test test/*.test.js       # 119 tests; the pty and serial end-to-end ones need socat, one sshd
 scripts/simulate.sh [sticks]     # a simulated base station on http://localhost:8099/ (1–4 RTL-SDR sticks)
 scripts/simulate.sh --channels   # …with the first stick on the air on four channels at once
 ```

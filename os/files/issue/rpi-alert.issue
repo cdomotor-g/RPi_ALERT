@@ -1,5 +1,6 @@
 RPi ALERT base station  \n
   Dashboard and settings:  http://\4/   or   http://\n.local/
   At the command line:     log in, then   rpi-alert status   or   rpi-alert setup
+  No network here?         its own Wi-Fi, RPi-ALERT-..., comes up after 3 min: rpi-alert hotspot
   Locked out?              alert_password = ... in rpi-alert.conf on the SD card (docs/access.md)
 

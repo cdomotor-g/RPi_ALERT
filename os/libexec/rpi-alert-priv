@@ -13,6 +13,9 @@
 #   net-status                interfaces and addresses
 #   wifi-scan                 nearby networks (nmcli terse output)
 #   wifi-connect <ssid> [<password>]
+#   hotspot-up <ssid> <password>   the Pi's own Wi-Fi network: an access point, the Pi
+#                             at 10.42.0.1 (whether it is up the agent reads without root)
+#   hotspot-down
 #   update-check              is there a newer RPi ALERT release?
 #   update-install            install it now (rpi-alert-update.service, in the background)
 #   update-auto on|off        the nightly install-if-newer timer
@@ -77,6 +80,29 @@ case "$verb" in
     nmcli radio wifi on >/dev/null 2>&1 || true
     if [ -n "$pw" ]; then exec nmcli --wait 45 device wifi connect "$ssid" password "$pw"
     else exec nmcli --wait 45 device wifi connect "$ssid"; fi ;;
+  hotspot-up)
+    ssid=${1:-}; pw=${2:-}
+    re='^[A-Za-z0-9._ -]{1,32}$'
+    [[ "$ssid" =~ $re ]] || die "hotspot-up <ssid: 1-32 letters, digits, spaces, dots, dashes, underscores> <password>"
+    printf '%s' "$pw" | LC_ALL=C grep -qE '^[[:graph:]]{8,63}$' || die "a hotspot password is 8-63 characters, no spaces"
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    dev=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')
+    [ -n "$dev" ] || die "this Pi has no Wi-Fi"
+    rfkill unblock wifi >/dev/null 2>&1 || true
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    if nmcli -t -f NAME connection show 2>/dev/null | grep -qx rpi-alert-hotspot; then
+      nmcli connection modify rpi-alert-hotspot connection.interface-name "$dev" 802-11-wireless.ssid "$ssid" wifi-sec.psk "$pw" || exit 1
+    else
+      # NetworkManager's "shared" method: its own DHCP for whoever joins, the Pi at 10.42.0.1.
+      nmcli connection add type wifi ifname "$dev" con-name rpi-alert-hotspot autoconnect no ssid "$ssid" \
+        802-11-wireless.mode ap 802-11-wireless.band bg ipv4.method shared ipv4.addresses 10.42.0.1/24 ipv6.method disabled \
+        wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp wifi-sec.psk "$pw" || exit 1
+    fi
+    exec nmcli --wait 30 connection up rpi-alert-hotspot ;;
+  hotspot-down)
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    if nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx rpi-alert-hotspot; then exec nmcli connection down rpi-alert-hotspot; fi
+    exit 0 ;;
   update-check) exec /opt/rpi-alert/libexec/rpi-alert-update --check ;;
   update-install) exec systemctl start --no-block rpi-alert-update.service ;;
   update-auto)

@@ -17,7 +17,7 @@ over the same days.
 | **Power for the days** | Estimates (measure yours: [bench-test.md](bench-test.md)): a Pi 3B+ with one stick ≈ 3.5–4 W, a Pi 4 ≈ 4.5–5.5 W, a Pi 5 ≈ 5.5–7 W — about 270, 360 and 450 Wh for 72 hours. A 12 V 100 Ah LiFePO4 battery and a good 5 V buck converter runs any of them for a week; a USB power bank lasts hours, not days, and many brown out a Pi. The Survey page warns of under-voltage, which can ruin an SD card. Unplug the monitor (the kiosk costs memory and power). |
 | **A token** | Not needed to start. Everything is kept on the card and goes once the Pi has a working token — *Request a token* when it is back on a network. |
 | **An SD card** | 16 GB or more, A1/A2 or high-endurance. A survey writes only what it hears (tens of MB a day). |
-| **A way to look at it on site** (optional) | Put your phone's hotspot in the card's `rpi-alert.conf` (`wifi_ssid`, `wifi_password`): on site the Pi joins it, `http://rpi-alert.local/` opens on the phone, and while the hotspot is up the Pi has NTP and sends as it hears. When you drive off it carries on offline. |
+| **A way to look at it on site** | The Pi's own Wi-Fi network: with no network for three minutes it comes up as **RPi-ALERT-…** (Settings → Hotspot names it; its password is on the Survey page — note it before you go). Join it from a phone and open `http://10.42.0.1/` (the phone may say the network has no internet; stay connected). Or put your phone's own hotspot in the card's `rpi-alert.conf` (`wifi_ssid`, `wifi_password`): the Pi joins it, `http://rpi-alert.local/` opens on the phone, and while it is up the Pi has NTP and sends as it hears. |
 
 ## Starting one
 
@@ -39,7 +39,7 @@ it), `rpi-alert survey` for how it is going, `rpi-alert survey end`.
 
 The **Survey** page says, before you walk away, whether the Pi is ready to be left: receivers
 listening, its location, its clock, room on the card for the days at the rate it is hearing, power,
-memory, token. Red is something that will lose the survey; amber is worth knowing.
+memory, how a phone reaches it on site (its hotspot's name and password), token. Red is something that will lose the survey; amber is worth knowing.
 
 ## While it runs
 

@@ -58,6 +58,7 @@ const MAX_RX_IN_BEAT = 12;
 // Of the settings, these are this base station's alone.
 const LOCAL_ONLY = {
   web: 'the web page\'s password and port',
+  hotspot: 'its own Wi-Fi network and its password',
   remote: 'what MegaNet may do',
   version: null,
 };
@@ -196,6 +197,7 @@ function remoteConfig(c) {
   const out = JSON.parse(JSON.stringify(c));
   out.meganet = { enabled: c.meganet.enabled, receptions: c.meganet.receptions, tokenSet: !!c.meganet.token, autoRequest: c.meganet.autoRequest };
   out.web = { port: c.web.port, passwordSet: !!c.web.passwordHash };
+  if (c.hotspot) out.hotspot = { mode: c.hotspot.mode, ssid: c.hotspot.ssid, passwordSet: !!c.hotspot.password };
   return out;
 }
 

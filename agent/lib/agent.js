@@ -8,6 +8,7 @@
 //   audio             the chirps
 //   remote            MegaNet's Base Stations tab: health out, a few requests in
 //   survey            a site survey: what this Pi hears at a candidate site, tallied
+//   hotspot           its own Wi-Fi network when it has no other, for a phone
 //   web/server        the dashboard and settings, on port 80
 //
 // A reading's life: a driver decodes it → deviceReading() times it (arrival,
@@ -24,6 +25,7 @@ const { Uplink } = require('./uplink');
 const { TokenRequest } = require('./token-request');
 const { Remote } = require('./remote');
 const { Survey } = require('./survey');
+const { Hotspot } = require('./hotspot');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -60,6 +62,7 @@ class Agent extends EventEmitter {
     // uplink's own door and token.
     this.remote = new Remote(this, opts.remote);
     this.survey = new Survey(this).load();
+    this.hotspot = new Hotspot(this, opts.hotspot);
     this.recent = [];
     this.bursts = [];
     this.counts = { readings: 0, alert: 0, alert2: 0, receptions: 0 };
@@ -74,6 +77,8 @@ class Agent extends EventEmitter {
     this.uplink.start();
     this.survey.start();
     this.survey.on('change', () => this.emit('survey'));
+    this.hotspot.start();
+    this.hotspot.on('change', () => this.emit('devices'));
     this.tokenRequest.start();
     this.tokenRequest.on('change', () => this.emit('token-request', this.tokenRequest.status()));
     this.stations.start();
@@ -98,6 +103,7 @@ class Agent extends EventEmitter {
     this.timers.forEach(clearInterval);
     this.remote.stop();
     this.survey.stop();
+    this.hotspot.stop();
     await this.devices.stop();
     this.tokenRequest.stop();
     this.uplink.stop();
@@ -318,7 +324,7 @@ class Agent extends EventEmitter {
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
       remote: this.remote.statusForPage(),
-      survey: this.surveyBrief(),
+      survey: this.surveyBrief(), hotspot: this.hotspot.status(false),
     };
   }
 

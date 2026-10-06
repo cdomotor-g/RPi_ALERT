@@ -316,6 +316,13 @@ class Survey extends EventEmitter {
     if (pw && (pw.underVoltageNow || pw.underVoltageSinceBoot)) add('power', pw.underVoltageNow ? 'bad' : 'warn', 'Under-voltage ' + (pw.underVoltageNow ? 'now' : 'since this power-up'), 'The supply sags: the Pi may slow down or reset, and an SD card written to as the power drops can be ruined. Use a proper supply or a better battery and cable.');
     else if (pw) add('power', 'good', 'Power steady', 'No under-voltage since this power-up.');
 
+    // A phone on site, with no network to share: the Pi's own Wi-Fi (lib/hotspot.js).
+    const hs = a.hotspot ? a.hotspot.status(true) : null;
+    if (hs && hs.available === false) add('phone', 'warn', 'No hotspot for a phone', hs.wifi ? hs.error || 'NetworkManager cannot run one here.' : 'This Pi has no Wi-Fi: a phone cannot reach its dashboard on site without a network to share.');
+    else if (hs && hs.mode === 'off') add('phone', 'warn', 'The hotspot is off', 'With no network at the site, a phone cannot open this page there. Settings → Hotspot: auto.');
+    else if (hs) add('phone', 'good', 'A phone on site: Wi-Fi “' + hs.ssid + '”, password ' + hs.password, (hs.active ? 'Up now' + (hs.clients ? ', ' + hs.clients + ' connected' : '') + '. ' : 'Comes up after three minutes with no network. ')
+      + 'Join it, then open http://' + hs.address + '/ (the phone may warn it has no internet — stay connected). Note the password before you go.');
+
     if (up.tokenSet && !up.tokenRefused) add('token', 'good', 'MegaNet token set', up.lastOkAt ? 'Last sent ' + new Date(up.lastOkAt).toLocaleString() + '.' : 'Nothing sent yet.');
     else add('token', 'warn', up.tokenRefused ? 'MegaNet refused the token' : 'No MegaNet token yet', 'Fine for a survey: everything is kept on the card and goes once it has a working token — Request a token when it is back on a network.');
 

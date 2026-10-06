@@ -35,6 +35,8 @@ const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
 const LOC_SOURCES = ['none', 'manual', 'station', 'gps'];
 const REMOTE_MODES = ['manage', 'report', 'off'];
+const HOTSPOT_MODES = ['auto', 'on', 'off'];
+const HOTSPOT_SSID = /^[A-Za-z0-9._ -]{1,32}$/, HOTSPOT_PASSWORD = /^[\x21-\x7e]{8,63}$/;
 
 function defaults() {
   return {
@@ -121,6 +123,12 @@ function defaults() {
     //   off     nothing
     // Only this base station can change it: MegaNet cannot widen its own reach.
     remote: { mode: 'manage', idleS: 60 },
+    // The Pi's own Wi-Fi network, for a phone to open the dashboard where there
+    // is no other (lib/hotspot.js): auto — after three minutes with no network,
+    // giving way to one the moment it appears; on; off. The name is
+    // RPi-ALERT-<first four of the host id> when left empty; the password is made
+    // on the Pi the first time and shown on its dashboard. Set on the Pi only.
+    hotspot: { mode: 'auto', ssid: '', password: '' },
   };
 }
 
@@ -183,6 +191,10 @@ function validate(c) {
   need(Array.isArray(m.endpoints) && m.endpoints.length > 0 && m.endpoints.every(u => /^https?:\/\/[^\s]+$/.test(u)), 'meganet.endpoints: one or more http(s) URLs');
   need(typeof m.autoRequest === 'boolean', 'meganet.autoRequest: true or false');
   need(num(m.queueMb, 16, 65536) !== undefined, 'meganet.queueMb: 16–65536 MB');
+  const h = c.hotspot || {};
+  need(HOTSPOT_MODES.includes(h.mode), 'hotspot.mode: one of ' + HOTSPOT_MODES.join(', '));
+  need(h.ssid === '' || (typeof h.ssid === 'string' && HOTSPOT_SSID.test(h.ssid)), 'hotspot.ssid: 1–32 letters, digits, spaces, dots, dashes or underscores (or empty for RPi-ALERT-…)');
+  need(h.password === '' || (typeof h.password === 'string' && HOTSPOT_PASSWORD.test(h.password)), 'hotspot.password: 8–63 characters, no spaces');
   const l = c.location || {};
   need(LOC_SOURCES.includes(l.source), 'location.source: one of ' + LOC_SOURCES.join(', '));
   if (l.source === 'manual' || l.source === 'station') {

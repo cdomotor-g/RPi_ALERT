@@ -24,7 +24,9 @@ mode 0600 because it holds the ingest token):
   USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
   that is unplugged.
 - **Settings** — MegaNet, location, RTL-SDR (the settings every stick shares, and each stick's
-  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), web password,
+  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), the hotspot (the
+  Pi's own Wi-Fi network for a phone where there is no other: auto / on / off, its name and
+  password), web password,
   remote management (what MegaNet's Base Stations tab may do, and what it last asked), SSH access
   (the `alert` account, its keys and where each came from, password login, MegaNet's team keys),
   time zone, restart/reboot/shut down, update check.
@@ -146,6 +148,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `remote_management` | manage / report / off | `remote.mode`: what MegaNet's Base Stations tab may do ([remote-management.md](remote-management.md)) |
 | `auto_update` | on / off | install new releases nightly, 3–4 am (off by default) |
 | `update` | now | install the latest release once, at this boot |
+| `hotspot` | auto / on / off | `hotspot.mode`: the Pi's own Wi-Fi network for a phone where there is no other (auto: after three minutes with no network) |
+| `hotspot_ssid`, `hotspot_password` | text | its name (RPi-ALERT-… if absent) and password (8–63 characters, no spaces; made on the Pi if absent) — the password wiped from the card |
 | `survey` | the site's name | start a site survey at this power-up ([survey.md](survey.md)) |
 | `survey_hours` | e.g. 72, or 0 | hours of listening before it ends itself (0: until ended); 72 if absent |
 | `survey_readings` | yes / no | send the survey's readings to MegaNet too (no: only its receptions) |
@@ -183,6 +187,9 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `system.timezone` | — | Set from the page; ALERT2 frame times are local |
 | `remote.mode` | manage | manage · report · off — what MegaNet's Base Stations tab may do. Set only on the Pi: MegaNet cannot change it |
 | `remote.idleS` | 60 | How often to check in with MegaNet while nobody has the base station open (30–900 s) |
+| `hotspot.mode` | auto | The Pi's own Wi-Fi network: auto — up after three minutes with no network (neither Ethernet nor a Wi-Fi network joined), down the moment there is one, and, with nobody on it, stepping aside every ten minutes for a minute and a half so the Pi can join a Wi-Fi network it knows; on — always (it takes the Wi-Fi radio); off. Set on the Pi only: MegaNet sees whether a password is set, never the password, and cannot change any of it |
+| `hotspot.ssid` | — | Its name; empty is `RPi-ALERT-` and the first four of the host id |
+| `hotspot.password` | made on the Pi | WPA2, 8–63 characters, no spaces; made the first time the agent starts (`xxxx-xxxx-xxxx`) and shown on the dashboard, `rpi-alert hotspot` and the Survey page |
 
 Environment variables (for development and tests): `RPI_ALERT_CONFIG`, `RPI_ALERT_DATA`,
 `RPI_ALERT_DEV`, `RPI_ALERT_SYSFS`, `RPI_ALERT_PRIV`, `RPI_ALERT_ASSUME_CLOCK=1`,

@@ -35,6 +35,8 @@
 //   rpi-alert access meganet on|off | from private|any | password-login on|off|unchanged
 //                    | ssh on|off | sync
 //   sudo rpi-alert access alert-password [--none] a password for the alert account (the console)
+//   rpi-alert hotspot [auto|on|off] the Pi's own Wi-Fi network for a phone where there is no
+//                                    other: whether it is up, its name and password, and its mode
 //   rpi-alert survey                 the site survey: whether one is running, what it has heard,
 //                                    and whether this Pi is ready to be left at a site
 //   rpi-alert survey start "<site>" [--hours 72] [--readings] [--next-boot]
@@ -73,6 +75,7 @@ async function main() {
     case 'password': return password();
     case 'remote': return remote(argv[1]);
     case 'survey': return survey(argv.slice(1));
+    case 'hotspot': return hotspot(argv[1]);
     case 'access': return access(argv.slice(1));
     case 'readings': return readings(Number(argv[1]) || 20);
     case 'log': case 'logs': return showLog(Number(argv[1]) || 60);
@@ -526,6 +529,25 @@ async function remote(mode) {
     for (const h of r.history) console.log('  ' + new Date(h.at).toLocaleTimeString() + '  ' + h.label + (h.detail ? C.d + ' (' + h.detail + ')' + C.x : '') + '  ' + (h.ok ? C.g + 'done' : C.r + 'not done: ' + h.error) + C.x);
   }
   if (!mode) console.log(C.d + '\nChange it: rpi-alert remote manage | report | off' + C.x);
+}
+
+// ── the hotspot ──────────────────────────────────────────────────────────────
+
+async function hotspot(mode) {
+  if (mode) {
+    if (!['auto', 'on', 'off'].includes(mode)) throw new Error('rpi-alert hotspot auto | on | off');
+    const r = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { hotspot: { mode } } }) });
+    if (r.errors && r.errors.length) throw new Error(r.errors.join('; '));
+  }
+  const h = await api('/api/hotspot');
+  const col = h.active ? C.g : h.available === false ? C.r : C.y;
+  console.log(C.b + 'Hotspot' + C.x + '  ' + col + (h.available === false ? 'not available' : h.active ? 'up' : 'down') + C.x + C.d + '  (mode ' + h.mode + ')' + C.x);
+  console.log('  Wi-Fi network  ' + h.ssid);
+  console.log('  Password       ' + h.password);
+  console.log('  Then open      http://' + h.address + '/');
+  if (h.note) console.log(C.d + '  ' + h.note + C.x);
+  if (h.error) console.log(C.y + '  ' + h.error + C.x);
+  if (!mode) console.log(C.d + '\nChange it: rpi-alert hotspot auto | on | off   (name and password: Settings → Hotspot, or hotspot_ssid / hotspot_password on the SD card)' + C.x);
 }
 
 // ── site survey ──────────────────────────────────────────────────────────────

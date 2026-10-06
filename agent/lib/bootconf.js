@@ -37,6 +37,9 @@
 //   gps_bluetooth_pin = 123456        set to Bluetooth, NMEA): paired, kept connected, and read
 //                                     as /dev/rpi-alert-gps; gps_bluetooth = off removes it
 //   remote_management = manage        what MegaNet's Base Stations tab may do: manage | report | off
+//   hotspot = auto                    the Pi's own Wi-Fi network when it has no other: auto | on | off
+//   hotspot_ssid = Mt Mee survey      its name (RPi-ALERT-<host> if absent)
+//   hotspot_password = …              its password (made on the Pi if absent); removed from the card
 //   survey = Mt Mee repeater site     start a site survey at this power-up (docs/survey.md): what
 //   survey_hours = 72                 it hears is kept and tallied, and goes to MegaNet as receptions
 //   survey_readings = no              when it is next on a network; readings too only if yes
@@ -62,7 +65,7 @@ const Channels = require('../web/channels');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
-const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin', 'alert_password']);
+const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin', 'alert_password', 'hotspot_password']);
 // Keys a card may give more than once, each line one more value.
 const MULTI = new Set(['ssh_key', 'ssh_authorized_key']);
 const BT_GPS_PORT = '/dev/rpi-alert-gps';
@@ -161,6 +164,13 @@ function toPatch(kv) {
         break;
       }
       case 'gps_bluetooth_pin': btPin = v.trim(); break;
+      case 'hotspot': case 'wifi_hotspot': {
+        const m = no(v) ? 'off' : /^(on|always)$/i.test(v.trim()) ? 'on' : yes(v) || /^auto$/i.test(v.trim()) ? 'auto' : null;
+        if (m) set('hotspot.mode', m); else notes.push('hotspot: auto, on or off');
+        break;
+      }
+      case 'hotspot_ssid': case 'hotspot_name': set('hotspot.ssid', v.trim()); break;
+      case 'hotspot_password': set('hotspot.password', v.trim()); break;
       case 'survey': case 'survey_name': if (!no(v)) system.survey = Object.assign(system.survey || {}, { name: v.trim() }); break;
       case 'survey_hours': system.survey = Object.assign(system.survey || {}, { hours: /^(0|none|until stopped)$/i.test(v.trim()) ? 0 : n(v) }); break;
       case 'survey_readings': system.survey = Object.assign(system.survey || {}, { readings: yes(v) }); break;

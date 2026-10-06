@@ -91,7 +91,8 @@ say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 # bluez and python3: a Bluetooth GPS (rpi-alert-btgps), used only when rpi-alert.conf names one.
-PKGS=(nodejs rtl-sdr alsa-utils avahi-daemon curl ca-certificates sudo procps bluez python3)
+# iw and dnsmasq-base: the Pi's own Wi-Fi hotspot when it has no network (NetworkManager's shared mode).
+PKGS=(nodejs rtl-sdr alsa-utils avahi-daemon curl ca-certificates sudo procps bluez python3 iw dnsmasq-base)
 apt_install "${PKGS[@]}"
 # hwclock, to keep a battery RTC (Pi 5, or an RTC board) set while NTP or a GPS
 # is right — what times a site survey across a power cut with neither. Its own

@@ -94,6 +94,7 @@ function renderHeader() {
   else chips.push(['ok', 'MegaNet' + (m.label ? ': ' + m.label : '') + (m.lastOkAt ? ' · ' + ago(Date.now() - m.lastOkAt) : '')]);
   if (m.queued || m.waitingForClock) chips.push(['warn', (m.queued + m.waitingForClock) + ' waiting']);
   chips.push(s.clock.trusted ? ['ok', 'Clock: ' + s.clock.source] : ['warn', 'Clock: not set yet']);
+  if (s.hotspot && s.hotspot.active) chips.push(['ok', 'Hotspot: ' + s.hotspot.ssid + (s.hotspot.clients ? ' · ' + s.hotspot.clients + ' on it' : '')]);
   if (s.survey && s.survey.state === 'running') chips.push(['ok', 'Surveying: ' + s.survey.name + ' · ' + s.survey.addresses + ' heard']);
   else if (s.survey && s.survey.state === 'armed') chips.push(['warn', 'Survey starts at the next power-up']);
   const L = s.location;
@@ -549,6 +550,12 @@ function fillForms() {
   if (!fa.device.options.length) fa.device.innerHTML = '<option value="' + esc(c.audio.device) + '">' + esc(c.audio.device === 'default' ? 'System default' : c.audio.device) + '</option>';
   loadAudioDevices();
 
+  if (c.hotspot) {
+    const fh = $('#f-hotspot');
+    $$('input[name=mode]', fh).forEach(r => { r.checked = r.value === c.hotspot.mode; });
+    fh.ssid.value = c.hotspot.ssid || '';
+    fh.password.value = c.hotspot.password || '';
+  }
   $('#f-display').kiosk.value = c.kiosk.mode;
   if (c.remote) $('#f-remote').mode.value = c.remote.mode;
   $('#f-system').timezone.value = c.system.timezone || (S.status ? S.status.clock.timezone : '');
@@ -701,7 +708,22 @@ async function save(form, patch, extra) {
   } catch (e) { flash(form, e.message, false); }
 }
 
+function renderHotspot() {
+  const h = S.status && S.status.hotspot, el = $('#hs-state');
+  if (!h || !el) return;
+  const ph = $('#f-hotspot').ssid;
+  ph.placeholder = h.ssid;
+  el.textContent = (h.available === false ? 'Not available — ' + (h.error || 'no Wi-Fi') : h.active ? 'Up: “' + h.ssid + '”' + (h.clients ? ', ' + h.clients + ' connected' : '') + '. ' + (h.note || '') : 'Down. ' + (h.note || ''))
+    + (h.available !== false && h.error ? ' — ' + h.error : '') + (h.country === '00' ? ' The Wi-Fi country is not set (wifi_country on the SD card): some channels may be refused.' : '');
+}
+
 function wireSettings() {
+  $('#f-hotspot').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const mode = ($$('input[name=mode]', f).find(r => r.checked) || {}).value || 'auto';
+    save(f, { hotspot: { mode, ssid: f.ssid.value.trim(), password: f.password.value.trim() } });
+  });
   $('#f-meganet').addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
@@ -979,7 +1001,7 @@ async function refresh() {
     renderHeader(); renderStats(); renderRxMini();
     if (S.tab === 'rx') renderRxFull();
     if (S.tab === 'survey') loadSurvey();
-    if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); renderRemote(); }
+    if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); renderRemote(); renderHotspot(); }
     renderBursts();
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;

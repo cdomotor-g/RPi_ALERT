@@ -222,6 +222,25 @@
       <div class="row-actions"><button type="button" class="ghost" id="hostname-save">Set hostname</button><span class="status small" id="hostname-status"></span></div>
     </div>
 
+    <form id="f-hotspot" class="card form">
+      <h2>Hotspot</h2>
+      <p class="hint">The Pi's own Wi-Fi network, for a phone to open this page where there is no other — at a site survey, or when its
+        network is down. Join it and open <b>http://10.42.0.1/</b> (or <b>http://rpi-alert.local/</b>). Note the password before you need it.</p>
+      <p class="small" id="hs-state">…</p>
+      <div class="radios">
+        <label class="check"><input type="radio" name="mode" value="auto"> Auto — after three minutes with no network; gives way to one</label>
+        <label class="check"><input type="radio" name="mode" value="on"> Always on</label>
+        <label class="check"><input type="radio" name="mode" value="off"> Off</label>
+      </div>
+      <div class="cols">
+        <label>Network name <input name="ssid" maxlength="32" pattern="[A-Za-z0-9._ \-]{1,32}" placeholder="RPi-ALERT-…"></label>
+        <label>Password <input name="password" maxlength="63" autocomplete="off" spellcheck="false" class="mono"></label>
+      </div>
+      <p class="hint small"><b>Always on</b> takes the Wi-Fi radio: use it on a Pi on Ethernet, or one that should never join a Wi-Fi network.
+        In <b>auto</b>, with nobody on it, the hotspot steps aside every ten minutes for a minute and a half to let the Pi join a Wi-Fi network it knows.</p>
+      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+    </form>
+
     <div class="card form" id="f-security">
       <h2>Web page password</h2>
       <p class="hint" id="pw-state"></p>
