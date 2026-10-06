@@ -4,9 +4,9 @@
 
 | Pi | Image | Notes |
 |---|---|---|
-| **Pi 4 / 400 / CM4** | 64-bit | The recommended base station: CPU for the SDR decoder at 960 ksps, the screen dashboard, and a 3.5 mm audio jack. Official 15 W (5 V 3 A) supply. |
+| **Pi 4 / 400 / CM4** | 64-bit | The recommended base station: CPU for the SDR decoder at 960 ksps, the screen dashboard, and a 3.5 mm audio jack. Official 15 W (5 V 3 A) supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts — for a [site survey](survey.md) with no GPS and no internet. |
 | Pi 5 / 500 / CM5 | 64-bit | Fastest. **No audio jack**: chirps over HDMI audio or a USB sound card. Official 27 W supply, or USB devices are current-limited. A Pi 5 can keep time across power cuts with its RTC battery (fitted to the J5 header). |
-| Pi 3 / 3+ / CM3 | 64-bit | Fine for every receiver; 1 GB is enough for the screen dashboard. 5 V 2.5 A supply. |
+| Pi 3 / 3+ / CM3 | 64-bit | Fine for every receiver; 1 GB is enough for the screen dashboard. 5 V 2.5 A supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts, as on a Pi 4. |
 | Zero 2 W | 64-bit | 512 MB: no screen dashboard (web page and console only); the SDR runs at 240 ksps. One micro-USB OTG port — use a powered USB hub for more than one receiver. No audio jack. |
 | Pi 1 / 2 / Zero / Zero W | 32-bit | Too slow for the RTL-SDR decoder. Fine for a Quansheng radio or an ERT-A2. |
 

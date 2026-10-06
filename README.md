@@ -28,7 +28,8 @@ itself after an unplug or a power cut.
 | **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. |
 | **MegaNet** | Posts through `ingest_http()` with one ingest token per Pi, one receiver id per device (`serial-monitor/rpi-<host>-qs1`), each reading with the frequency it was heard on and its signal — RSSI, or an SDR's level, and SNR — for the Message Log's Freq, Signal and SNR columns; describes each receiver through `report_ingest_point()` and every frame heard through `report_receptions()` (the Reception Map) — the contract MegaNet's Serial Monitor already uses. Falls back from the floodwarning.net proxy to Supabase directly. |
 | **Its token, without typing it** | Press **Request a token** on the Pi (or `rpi-alert request-token`, or `request_token = yes` on the SD card): it shows a code and a QR code, an administrator signed in to MegaNet on their phone approves it on the Admin tab, and the Pi starts sending within seconds. Nobody signs in on the Pi and nothing is copied: the Pi makes the token and MegaNet keeps only its hash. |
-| **Never loses a reading** | A queue on disk survives restarts and power cuts. No internet: kept and sent later. No clock yet (a Pi has no RTC): held on the monotonic clock and stamped once NTP or GPS sets the time. |
+| **Never loses a reading** | A queue on disk survives restarts and power cuts. No internet: kept and sent later — for days, since it is bounded by the SD card (1 GB by default), not by memory. No clock yet (a Pi has no RTC): held on the monotonic clock and stamped once NTP, a GPS or a battery RTC (Pi 5, or an RTC board) gives the time. |
+| **Site surveys** | Leave a Pi at a candidate repeater or base-station site for a day or three, network or not: the dashboard's **Survey** page says whether it is ready to be left (receivers, location, clock, room on the card, power), tallies every station it hears — good and bad frames, signal, SNR — and, back on a network, what it heard goes to MegaNet as receptions for the Reception Map's **Site surveys** panel to set beside what the network itself received. [docs/survey.md](docs/survey.md) |
 | **Reconnects** | USB ports are rescanned every 2 s; a device that hangs up is reopened when it returns (under any `/dev` name); `rtl_sdr` is restarted if it stalls or exits; the Quansheng's DTR is toggled when it goes quiet; systemd restarts the agent; the hardware watchdog reboots a hung Pi. |
 | **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it. |
 | **Headless** | The same dashboard on `http://rpi-alert.local/` from any computer on the network, `rpi-alert setup` / `status` / `top` over SSH (PuTTY), or an `rpi-alert.conf` file dropped on the SD card's boot partition. |
@@ -102,7 +103,7 @@ docs/             install, configuration, remote management, SSH access, hardwar
 
 ```sh
 cd agent
-node --test test/*.test.js       # 79 tests; the pty and serial end-to-end ones need socat, one sshd
+node --test test/*.test.js       # 108 tests; the pty and serial end-to-end ones need socat, one sshd
 scripts/simulate.sh [sticks]     # a simulated base station on http://localhost:8099/ (1–4 RTL-SDR sticks)
 scripts/simulate.sh --channels   # …with the first stick on the air on four channels at once
 ```
@@ -113,6 +114,7 @@ Building an image needs Linux with root, `qemu-user-static` (binfmt), `fdisk`, `
 
 <img src="docs/images/receivers.png" width="49%" alt="The Receivers page: each device's state, port, firmware, levels and spectrum"> <img src="docs/images/setup-page.png" width="49%" alt="The set-up page: pick the Pi, write the card, write its settings">
 
+Site surveys: [docs/survey.md](docs/survey.md) ·
 How it fits together: [docs/how-it-works.md](docs/how-it-works.md) ·
 Settings reference: [docs/configuration.md](docs/configuration.md) ·
 MegaNet's Base Stations tab: [docs/remote-management.md](docs/remote-management.md) ·

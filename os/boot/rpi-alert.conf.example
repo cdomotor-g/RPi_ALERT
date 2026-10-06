@@ -89,6 +89,16 @@ request_token = yes
 # manage: health, settings, restarts, updates | report: health only | off
 #remote_management = manage
 
+# ── Site survey ─────────────────────────────────────────────────────────────
+# Leave this Pi at a candidate site for a few days: it starts listening at this
+# power-up, keeps everything on the card, and sends what it heard to MegaNet
+# (as receptions — its readings too only if survey_readings = yes) when it is
+# next on a network. docs/survey.md has the kit list. A GPS, or a battery RTC,
+# keeps the time through a power cut with no internet.
+#survey = Mt Mee candidate repeater
+#survey_hours = 72
+#survey_readings = no
+
 # ── The Pi ──────────────────────────────────────────────────────────────────
 #timezone = Australia/Brisbane
 #hostname = rpi-alert

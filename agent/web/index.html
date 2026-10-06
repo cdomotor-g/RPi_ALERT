@@ -21,6 +21,7 @@
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="dash" aria-selected="true">Dashboard</button>
     <button role="tab" data-tab="rx">Receivers</button>
+    <button role="tab" data-tab="survey">Survey</button>
     <button role="tab" data-tab="settings">Settings</button>
     <button role="tab" data-tab="log">Log</button>
   </nav>
@@ -62,6 +63,57 @@
       <span class="dim small">Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut.</span>
     </div>
     <div id="rx-full"></div>
+  </section>
+
+  <!-- ── Site survey ───────────────────────────────────────────── -->
+  <section id="tab-survey" class="tab" hidden>
+    <div class="card" id="sv-now">
+      <h2>Site survey</h2>
+      <p class="hint">Leave this Pi at a site a repeater or base station might go — for a day or three, with or without a network —
+        and see which stations it hears there and how strongly. Everything heard is kept on the card and goes to MegaNet as receptions
+        when it is next on a network; MegaNet's <b>Reception Map → Site surveys</b> lays it beside what the network itself received.</p>
+      <div id="sv-state"></div>
+    </div>
+    <form id="f-survey" class="card form">
+      <h2 id="sv-form-h">Start a survey</h2>
+      <div class="cols">
+        <label>What the site is called <input name="name" maxlength="60" placeholder="e.g. Mt Mee candidate repeater" required></label>
+        <label>Listen for <select name="hours">
+          <option value="24">24 hours</option><option value="48">48 hours</option><option value="72" selected>72 hours</option>
+          <option value="168">a week</option><option value="0">until I end it</option></select></label>
+      </div>
+      <label class="check"><input type="checkbox" name="readings"> Also send its readings to MegaNet (normally only what it heard, as receptions)</label>
+      <p class="hint small">Hours of listening, so the time it spends switched off does not count. It also ends itself if a GPS fix puts it
+        more than 500 m from where it began — it has been taken away.</p>
+      <div class="row-actions">
+        <button type="button" data-when="now">Start now</button>
+        <button type="button" class="ghost" data-when="boot">Start at the next power-up</button>
+        <span class="status small"></span>
+      </div>
+      <p class="hint small">The next power-up: set it up here, shut it down, and it starts listening when it is switched on at the site.
+        Or with no screen at all: <code>survey = Mt Mee</code> (and <code>survey_hours = 72</code>) in <code>rpi-alert.conf</code> on the SD card.</p>
+    </form>
+    <div class="card">
+      <h2>Ready to be left at a site? <span class="dim small">(checked again every few seconds)</span></h2>
+      <div id="sv-ready" class="sv-ready"></div>
+    </div>
+    <div class="card">
+      <h2>Heard at this site <span class="dim" id="sv-count"></span></h2>
+      <div class="table-wrap">
+        <table class="sv-table">
+          <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Good</th><th class="num">Bad</th><th>Last heard</th>
+            <th class="num">Signal (median)</th><th class="num">10–90 %</th><th class="num">SNR</th><th>Channel</th></tr></thead>
+          <tbody id="sv-rows"><tr class="none"><td colspan="9" class="dim">No survey has heard anything yet.</td></tr></tbody>
+        </table>
+      </div>
+      <p class="hint small">Good: frames decoded cleanly. Bad: frames heard but not as sent (shadows, flags, rejects). Signal: dBFS off an
+        RTL-SDR (not calibrated to dBm — compare stations against each other), dBm off a radio or an ERT-A2.</p>
+    </div>
+    <div class="card" id="sv-past-card" hidden>
+      <h2>Earlier surveys on this Pi</h2>
+      <div class="table-wrap"><table><thead><tr><th>Site</th><th>Started</th><th>Listened</th><th class="num">Good frames</th><th class="num">Addresses</th><th>Ended</th></tr></thead>
+        <tbody id="sv-past"></tbody></table></div>
+    </div>
   </section>
 
   <!-- ── Settings ──────────────────────────────────────────────── -->

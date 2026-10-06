@@ -141,8 +141,16 @@ table. Decoding ALERT2 off the air with an RTL-SDR is on the [roadmap](roadmap.m
    the contract: drop the batch, log it. Anything else or no answer → keep, back off 10 s doubling
    to 5 min. Endpoints: the floodwarning.net `/api/db` proxy first (it gets through networks that block
    `*.supabase.co`), then Supabase directly; the one that works is remembered.
-6. **The queue** (readings, receptions, held readings) is on disk in `/var/lib/rpi-alert/queue.json`,
-   written two seconds after it changes and deleted when empty.
+6. **The queue** (readings, receptions, held readings) is on disk in `/var/lib/rpi-alert/queue/`,
+   one directory each, as segment files of a thousand items a line each, only ever appended to: what
+   arrives is written two seconds later, what has been sent is noted in an `.ack` file beside its
+   segment, and a segment all sent is deleted ([`spool.js`](../agent/lib/spool.js)). Memory holds
+   the newest segment and the ones being sent from — a few thousand items, whatever the backlog — so
+   days with no network cost the card, not RAM: about 450 bytes a reception and 220 a reading,
+   bounded by `meganet.queueMb` (1 GB) and 256 MB of the card kept free, the oldest dropped (and
+   counted) past either. A segment still open when the power went is closed as it stands, a line cut
+   short in it skipped. A backlog goes in batches of 1,000, halved (down to 100) after a batch fails —
+   a long backfill can meet the database's statement timeout — and doubled again after one goes.
 
 Alongside, each receiver **describes itself** to `report_ingest_point` (on start, on any change,
 and every 15 minutes): its point id `rpi-<host>-<qs|ert|sdr><n>`, name, kind, device detail
@@ -182,7 +190,14 @@ A Pi has no battery clock (a Pi 5 can have one) and boots at the time it last sh
 trusts the clock when systemd-timesyncd says it is synchronised
 (`/run/systemd/timesync/synchronized`, or `timedatectl`'s NTPSynchronized), or when a GPS gives a
 valid time (and then also sets the system clock, at most every ten minutes, never to before 2025 —
-GPS week-rollover bugs). The Quansheng radio's own clock is set from the Pi's once it is trusted.
+GPS week-rollover bugs), or — with neither — when a **battery RTC** can be believed: a Pi 5 with its
+RTC battery, or an RTC board (DS3231 and the like) on a Pi 3 or 4. That is an RTC seen to agree
+with NTP or a GPS to within two seconds in the last 60 days, that reads no earlier than the last time
+the agent knew the time to be right (one that lost its time starts again from 1970, or from where it
+stopped). While NTP or a GPS is trusted the agent keeps the RTC set (`hwclock --systohc`, through
+the root helper) and remembers both in `/var/lib/rpi-alert/clock.json`. It is what lets a site
+survey with no internet and no GPS time what it hears across a power cut. The Quansheng radio's own
+clock is set from the Pi's once it is trusted.
 
 ## Remote management
 

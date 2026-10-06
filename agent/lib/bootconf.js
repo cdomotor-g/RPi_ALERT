@@ -37,6 +37,9 @@
 //   gps_bluetooth_pin = 123456        set to Bluetooth, NMEA): paired, kept connected, and read
 //                                     as /dev/rpi-alert-gps; gps_bluetooth = off removes it
 //   remote_management = manage        what MegaNet's Base Stations tab may do: manage | report | off
+//   survey = Mt Mee repeater site     start a site survey at this power-up (docs/survey.md): what
+//   survey_hours = 72                 it hears is kept and tallied, and goes to MegaNet as receptions
+//   survey_readings = no              when it is next on a network; readings too only if yes
 //   ssh_key = ssh-ed25519 AAAA… name  a key that may log in as alert (one line each; the lines
 //                                     on a card replace the ones before; ssh_key = none clears them)
 //   ssh_github = name, name           GitHub accounts whose public keys may log in as alert
@@ -158,6 +161,9 @@ function toPatch(kv) {
         break;
       }
       case 'gps_bluetooth_pin': btPin = v.trim(); break;
+      case 'survey': case 'survey_name': if (!no(v)) system.survey = Object.assign(system.survey || {}, { name: v.trim() }); break;
+      case 'survey_hours': system.survey = Object.assign(system.survey || {}, { hours: /^(0|none|until stopped)$/i.test(v.trim()) ? 0 : n(v) }); break;
+      case 'survey_readings': system.survey = Object.assign(system.survey || {}, { readings: yes(v) }); break;
       case 'remote_management': case 'remote': case 'meganet_management': {
         const m = no(v) ? 'off' : yes(v) ? 'manage' : String(v).trim().toLowerCase();
         if (['manage', 'report', 'off'].includes(m)) set('remote.mode', m); else notes.push('remote_management: manage, report or off');
@@ -390,6 +396,16 @@ function main(args) {
   // The agent's own user owns its settings file.
   sh('chown', ['rpi-alert:rpi-alert', cfg.file]);
   applySystem(system, log);
+  if (system.survey && system.survey.name) {
+    // Taken up by the agent as it starts, which is after this (survey.js).
+    const { requestFromCard } = require('./survey');
+    const { DATA_DIR } = require('./state');
+    try {
+      requestFromCard(DATA_DIR, system.survey);
+      sh('chown', ['rpi-alert:rpi-alert', path.join(DATA_DIR, 'survey-request.json')]);
+      log('site survey "' + system.survey.name + '" starts at this power-up');
+    } catch (e) { log('could not start the survey: ' + e.message); }
+  } else if (system.survey) log('note: survey_hours / survey_readings without survey = <name> — no survey started');
   try {
     fs.writeFileSync(path.join(dir, 'rpi-alert.conf.applied'), '# Applied ' + new Date().toISOString() + ' — see rpi-alert-boot.log\n' + redactText(text));
     fs.unlinkSync(file);

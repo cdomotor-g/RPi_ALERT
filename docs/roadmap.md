@@ -47,7 +47,15 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
   signed by MegaNet for short-lived access, if the key lists ever grow unwieldy.
 - **Cellular backhaul**: a USB LTE modem through NetworkManager/ModemManager (the udev rules already
   keep ModemManager off the receivers).
-- **UPS HAT / Pi 5 RTC** status on the dashboard.
+- **UPS HAT** status on the dashboard. (A battery RTC — a Pi 5's, or an RTC board — is used and shown
+  since 0.9: the clock trusts it once NTP or a GPS has vouched for it, [survey.md](survey.md).)
+- **A Wi-Fi hotspot of its own when there is no network**, so a phone can open the dashboard at a
+  site survey with no phone hotspot to join (NetworkManager can run one; it has to give way to a known
+  network the moment one appears).
+- **Timing a power-up that never learnt the time**, after the fact: what a survey heard in it carries
+  its monotonic times, and the network's own readings of the same stations, at the same values, say
+  when that was — a match of a dozen frames at one consistent offset would place the lot, where today
+  they are dropped.
 - **HTTPS** for the web page (self-signed, or via MegaNet).
 
 ## MegaNet side

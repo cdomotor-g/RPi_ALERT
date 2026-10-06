@@ -94,6 +94,8 @@ function renderHeader() {
   else chips.push(['ok', 'MegaNet' + (m.label ? ': ' + m.label : '') + (m.lastOkAt ? ' · ' + ago(Date.now() - m.lastOkAt) : '')]);
   if (m.queued || m.waitingForClock) chips.push(['warn', (m.queued + m.waitingForClock) + ' waiting']);
   chips.push(s.clock.trusted ? ['ok', 'Clock: ' + s.clock.source] : ['warn', 'Clock: not set yet']);
+  if (s.survey && s.survey.state === 'running') chips.push(['ok', 'Surveying: ' + s.survey.name + ' · ' + s.survey.addresses + ' heard']);
+  else if (s.survey && s.survey.state === 'armed') chips.push(['warn', 'Survey starts at the next power-up']);
   const L = s.location;
   chips.push(L.source === 'gps' ? ['ok', 'GPS fix'] : L.source === 'none' ? ['warn', 'No location'] : ['ok', 'Location: ' + L.source]);
   if (s.system.power && s.system.power.underVoltageNow) chips.push(['bad', 'Under-voltage']);
@@ -877,6 +879,98 @@ $('#login-form').addEventListener('submit', async (e) => {
   } catch (err) { $('#login-status').textContent = err.message; $('#login-status').className = 'status small bad'; }
 });
 
+// ── site survey ─────────────────────────────────────────────────────────────
+// What this Pi heard at a candidate site, tallied here so it can be read on
+// site with no network; and whether it is ready to be left there.
+
+function durText(ms) {
+  if (ms == null) return '—';
+  const h = ms / 3600e3;
+  return h < 1 ? Math.round(ms / 60000) + ' min' : h < 48 ? h.toFixed(h < 10 ? 1 : 0) + ' h' : (h / 24).toFixed(1) + ' days';
+}
+function whenText(t) { return t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'time not known yet'; }
+
+let svLoading = false, svAt = 0;
+async function loadSurvey(force) {
+  if (svLoading || (!force && Date.now() - svAt < 5000)) return;
+  svLoading = true;
+  try { S.survey = await api('/api/survey'); svAt = Date.now(); renderSurvey(); } catch (_) {} finally { svLoading = false; }
+}
+
+function renderSurvey() {
+  const v = S.survey;
+  if (!v) return;
+  const run = v.state === 'running', armed = v.state === 'armed';
+  let st;
+  if (run) {
+    st = '<div class="sv-big"><span class="name">' + esc(v.name) + '</span><span class="chip ok">surveying</span>'
+      + '<span class="dim">listening ' + durText(v.elapsedMs) + (v.endsInMs != null ? ' · ends in ' + durText(v.endsInMs) : ' · until ended') + '</span></div>'
+      + '<div class="small">Started ' + esc(whenText(v.startedAt)) + (v.where ? ' at ' + v.where.lat.toFixed(5) + ', ' + v.where.lon.toFixed(5) + ' (' + esc(v.where.source) + ')' : ' — <b>no location</b>')
+      + ' · ' + v.totals.ok + ' good frames, ' + v.totals.bad + ' bad, ' + v.totals.undecoded + ' undecoded bursts'
+      + (v.readings ? ' · readings go to MegaNet too' : ' · readings stay here (receptions go)') + '</div>'
+      + (v.totals.untimed ? '<div class="small">' + v.totals.untimed + ' heard before the time was known — kept, and timed once it is.</div>' : '')
+      + '<div class="row-actions"><button type="button" class="ghost danger" id="sv-end">End the survey</button><span class="dim small">Survey <span class="mono">' + esc(v.id) + '</span></span></div>';
+  } else if (armed) {
+    st = '<div class="sv-big"><span class="name">' + esc(v.name) + '</span><span class="chip warn">starts at the next power-up</span></div>'
+      + '<div class="small">Shut the Pi down, take it to the site, and switch it on: it starts listening then, for ' + (v.hours ? v.hours + ' h' : 'as long as it runs') + '.</div>'
+      + '<div class="row-actions"><button type="button" class="ghost" id="sv-end">Do not start it</button></div>';
+  } else if (v.state === 'ended') {
+    st = '<div class="sv-big"><span class="name">' + esc(v.name) + '</span><span class="chip">ended</span><span class="dim">' + esc(v.endedWhy || '') + '</span></div>'
+      + '<div class="small">Listened ' + durText(v.elapsedMs) + ' · ' + v.totals.ok + ' good frames from ' + (v.stations || []).length + ' addresses. '
+      + 'What it heard goes to MegaNet as receptions once this Pi is on a network with a token (' + esc(waitingText()) + ').</div>';
+  } else st = '<p class="dim">No survey yet.</p>';
+  setHtml($('#sv-state'), st);
+  $('#sv-form-h').textContent = run ? 'Start a different survey (ends this one)' : armed ? 'Arm a different survey' : 'Start a survey';
+  const end = $('#sv-end');
+  if (end && !end.dataset.wired) {
+    end.dataset.wired = '1';
+    end.addEventListener('click', () => {
+      if (run && !confirm('End the survey "' + v.name + '"? What it heard is kept and still goes to MegaNet.')) return;
+      api('/api/survey', { method: 'POST', body: { action: 'end' } }).then(r => { S.survey = r; renderSurvey(); }).catch(e => alert(e.message));
+    });
+  }
+
+  setHtml($('#sv-ready'), (v.readiness || []).map(c => '<div class="sv-check"><span class="dot ' + c.level + '" title="' + c.level + '"></span><b>' + esc(c.label)
+    + '</b><span class="d">' + esc(c.detail || '') + '</span></div>').join(''));
+
+  const rows = v.stations || [];
+  $('#sv-count').textContent = rows.length ? rows.length + ' addresses' : '';
+  const freqOf = (pid) => { const p = v.points && v.points[pid]; return p && p.freq_mhz ? p.freq_mhz + ' MHz' : pid.replace(/^rpi-[0-9a-f]+-/, ''); };
+  const lvl = (x, u) => x == null ? '—' : x + ' ' + (u || '');
+  setHtml($('#sv-rows'), rows.length ? rows.map(r => '<tr><td class="st">' + (r.station ? esc(r.station.name) + (r.station.km != null ? ' <span class="dim small">' + r.station.km.toFixed(r.station.km < 10 ? 1 : 0) + ' km</span>' : '')
+      + (r.shared ? ' <span class="dim small">(+' + (r.shared - 1) + ' share it)</span>' : '') : '<span class="dim">not in the register</span>') + '</td>'
+    + '<td class="num">' + r.alert_id + '</td><td class="num">' + r.ok + '</td><td class="num">' + (r.bad || '') + '</td>'
+    + '<td>' + esc(r.last ? ago(v.now - r.last) : '—') + '</td><td class="num">' + esc(lvl(r.level.p50, r.unit)) + '</td>'
+    + '<td class="num dim">' + (r.level.p10 == null ? '' : r.level.p10 + ' … ' + r.level.p90) + '</td><td class="num">' + (r.snr == null ? '—' : r.snr + ' dB') + '</td>'
+    + '<td class="small">' + esc(r.points.map(freqOf).join(', ')) + '</td></tr>').join('')
+    : '<tr class="none"><td colspan="9" class="dim">' + (run ? 'Nothing heard yet — frames appear here as they are decoded.' : 'No survey has heard anything yet.') + '</td></tr>');
+
+  const past = v.history || [];
+  $('#sv-past-card').hidden = !past.length;
+  setHtml($('#sv-past'), past.map(h => '<tr><td>' + esc(h.name) + ' <span class="dim small mono">' + esc(h.id) + '</span></td><td>' + esc(whenText(h.startedAt)) + '</td><td>'
+    + durText(h.elapsedMs) + '</td><td class="num">' + (h.totals ? h.totals.ok : 0) + '</td><td class="num">' + (h.addresses || 0) + '</td><td class="small">' + esc(h.endedWhy || '') + '</td></tr>').join(''));
+}
+
+function waitingText() {
+  const m = S.status && S.status.meganet;
+  if (!m) return '';
+  const n = m.queued + m.receptionsQueued + m.waitingForClock;
+  return n ? n.toLocaleString() + ' waiting on the card, ' + m.queueMb + ' MB' : 'nothing waiting';
+}
+
+function wireSurvey() {
+  const f = $('#f-survey');
+  $$('button[data-when]', f).forEach(b => b.addEventListener('click', async () => {
+    const name = f.name.value.trim();
+    if (!name) { flash(f, 'Give the site a name first.', false); f.name.focus(); return; }
+    try {
+      S.survey = await api('/api/survey', { method: 'POST', body: { action: 'start', name, hours: Number(f.hours.value), readings: f.readings.checked, when: b.dataset.when } });
+      flash(f, b.dataset.when === 'boot' ? 'Armed: it starts when the Pi is next switched on.' : 'Survey started.', true);
+      renderSurvey(); refresh();
+    } catch (e) { flash(f, e.message, false); }
+  }));
+}
+
 // ── live ────────────────────────────────────────────────────────────────────
 
 async function refresh() {
@@ -884,6 +978,7 @@ async function refresh() {
     S.status = await api('/api/status');
     renderHeader(); renderStats(); renderRxMini();
     if (S.tab === 'rx') renderRxFull();
+    if (S.tab === 'survey') loadSurvey();
     if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); renderRemote(); }
     renderBursts();
   } catch (e) {
@@ -906,6 +1001,7 @@ function connectEvents() {
     if (t && t.last && t.last.status === 'approved' && S.tab === 'settings') loadConfig().catch(() => {});
   });
   es.addEventListener('remote', () => { if (S.tab === 'settings') refresh(); });
+  es.addEventListener('survey', () => { refresh(); if (S.tab === 'survey') loadSurvey(true); });
   es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') renderLog(); });
   es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
 }
@@ -1077,6 +1173,7 @@ function showTab(t) {
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'rx') renderRxFull();
+  if (t === 'survey') loadSurvey(true);
   if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
   if (t === 'dash') renderBursts();
@@ -1097,6 +1194,7 @@ window.addEventListener('resize', debounce(renderBursts, 200));
 
 (async function init() {
   wireSettings();
+  wireSurvey();
   await refresh();
   try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); } catch (_) {}
   connectEvents();

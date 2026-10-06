@@ -27,6 +27,8 @@ function start(opts) {
   const tokens = new Set([goodToken]);
   const requests = [];                 // { id, code, label, status, token, payload }
   const seen = new Set();
+  const rxSeen = new Set();
+  const stored = { receptions: [] };   // every reception stored, once (0047's identity)
   const calls = [];
   let nCode = 0;
   // The Base Stations tab: one station (per token), what was asked of it, team keys.
@@ -123,6 +125,8 @@ function start(opts) {
       if (m[1] === 'ingest_http') {
         if (!Array.isArray(p.readings)) return send(400, { message: 'readings must be an array' });
         if (p.readings.length > 1000) return send(400, { message: 'batch too large' });
+        // A big batch on a busy database can meet the statement timeout (57014).
+        if (opts.timeoutOver && p.readings.length > opts.timeoutOver) return send(500, { code: '57014', message: 'canceling statement due to statement timeout' });
         let accepted = 0, duplicates = 0; const rejected = [];
         p.readings.forEach((r, i) => {
           if (!(r.alert_id >= 1 && r.alert_id <= 65535)) return rejected.push({ i, why: 'alert_id ' + r.alert_id + ' is outside 1-65535' });
@@ -141,7 +145,16 @@ function start(opts) {
       if (m[1] === 'report_receptions') {
         if (opts.noReceptions) return send(404, { code: 'PGRST202', message: 'Could not find the function meganet.report_receptions' });
         if (!Array.isArray(p.receptions)) return send(400, { message: 'receptions must be an array' });
-        return send(200, { accepted: p.receptions.length, rejected: [] });
+        if (p.receptions.length > 1000) return send(400, { message: 'batch too large' });
+        if (opts.timeoutOver && p.receptions.length > opts.timeoutOver) return send(500, { code: '57014', message: 'canceling statement due to statement timeout' });
+        let accepted = 0, duplicates = 0;
+        for (const r of p.receptions) {
+          const k = [p.point_id, r.heard_at, r.alert_id, r.payload_hex, r.value_raw, r.ok].join('|');
+          if (rxSeen.has(k)) { duplicates++; continue; }
+          rxSeen.add(k); accepted++;
+          stored.receptions.push(Object.assign({ point_id: p.point_id, receiver: p.receiver }, r));
+        }
+        return send(200, { accepted, duplicates, rejected: [] });
       }
       return send(404, { code: 'PGRST202', message: 'Could not find the function' });
     });
@@ -157,7 +170,7 @@ function start(opts) {
   return new Promise((resolve) => server.listen(opts.port || 0, '127.0.0.1', () => {
     resolve({ server, calls, requests, tokens, port: server.address().port, url: 'http://127.0.0.1:' + server.address().port, close: () => new Promise(r => server.close(r)), opts,
       approve: (code, label) => decide(code, 'approved', label), deny: (code) => decide(code, 'denied'), expire: (code) => decide(code, 'expired'),
-      station, asked, teamKeys,
+      station, asked, teamKeys, stored,
       ask: (verb, args) => { const c = { id: 100 + asked.length, verb, args: args || {}, status: 'queued' }; asked.push(c); return c; },
       watch: (on) => { station.watch = on !== false; }, wantStatus: () => { station.wantStatus = true; } });
   }));

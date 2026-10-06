@@ -51,6 +51,11 @@ function defaults() {
       // Also post every frame heard (good or bad) to report_receptions (0047),
       // the raw material of MegaNet's Reception Map.
       receptions: true,
+      // How much of the SD card what is waiting to go may take (MB). It is
+      // kept on disk, not in memory, so days with no network — a site survey,
+      // a long outage — are fine on any Pi; past this (or with under 256 MB
+      // of the card free) the oldest is dropped, and counted.
+      queueMb: 1024,
       // With no token, ask MegaNet for one by itself (0048) and keep a request
       // open until an administrator approves it — for a Pi nobody will stand
       // at (request_token = yes on the SD card). Turns itself off once a token
@@ -177,6 +182,7 @@ function validate(c) {
   need(typeof m.token === 'string' && m.token.length <= 200 && !/\s/.test(m.token), 'meganet.token: no spaces, at most 200 characters');
   need(Array.isArray(m.endpoints) && m.endpoints.length > 0 && m.endpoints.every(u => /^https?:\/\/[^\s]+$/.test(u)), 'meganet.endpoints: one or more http(s) URLs');
   need(typeof m.autoRequest === 'boolean', 'meganet.autoRequest: true or false');
+  need(num(m.queueMb, 16, 65536) !== undefined, 'meganet.queueMb: 16–65536 MB');
   const l = c.location || {};
   need(LOC_SOURCES.includes(l.source), 'location.source: one of ' + LOC_SOURCES.join(', '));
   if (l.source === 'manual' || l.source === 'station') {

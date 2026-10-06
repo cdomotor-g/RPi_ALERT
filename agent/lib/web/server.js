@@ -80,6 +80,7 @@ class WebServer {
     a.on('reading', (r) => this.broadcast('reading', r));
     a.on('token-request', (t) => this.broadcast('token-request', t));
     a.on('remote', () => this.broadcast('remote', {}));
+    a.on('survey', () => this.broadcast('survey', {}));
     a.on('burst', (b) => this.broadcast('burst', b));
     a.on('tick', () => this.broadcast('tick', { t: Date.now() }));
     let devTimer = null;
@@ -185,6 +186,15 @@ class WebServer {
     // answers the one that waits.
     if (p === '/api/token/request' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.request());
     if (p === '/api/token/request/cancel' && req.method === 'POST') return this.json(res, 200, await a.tokenRequest.cancel());
+    if (p === '/api/survey' && req.method === 'GET') return this.json(res, 200, await a.survey.status());
+    if (p === '/api/survey' && req.method === 'POST') {
+      try {
+        if (body.action === 'end') a.survey.end('ended from the dashboard');
+        else if (body.action === 'start') a.survey.open({ name: body.name, hours: body.hours, readings: !!body.readings }, body.when === 'boot' ? 'boot' : 'now');
+        else return this.json(res, 400, { error: 'action: start or end' });
+      } catch (e) { return this.json(res, e.status || 500, { error: e.message }); }
+      return this.json(res, 200, await a.survey.status());
+    }
     if (p === '/api/send-now' && req.method === 'POST') { a.uplink.sendNow(); return this.json(res, 200, { ok: true }); }
     if (p === '/api/stations/refresh' && req.method === 'POST') { a.stations.refresh(); return this.json(res, 200, { ok: true }); }
     if (p === '/api/devices/rescan' && req.method === 'POST') { a.devices.scan(); return this.json(res, 200, { ok: true }); }

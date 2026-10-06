@@ -5,7 +5,9 @@
 #
 #   kiosk start|stop          the full-screen dashboard on a connected monitor
 #   reboot | poweroff | restart-agent
-#   set-time <unix seconds>   from a GPS fix, when there has been no NTP
+#   set-time <unix seconds>   from a GPS fix or the RTC, when there has been no NTP
+#   rtc-sync                  write the system time to the battery RTC (Pi 5, DS3231…),
+#                             while NTP or a GPS says it is right
 #   timezone <Area/City>
 #   hostname <name>
 #   net-status                interfaces and addresses
@@ -44,6 +46,10 @@ case "$verb" in
     # A GPS with the week-rollover bug reports a date ~20 years back: never take one.
     (( $1 > 1735689600 )) || die "refusing a time before 2025"
     exec date -s "@$1" ;;
+  rtc-sync)
+    [ -e /dev/rtc0 ] || die "no RTC (/dev/rtc0)"
+    command -v hwclock >/dev/null || die "hwclock is not installed (apt install util-linux-extra)"
+    exec hwclock --systohc --utc ;;
   timezone)
     tz=${1:-}
     if ! [[ "$tz" =~ ^[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}$ ]] || ! [ -f "/usr/share/zoneinfo/$tz" ]; then die "unknown time zone: $tz"; fi

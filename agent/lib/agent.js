@@ -7,6 +7,7 @@
 //   stations          MegaNet's register, for naming what is heard
 //   audio             the chirps
 //   remote            MegaNet's Base Stations tab: health out, a few requests in
+//   survey            a site survey: what this Pi hears at a candidate site, tallied
 //   web/server        the dashboard and settings, on port 80
 //
 // A reading's life: a driver decodes it → deviceReading() times it (arrival,
@@ -22,6 +23,7 @@ const { Clock } = require('./clock');
 const { Uplink } = require('./uplink');
 const { TokenRequest } = require('./token-request');
 const { Remote } = require('./remote');
+const { Survey } = require('./survey');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -43,8 +45,10 @@ class Agent extends EventEmitter {
     if (this.config.loadError) this.log.warn(this.config.loadError);
     this.state = new State(this.dataDir).load();
     this.board = board();
-    this.clock = new Clock({ log: this.log.child('clock'), assumeSynced: opts.assumeClock,
-      setSystemTime: (ms) => system.priv('set-time', String(Math.floor(ms / 1000))).then(r => { if (r.code) throw new Error(r.stderr.trim() || 'failed'); }) });
+    const privOk = (r) => { if (r.code) throw new Error(r.stderr.trim() || 'failed'); };
+    this.clock = new Clock({ log: this.log.child('clock'), assumeSynced: opts.assumeClock, dataDir: this.dataDir, rtcDir: opts.rtcDir,
+      setSystemTime: (ms) => system.priv('set-time', String(Math.floor(ms / 1000))).then(privOk),
+      syncRtc: () => system.priv('rtc-sync').then(privOk) });
     this.uplink = new Uplink({ config: this.config, clock: this.clock, log: this.log.child('meganet'), dataDir: this.dataDir }).load();
     // Asking MegaNet for a token instead of having one typed in (0048).
     this.tokenRequest = new TokenRequest({ config: this.config, api: this.uplink.api, dataDir: this.dataDir, log: this.log.child('token'),
@@ -55,6 +59,7 @@ class Agent extends EventEmitter {
     // Checks in with MegaNet's Base Stations tab (remote.mode), through the
     // uplink's own door and token.
     this.remote = new Remote(this, opts.remote);
+    this.survey = new Survey(this).load();
     this.recent = [];
     this.bursts = [];
     this.counts = { readings: 0, alert: 0, alert2: 0, receptions: 0 };
@@ -67,6 +72,8 @@ class Agent extends EventEmitter {
     this.log.info('RPi ALERT ' + pkg.version + ' on ' + (this.board.model || os.hostname()) + ' (' + this.board.cores + ' cores, ' + this.board.memMb + ' MB), node ' + process.version);
     this.clock.start();
     this.uplink.start();
+    this.survey.start();
+    this.survey.on('change', () => this.emit('survey'));
     this.tokenRequest.start();
     this.tokenRequest.on('change', () => this.emit('token-request', this.tokenRequest.status()));
     this.stations.start();
@@ -90,6 +97,7 @@ class Agent extends EventEmitter {
   async stop() {
     this.timers.forEach(clearInterval);
     this.remote.stop();
+    this.survey.stop();
     await this.devices.stop();
     this.tokenRequest.stop();
     this.uplink.stop();
@@ -126,7 +134,8 @@ class Agent extends EventEmitter {
     if (this.recent.length > RECENT) this.recent.length = RECENT;
     this.emit('reading', item);
     this.audio.reading({ protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, burstKey: r.burstKey, receiverKey: session.key }, session.kind === 'sdr');
-    if (point && this.config.get().meganet.enabled) {
+    // A site survey's readings stay here unless it says otherwise (lib/survey.js).
+    if (point && this.config.get().meganet.enabled && this.survey.sendReadings()) {
       // With how it was heard — the frequency and the signal (MegaNet 0050), which
       // the Message Log shows beside the reading.
       this.uplink.addReading({ point: point.pointId, protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, ts, line: r.line,
@@ -145,13 +154,16 @@ class Agent extends EventEmitter {
       protocol: rx.protocol || null, alert_id: rx.alert_id ?? null, value_raw: rx.value_raw ?? null, payload_hex: rx.payload_hex || null,
       ok: !!rx.ok, fault: rx.fault || null, rssi_dbm: num(rx.rssi_dbm), level_dbfs: num(rx.level_dbfs), nf_dbm: num(rx.nf_dbm),
       votes: rx.votes ?? null, location_source: loc.source,
-      detail: Object.assign({ app: 'RPi ALERT' }, rx.detail || {}),
+      detail: Object.assign({ app: 'RPi ALERT' }, rx.detail || {}, this.survey.tag() || {}),
     };
     if (loc.source !== 'none') {
       out.lat = loc.lat; out.lon = loc.lon; out.accuracy_m = num(loc.accuracy_m);
       if (loc.source === 'gps') { out.speed_mps = num(loc.speed_mps); out.heading_deg = num(loc.heading_deg); }
     }
-    this.uplink.addReception(point.pointId, KINDS[session.kind === 'sdr' ? 'sdr' : session.type].receiver, out);
+    // A survey's receptions go whatever meganet.receptions says: they are its evidence.
+    const surveying = this.survey.running();
+    if (surveying) this.survey.heard(point.pointId, (rx.detail && rx.detail.freq_mhz) || null, out);
+    this.uplink.addReception(point.pointId, KINDS[session.kind === 'sdr' ? 'sdr' : session.type].receiver, out, surveying);
   }
 
   deviceEvent(session, type, data) {
@@ -306,7 +318,16 @@ class Agent extends EventEmitter {
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
       remote: this.remote.statusForPage(),
+      survey: this.surveyBrief(),
     };
+  }
+
+  // The survey in a line, for the dashboard's header and MegaNet's Base Stations tab.
+  surveyBrief() {
+    const s = this.survey.s;
+    if (!s || s.state === 'ended') return { state: 'none' };
+    return { state: s.state, id: s.id, name: s.name, elapsedMs: s.elapsedMs || 0, hours: s.hours,
+      ok: s.totals ? s.totals.ok : 0, addresses: s.ids ? Object.keys(s.ids).length : 0 };
   }
 }
 

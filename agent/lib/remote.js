@@ -323,6 +323,7 @@ class Remote extends EventEmitter {
       access: accessOf(this.slow.access),
       remote: { mode: c.remote.mode, idle_s: c.remote.idleS },
       config: remoteConfig(c),
+      survey: a.surveyBrief ? a.surveyBrief() : undefined,
     };
   }
 

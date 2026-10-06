@@ -15,6 +15,10 @@ mode 0600 because it holds the ingest token):
 - **Dashboard** — MegaNet, clock, location, power and temperature at a glance; each receiver's
   state; the bursts of the last 30 minutes; readings as they arrive (protocol, format, address,
   station, value in engineering units, signal, receiver).
+- **Survey** — a site survey: start one now or at the next power-up, whether this Pi is ready to be
+  left at a site with no network (receivers, location, clock, room on the card, power, token), and a
+  table of every station it has heard there — good and bad frames, signal and SNR — readable on site
+  before it is ever on a network. [survey.md](survey.md)
 - **Receivers** — everything known about each device: port, USB ids, speed, how it was recognised,
   firmware, battery and noise floor (Quansheng), wire format and receiver clock (ERT-A2), tuner,
   USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
@@ -142,6 +146,9 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `remote_management` | manage / report / off | `remote.mode`: what MegaNet's Base Stations tab may do ([remote-management.md](remote-management.md)) |
 | `auto_update` | on / off | install new releases nightly, 3–4 am (off by default) |
 | `update` | now | install the latest release once, at this boot |
+| `survey` | the site's name | start a site survey at this power-up ([survey.md](survey.md)) |
+| `survey_hours` | e.g. 72, or 0 | hours of listening before it ends itself (0: until ended); 72 if absent |
+| `survey_readings` | yes / no | send the survey's readings to MegaNet too (no: only its receptions) |
 
 ## `config.json` reference
 
@@ -152,7 +159,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `meganet.token` | — | The ingest token |
 | `meganet.autoRequest` | false | With no token, ask MegaNet for one by itself and keep a request open (a new one each time one runs out). Turns itself off once a token is approved, when an administrator turns a request down, or on *Stop asking* |
 | `meganet.endpoints` | floodwarning.net `/api/db` proxy, then the Supabase project | Tried in order; the one that works is remembered |
-| `meganet.receptions` | true | Also post every frame heard to `report_receptions` (Reception Map) |
+| `meganet.receptions` | true | Also post every frame heard to `report_receptions` (Reception Map). A site survey's go whatever this says |
+| `meganet.queueMb` | 1024 | How much of the SD card what waits for MegaNet may take (16–65536 MB). It is on the card, not in memory; past this, or with under 256 MB of the card free, the oldest is dropped and counted |
 | `meganet.stationsUrls` | floodwarning.net, then GitHub Pages `stations.json` | The register used to name stations (daily, cached) |
 | `location.source` | none | none · manual · station · gps (GPS only) |
 | `location.lat/lon/accuracy_m/station/stationName` | — | The fixed location |

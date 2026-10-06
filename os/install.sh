@@ -93,6 +93,10 @@ apt-get update -q
 # bluez and python3: a Bluetooth GPS (rpi-alert-btgps), used only when rpi-alert.conf names one.
 PKGS=(nodejs rtl-sdr alsa-utils avahi-daemon curl ca-certificates sudo procps bluez python3)
 apt_install "${PKGS[@]}"
+# hwclock, to keep a battery RTC (Pi 5, or an RTC board) set while NTP or a GPS
+# is right — what times a site survey across a power cut with neither. Its own
+# package since Bookworm; part of util-linux before.
+command -v hwclock >/dev/null || apt_install util-linux-extra || warn "could not install hwclock (util-linux-extra); a battery RTC will not be kept set"
 if [ "$KIOSK" = 1 ]; then
   say "Installing the screen dashboard (cage + Chromium)"
   apt_install cage chromium fonts-dejavu-core || apt_install cage chromium-browser fonts-dejavu-core || warn "could not install the kiosk packages; the dashboard is still on the network"

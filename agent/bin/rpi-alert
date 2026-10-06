@@ -35,6 +35,12 @@
 //   rpi-alert access meganet on|off | from private|any | password-login on|off|unchanged
 //                    | ssh on|off | sync
 //   sudo rpi-alert access alert-password [--none] a password for the alert account (the console)
+//   rpi-alert survey                 the site survey: whether one is running, what it has heard,
+//                                    and whether this Pi is ready to be left at a site
+//   rpi-alert survey start "<site>" [--hours 72] [--readings] [--next-boot]
+//                                    start one now (or when next switched on); --hours 0 runs
+//                                    until ended; --readings sends readings too (docs/survey.md)
+//   rpi-alert survey end             end it (what it heard is kept, and still goes to MegaNet)
 //   rpi-alert readings [n]           the last n readings
 //   rpi-alert log [n]                the agent's recent log (journalctl -u rpi-alert for all of it)
 //   rpi-alert test-audio [alert|alert2|beep]
@@ -66,6 +72,7 @@ async function main() {
     case 'sdr': case 'sdrs': return sdr(argv.slice(1));
     case 'password': return password();
     case 'remote': return remote(argv[1]);
+    case 'survey': return survey(argv.slice(1));
     case 'access': return access(argv.slice(1));
     case 'readings': return readings(Number(argv[1]) || 20);
     case 'log': case 'logs': return showLog(Number(argv[1]) || 60);
@@ -519,6 +526,41 @@ async function remote(mode) {
     for (const h of r.history) console.log('  ' + new Date(h.at).toLocaleTimeString() + '  ' + h.label + (h.detail ? C.d + ' (' + h.detail + ')' + C.x : '') + '  ' + (h.ok ? C.g + 'done' : C.r + 'not done: ' + h.error) + C.x);
   }
   if (!mode) console.log(C.d + '\nChange it: rpi-alert remote manage | report | off' + C.x);
+}
+
+// ── site survey ──────────────────────────────────────────────────────────────
+
+async function survey(args) {
+  const sub = args[0];
+  if (sub === 'start') {
+    const opt = (k) => { const i = args.indexOf(k); return i > 0 ? args[i + 1] : undefined; };
+    const name = args.slice(1).filter((a, i, l) => !a.startsWith('--') && !(l[i - 1] === '--hours')).join(' ').trim();
+    if (!name) throw new Error('rpi-alert survey start "<what the site is called>" [--hours 72] [--readings] [--next-boot]');
+    await post('/api/survey', { action: 'start', name, hours: opt('--hours') != null ? Number(opt('--hours')) : 72, readings: args.includes('--readings'),
+      when: args.includes('--next-boot') ? 'boot' : 'now' });
+  } else if (sub === 'end' || sub === 'stop') {
+    await post('/api/survey', { action: 'end' });
+  } else if (sub && sub !== 'status') throw new Error('rpi-alert survey [start "<site>" | end]');
+  const v = await api('/api/survey');
+  const dur = (ms) => ms == null ? '—' : ms < 3600e3 ? Math.round(ms / 60000) + ' min' : (ms / 3600e3).toFixed(1) + ' h';
+  if (v.state === 'none') console.log(C.b + 'Site survey' + C.x + '  none yet — rpi-alert survey start "<site>"');
+  else {
+    const col = v.state === 'running' ? C.g : v.state === 'armed' ? C.y : C.d;
+    console.log(C.b + 'Site survey' + C.x + '  ' + v.name + '  ' + col + (v.state === 'armed' ? 'starts at the next power-up' : v.state) + C.x
+      + C.d + '  (' + v.id + ')' + C.x);
+    if (v.state !== 'armed') {
+      console.log('  listened ' + dur(v.elapsedMs) + (v.endsInMs != null ? ', ends in ' + dur(v.endsInMs) : '') + (v.endedWhy ? ' — ' + v.endedWhy : ''));
+      console.log('  ' + v.totals.ok + ' good frames, ' + v.totals.bad + ' bad, ' + v.totals.undecoded + ' undecoded bursts, from ' + v.stations.length + ' addresses'
+        + (v.readings ? '' : C.d + ' (readings stay here; receptions go to MegaNet)' + C.x));
+      for (const r of v.stations.slice(0, 25)) {
+        console.log('    ' + String(r.alert_id).padStart(5) + '  ' + String(r.ok).padStart(5) + (r.bad ? C.y + ' +' + r.bad + C.x : '   ') + '  '
+          + (r.level.p50 == null ? '      ' : String(r.level.p50).padStart(4) + ' ' + (r.unit || '')) + '  ' + (r.station ? r.station.name : C.d + 'not in the register' + C.x));
+      }
+      if (v.stations.length > 25) console.log(C.d + '    … and ' + (v.stations.length - 25) + ' more on the dashboard\'s Survey page' + C.x);
+    }
+  }
+  console.log('\nReady to be left at a site?');
+  for (const c of v.readiness) console.log('  ' + (c.level === 'good' ? C.g + '✓' : c.level === 'warn' ? C.y + '!' : C.r + '✗') + C.x + ' ' + c.label + C.d + ' — ' + c.detail + C.x);
 }
 
 // ── SSH access ───────────────────────────────────────────────────────────────
