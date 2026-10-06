@@ -110,7 +110,8 @@ table. Decoding ALERT2 off the air with an RTL-SDR is on the [roadmap](roadmap.m
 
 ## A reading's life
 
-1. A driver decodes it (alert_id, value, protocol, format, signal, the raw line).
+1. A driver decodes it (alert_id, value, protocol, format, signal, the frequency it was heard on,
+   the raw line).
 2. **Time.** A live reading is timed by its arrival (as MegaNet's Serial Monitor does) — except an
    ALERT2 frame, which carries its own time of day. If the Pi's clock is not yet trusted (no NTP
    since boot, no GPS), the reading is **held** with a CLOCK_MONOTONIC stamp and this boot's id,
@@ -124,10 +125,18 @@ table. Decoding ALERT2 off the air with an RTL-SDR is on the [roadmap](roadmap.m
    POST {endpoint}/rpc/ingest_http
    apikey: sb_publishable_…   X-Ingest-Token: mgn_…   Content-Profile: meganet
    {"payload": {"source": "serial", "protocol": "alert", "path": "serial-monitor/rpi-3f9a1c2e-qs1",
-                "frame": "DEC,1041,…", "readings": [{"alert_id": 2088, "reading_ts": 1790843886000, "value_raw": 143}]}}
+                "frame": "DEC,1041,…", "readings": [{"alert_id": 2088, "reading_ts": 1790843886000, "value_raw": 143,
+                                                     "freq_mhz": 151.5, "rssi_dbm": -97.5, "snr_db": 21.5}]}}
    ```
+   Each reading says **how it was heard** (MegaNet `0050`), which the Message Log shows as its Freq,
+   Signal and SNR columns: `freq_mhz` — the channel's frequency for an RTL-SDR, the radio's own
+   `FREQ_MHZ` for a Quansheng once it has said it; `rssi_dbm` from a radio or an ERT-A2;
+   `level_dbfs` from an RTL-SDR, which is not calibrated in dBm; and `snr_db`, the signal over the
+   receiver's noise floor, from both. A field the receiver did not give is left out, never sent as
+   null, and MegaNet never refuses a reading over one.
    MegaNet deduplicates on address + time + raw value, so retrying is always safe, and a reading heard
-   by two receivers is stored once with both paths. 200 → done. 401/403 → the token is refused:
+   by two receivers is stored once with both paths — and with the frequency and signal of the copy
+   stored first. 200 → done. 401/403 → the token is refused:
    stop, keep everything, say so, resume the moment a new token is saved. 400 → this agent misread
    the contract: drop the batch, log it. Anything else or no answer → keep, back off 10 s doubling
    to 5 min. Endpoints: the floodwarning.net `/api/db` proxy first (it gets through networks that block

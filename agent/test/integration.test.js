@@ -94,6 +94,14 @@ test('the agent: finds, identifies and decodes every receiver, posts to MegaNet,
     'posted: ' + posted().join(' ') + '\n' + log.slice(-2000));
   const reports = m.calls.filter(c => c.fn === 'report_ingest_point' && c.body).map(c => c.body.payload.receiver);
   assert.ok(['quansheng', 'ert-a2', 'rtl-sdr'].every(r => reports.includes(r)), 'each receiver described itself: ' + reports.join());
+  // How each was heard, on the reading itself (MegaNet 0050): the radio's RSSI
+  // and its SNR over the noise floor in dBm, the stick's level in dBFS and its
+  // SNR, and the frequency of the channel that heard it.
+  const sent = (suffix, id) => m.calls.filter(c => c.fn === 'ingest_http' && c.body && c.body.payload.path.endsWith(suffix))
+    .flatMap(c => c.body.payload.readings).find(r => r.alert_id === id);
+  const qs = sent('-qs1', 2088), sdr = sent('-sdr1', 2088);
+  assert.ok(qs && qs.rssi_dbm === -20 && qs.snr_db === 101 && !('level_dbfs' in qs), 'the radio\'s reading: ' + JSON.stringify(qs));
+  assert.ok(sdr && sdr.freq_mhz === 151.5 && Number.isFinite(sdr.level_dbfs) && Number.isFinite(sdr.snr_db) && !('rssi_dbm' in sdr), 'the stick\'s reading: ' + JSON.stringify(sdr));
 
   // Unplug the radio, plug it back in: it is reopened and decodes again.
   ptys[0].p.kill();

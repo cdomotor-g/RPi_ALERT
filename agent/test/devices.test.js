@@ -55,11 +55,13 @@ test('sniff: line noise moves to the next speed; silence and good text do not', 
 test('Quansheng: a DEC is a reading (protocol alert) and a reception; an empty burst is an undecoded reception', () => {
   const { c, out } = ctx();
   const d = new QuanshengDriver(c);
+  d.settings.FREQ_MHZ = '151.500';     // as the radio's GET answer leaves it
   d.feed(Buffer.from('HDR,fw,4d06107f,schema,2\r\nDEC,1041,1790843886,187340,12,2088,MARBURG,BATT,143,14.3,V,ABF,STD,1,0,-20,-121,-109,89,412,16067B23,00010110000001100111101100100011\r\n'
     + 'BST,15,1790843919,220510,-47,-121,530,0,138,0000004B599711DC6B599621FC0009C30440\r\nSTA,1790843970,270000,-121,-124,0,7890,78,16,18,-104,OK,1045,5969,BUILTIN MegaNet:95f6f8d\r\n'));
   assert.equal(out.readings.length, 1);
   const r = out.readings[0];
   assert.deepEqual([r.alert_id, r.value_raw, r.protocol, r.fmt, r.rssi_dbm], [2088, 143, 'alert', 'ABF', -20]);
+  assert.deepEqual([r.freq_mhz, r.nf_dbm], [151.5, -121], 'heard on the radio\'s own frequency, over its noise floor');
   assert.ok(r.line.startsWith('DEC,1041'));
   assert.equal(out.receptions.length, 2);
   assert.equal(out.receptions[1].fault, 'undecoded');
@@ -72,6 +74,7 @@ test('Quansheng: the legacy DP32G030 line is a reading too', () => {
   const d = new QuanshengDriver(c);
   d.feed(Buffer.from('ALERT,6129,1599,ABF,-87,LOUDOUN BR\r\n'));
   assert.deepEqual([out.readings[0].alert_id, out.readings[0].value_raw, out.readings[0].rssi_dbm, out.readings[0].name], [6129, 1599, -87, 'LOUDOUN BR']);
+  assert.equal(out.readings[0].freq_mhz, null, 'no frequency until the radio has said one');
   assert.equal(d.status().legacy, true);
 });
 

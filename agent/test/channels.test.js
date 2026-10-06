@@ -236,6 +236,14 @@ test('one stick, four channels at once: each decoded on its own channel and post
   assert.deepEqual([d.state, d.sampleRate, d.channels.length, d.channels.every(c => c.state === 'running')], ['running', 1920000, 4, true]);
   assert.match(log, /4 channels: 151\.500 ABF, 151\.525 ABF, 151\.950 EIF, 152\.400 ABF MHz; 1920 ksps to hold them all/);
   assert.ok(await until(() => ['2088@sdr1', '2443@sdr1-151.525', '4079@sdr1-151.950', '6129@sdr1-152.400'].every(x => posted().includes(x)), 20000), 'MegaNet has each by its receiver: ' + posted().join(' '));
+  // …each saying the frequency its channel heard it on, and its level and SNR
+  // (MegaNet 0050) — the stick's own channel too, whose receiver id has no
+  // frequency in it.
+  const sent = m.calls.filter(c => c.fn === 'ingest_http' && c.body).flatMap(c => c.body.payload.readings);
+  for (const [id, f] of [[2088, 151.5], [2443, 151.525], [4079, 151.95], [6129, 152.4]]) {
+    const r = sent.find(x => x.alert_id === id);
+    assert.ok(r && r.freq_mhz === f && Number.isFinite(r.level_dbfs) && Number.isFinite(r.snr_db), 'reading ' + id + ' says how it was heard: ' + JSON.stringify(r));
+  }
   const reports = m.calls.filter(c => c.fn === 'report_ingest_point' && c.body).map(c => c.body.payload);
   for (const f of ['151.525', '151.950', '152.400']) {
     const r = reports.find(x => x.point_id.endsWith('-sdr1-' + f));

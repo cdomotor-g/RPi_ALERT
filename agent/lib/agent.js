@@ -118,7 +118,7 @@ class Agent extends EventEmitter {
       station: st ? { id: st.id, name: st.name, km: st.km ?? null } : (r.name ? { id: null, name: r.name } : null),
       shared: cands.length > 1 ? cands.length : 0,
       rssi_dbm: r.rssi_dbm ?? null, level_dbfs: r.level_dbfs ?? null, votes: r.votes ?? null,
-      nf_dbm: r.nf_dbm ?? null, nf_dbfs: r.nf_dbfs ?? null, snr_db: snrOf(r),
+      nf_dbm: r.nf_dbm ?? null, nf_dbfs: r.nf_dbfs ?? null, snr_db: snrOf(r), freq_mhz: num(r.freq_mhz),
     };
     this.counts.readings++;
     this.counts[r.protocol] = (this.counts[r.protocol] || 0) + 1;
@@ -127,7 +127,10 @@ class Agent extends EventEmitter {
     this.emit('reading', item);
     this.audio.reading({ protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, burstKey: r.burstKey, receiverKey: session.key }, session.kind === 'sdr');
     if (point && this.config.get().meganet.enabled) {
-      this.uplink.addReading({ point: point.pointId, protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, ts, line: r.line });
+      // With how it was heard — the frequency and the signal (MegaNet 0050), which
+      // the Message Log shows beside the reading.
+      this.uplink.addReading({ point: point.pointId, protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, ts, line: r.line,
+        freq_mhz: item.freq_mhz, rssi_dbm: num(item.rssi_dbm), level_dbfs: num(item.level_dbfs), snr_db: item.snr_db });
     }
   }
 

@@ -7,7 +7,8 @@
 // which MegaNet already runs against this same database:
 //   * One protocol and one receiver per batch, at most 1,000 readings, every
 //     few seconds (sooner when 500 are waiting). path serial-monitor/<point id>
-//     and source "serial" say which receiver heard them.
+//     and source "serial" say which receiver heard them; each reading says on
+//     what frequency and how strongly (MegaNet 0050).
 //   * Retrying is always safe: ingest() stores the same reading once.
 //   * 401/403: the token is mistyped or revoked. Stop, keep everything, say
 //     so — and start again the moment a new token is saved.
@@ -34,7 +35,7 @@ class Uplink {
     this.log = opts.log;
     this.file = path.join(opts.dataDir, 'queue.json');
     this.api = new MegaNet(() => this.cfg.get().meganet, this.log);
-    this.readings = [];            // { point, protocol, alert_id, value_raw, reading_ts, line? }
+    this.readings = [];            // { point, protocol, alert_id, value_raw, reading_ts, line?, freq_mhz?, rssi_dbm?, level_dbfs?, snr_db? }
     this.receptions = [];          // { point, receiver, rx: {…} }
     this.pending = [];             // { kind: 'reading'|'reception', item, mono, boot }
     this.points = new Map();       // point id → { report payload builder, lastReport, lastSig }
@@ -92,9 +93,9 @@ class Uplink {
 
   // ── in ──────────────────────────────────────────────────────────────────
 
-  // r: { point, protocol, alert_id, value_raw, ts|null, line }
+  // r: { point, protocol, alert_id, value_raw, ts|null, line, freq_mhz?, rssi_dbm?, level_dbfs?, snr_db? }
   addReading(r) {
-    const item = { point: r.point, protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, reading_ts: r.ts, line: r.line || undefined };
+    const item = Object.assign({ point: r.point, protocol: r.protocol, alert_id: r.alert_id, value_raw: r.value_raw, reading_ts: r.ts, line: r.line || undefined }, heard(r));
     if (r.ts == null) { this.hold('reading', item); return; }
     this.readings.push(item);
     if (this.readings.length > READINGS_MAX) { this.st.dropped += this.readings.length - READINGS_MAX; this.readings.splice(0, this.readings.length - READINGS_MAX); }
@@ -157,7 +158,7 @@ class Uplink {
     const lines = batch.map(r => r.line).filter(Boolean);
     const payload = {
       source: 'serial', protocol: first.protocol, path: 'serial-monitor/' + first.point,
-      readings: batch.map(r => ({ alert_id: r.alert_id, reading_ts: r.reading_ts, value_raw: r.value_raw })),
+      readings: batch.map(r => Object.assign({ alert_id: r.alert_id, reading_ts: r.reading_ts, value_raw: r.value_raw }, heard(r))),
     };
     if (lines.length) payload.frame = lines.join('\n').slice(-32768);
     this.inflight = true;
@@ -342,6 +343,21 @@ class Uplink {
       waitingForClock: this.pending.length, backoffMs: this.backoff, endpoint: this.api.lastEndpoint,
     });
   }
+}
+
+// How a reading was heard (MegaNet 0050): the frequency its receiver channel
+// is on, and the signal in whatever terms the receiver measures it — dBm off a
+// radio or an ERT-A2, dBFS off an RTL-SDR, and the SNR over its noise floor.
+// Each goes only as a number; MegaNet stores a bad one as null and never
+// refuses the reading over it, but a queue kept on disk is no place for NaN.
+const HEARD = ['freq_mhz', 'rssi_dbm', 'level_dbfs', 'snr_db'];
+function heard(r) {
+  const o = {};
+  for (const k of HEARD) {
+    const v = r[k] == null || r[k] === '' ? NaN : Number(r[k]);
+    if (Number.isFinite(v)) o[k] = +v.toFixed(k === 'freq_mhz' ? 6 : 2);
+  }
+  return o;
 }
 
 module.exports = { Uplink };

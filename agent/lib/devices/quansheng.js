@@ -113,7 +113,7 @@ class QuanshengDriver {
       if (r.id == null || r.value == null) return;
       this.lastDec = { t: Date.now(), id: r.id, value: r.value, name: r.name, kind: r.kind, fmt: r.fmt, rssi: r.rssi };
       this.ctx.reading({
-        alert_id: r.id, value_raw: r.value, protocol: 'alert', fmt: r.fmt || null, line,
+        alert_id: r.id, value_raw: r.value, protocol: 'alert', fmt: r.fmt || null, line, freq_mhz: this.freqMhz(),
         rssi_dbm: r.rssi, nf_dbm: r.nf, fade_db: r.fade, name: r.name || '', kindLabel: r.kind || '',
         eng: r.eng, unit: r.unit, burstKey: 'q' + r.uptime_ms,
       });
@@ -147,8 +147,15 @@ class QuanshengDriver {
     this.counts.dec++;
     const id = Number(m[1]), value = Number(m[2]), rssi = m[4] === '' ? null : Number(m[4]);
     this.lastDec = { t: Date.now(), id, value, name: m[5], fmt: m[3] || null, rssi };
-    this.ctx.reading({ alert_id: id, value_raw: value, protocol: 'alert', fmt: m[3] || null, line, rssi_dbm: rssi, name: m[5].trim() });
+    this.ctx.reading({ alert_id: id, value_raw: value, protocol: 'alert', fmt: m[3] || null, line, freq_mhz: this.freqMhz(), rssi_dbm: rssi, name: m[5].trim() });
     this.ctx.reception({ protocol: 'alert', alert_id: id, value_raw: value, ok: true, rssi_dbm: rssi, detail: { fmt: m[3] || null, legacy: true } });
+  }
+
+  // The frequency the radio is set to, once it has said (GET FREQ_MHZ) — what
+  // every reading it decodes was heard on. Null until then.
+  freqMhz() {
+    const f = Number(this.settings.FREQ_MHZ);
+    return f > 0 ? f : null;
   }
 
   data(line) {

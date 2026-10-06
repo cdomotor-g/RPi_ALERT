@@ -145,7 +145,7 @@ class SdrChannel {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
       this.agent.deviceReading(this, { alert_id: r.sensorId, value_raw: r.value, protocol: 'alert', fmt, votes: r.votes,
-        level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, '') + ',mhz=' + freq,
+        freq_mhz: freq, level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, '') + ',mhz=' + freq,
         burstKey: 's' + (m.burst ? m.burst.t : Date.now()) });
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''),
         ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: { fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq } });

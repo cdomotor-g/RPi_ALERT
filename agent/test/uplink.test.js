@@ -31,7 +31,8 @@ test('readings go as one batch per receiver and protocol, in MegaNet\'s shape', 
   const { up } = rig(m);
   up.load().start();
   const t = Date.now();
-  up.addReading({ point: 'rpi-abc-qs1', protocol: 'alert', alert_id: 6129, value_raw: 1599, ts: t, line: 'DEC,…' });
+  up.addReading({ point: 'rpi-abc-qs1', protocol: 'alert', alert_id: 6129, value_raw: 1599, ts: t, line: 'DEC,…',
+    freq_mhz: 151.5, rssi_dbm: -97.5, level_dbfs: null, snr_db: 21.456 });
   up.addReading({ point: 'rpi-abc-qs1', protocol: 'alert', alert_id: 6130, value_raw: 134, ts: t });
   up.addReading({ point: 'rpi-abc-ert1', protocol: 'alert2', alert_id: 4909, value_raw: 138, ts: t });
   up.sendNow();
@@ -40,11 +41,31 @@ test('readings go as one batch per receiver and protocol, in MegaNet\'s shape', 
   assert.equal(ing.length, 2);
   const p = ing[0].body.payload;
   assert.deepEqual([p.source, p.protocol, p.path], ['serial', 'alert', 'serial-monitor/rpi-abc-qs1']);
-  assert.deepEqual(p.readings, [{ alert_id: 6129, reading_ts: t, value_raw: 1599 }, { alert_id: 6130, reading_ts: t, value_raw: 134 }]);
+  // Each reading with how it was heard, when the receiver said (MegaNet 0050);
+  // nothing for what it did not say — no nulls on the wire.
+  assert.deepEqual(p.readings, [{ alert_id: 6129, reading_ts: t, value_raw: 1599, freq_mhz: 151.5, rssi_dbm: -97.5, snr_db: 21.46 },
+    { alert_id: 6130, reading_ts: t, value_raw: 134 }]);
   assert.equal(p.frame, 'DEC,…');
   assert.equal(ing[0].headers['content-profile'], 'meganet');
   assert.ok(ing[0].headers.apikey.startsWith('sb_publishable_'));
   assert.equal(ing[1].body.payload.protocol, 'alert2');
+  up.stop(); await m.close();
+});
+
+test('how a reading was heard goes as numbers only, and survives being held for the clock', async () => {
+  const m = await stub.start();
+  const { up, clock } = rig(m);
+  clock.ok = false;
+  up.load().start();
+  up.addReading({ point: 'rpi-abc-sdr1-152.400', protocol: 'alert', alert_id: 6880, value_raw: 51, ts: null,
+    freq_mhz: 152.4, level_dbfs: -57.6, snr_db: 11 });
+  up.addReading({ point: 'rpi-abc-sdr1-152.400', protocol: 'alert', alert_id: 6881, value_raw: 141, ts: null,
+    freq_mhz: 'n/a', rssi_dbm: NaN, level_dbfs: '', snr_db: Infinity });
+  clock.ok = true; clock.emit('trusted');
+  assert.ok(await until(() => up.status().accepted === 2));
+  const rd = m.calls.find(c => c.fn === 'ingest_http').body.payload.readings;
+  assert.deepEqual(rd.map(r => [r.alert_id, r.freq_mhz, r.level_dbfs, r.snr_db]), [[6880, 152.4, -57.6, 11], [6881, undefined, undefined, undefined]]);
+  assert.ok(!('rssi_dbm' in rd[1]) && !('freq_mhz' in rd[1]), 'junk is left out, not sent as null: ' + JSON.stringify(rd[1]));
   up.stop(); await m.close();
 });
 
