@@ -127,7 +127,9 @@ test('settings: more channels are checked one by one, and together', () => {
 test('boot file: one frequency, or several for one stick to hear at once', () => {
   const sdr = (text) => boot.toPatch(boot.parse(text));
   let r = sdr('sdr_frequency_mhz = 151.5\n');
-  assert.deepEqual(r.patch.receivers.sdr, { freqHz: 151500000 });
+  assert.deepEqual(r.patch.receivers.sdr, { freqHz: 151500000, moreChannels: [] }, 'what the card lists is what it hears');
+  r = sdr('sdr_more_channels_mhz = 152.4\nsdr_frequency_mhz = 151.5\n');
+  assert.deepEqual(r.patch.receivers.sdr, { freqHz: 151500000, moreChannels: [{ freqHz: 152400000 }] }, 'unless it lists the more channels on their own line');
   r = sdr('sdr_frequency_mhz = 151.5, 151.525, 152.4 eif\n');
   assert.deepEqual(r.patch.receivers.sdr, { freqHz: 151500000, moreChannels: [{ freqHz: 151525000 }, { freqHz: 152400000, format: 'ENHANCED_IFLOWS' }] });
   assert.deepEqual(sdr('sdr_more_channels_mhz = none\n').patch.receivers.sdr, { moreChannels: [] });
@@ -138,6 +140,51 @@ test('boot file: one frequency, or several for one stick to hear at once', () =>
   const c = new Config(path.join(tmp('rpa-ch-'), 'config.json')).load();
   assert.ok(c.update(sdr('sdr_frequency_mhz = 151.5, 151.525, 151.95, 152.4\nsdr_format = binary\n').patch).ok);
   assert.equal(c.get().receivers.sdr.moreChannels.length, 3);
+  assert.ok(c.update(sdr('sdr_frequency_mhz = 152.4\n').patch).ok);
+  assert.deepEqual(c.get().receivers.sdr.moreChannels, [], 'one channel listed: that one alone');
+});
+
+test('a new base station hears all of MegaNet\'s channels, and keeps them when only its frequency changes', () => {
+  const c = new Config(path.join(tmp('rpa-ch-'), 'config.json')).load();
+  const sd = () => c.get().receivers.sdr;
+  const freqs = (list) => list.map(m => m.freqHz / 1e6);
+  assert.deepEqual([sd().freqHz / 1e6].concat(freqs(sd().moreChannels)), NETS);
+  assert.ok(sd().moreChannels.every(m => m.format === undefined), 'each in the stick\'s format');
+  let p = P.plan(MHz(...NETS), { baseRate: 960000 });
+  holds(p, 'the defaults');
+  assert.equal(p.sampleRate, 1920000);
+  assert.ok(p.channels.every(ch => ch.inBand));
+  assert.equal(new Config(path.join(tmp('rpa-ch-'), 'config.json')).load().loadError, null);
+  // MegaNet's Base Stations tab sets a frequency alone: the channel it moved
+  // to is its own, the one it left a more channel, the four still heard.
+  let r = c.update({ receivers: { sdr: { freqHz: 152400000 } } });
+  assert.ok(r.ok, r.errors.join('; '));
+  assert.deepEqual(freqs(sd().moreChannels), [151.5, 151.525, 151.95]);
+  // Off the 25 kHz raster: not a second channel 12.5 kHz from 151.5 and 151.525.
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151512500 } } }).ok);
+  assert.deepEqual(freqs(sd().moreChannels), [151.95, 152.4]);
+  // Too far for any of them to share the stick: that channel alone — and back.
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 169400000 } } }).ok);
+  assert.deepEqual(sd().moreChannels, []);
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151500000 } } }).ok);
+  assert.deepEqual(freqs(sd().moreChannels), [151.525, 151.95, 152.4]);
+  // Channels written with the frequency are what they say (the web page's form).
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151525000, moreChannels: [] } } }).ok);
+  assert.deepEqual(sd().moreChannels, []);
+  // More channels anyone chose are theirs: a frequency alone leaves them be.
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151500000, moreChannels: [{ freqHz: 151950000, format: 'ENHANCED_IFLOWS' }] } } }).ok);
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151525000 } } }).ok);
+  assert.deepEqual(sd().moreChannels, [{ freqHz: 151950000, format: 'ENHANCED_IFLOWS' }]);
+  assert.match(c.update({ receivers: { sdr: { freqHz: 151950000 } } }).errors.join(), /151\.950 MHz is listed twice/);
+  // A stick given a frequency of its own (the web page's Each stick, MegaNet's
+  // per-stick field) keeps MegaNet's channels around it the same way; sent
+  // again unchanged, it is left as it is.
+  assert.ok(c.update({ receivers: { sdr: { freqHz: 151500000, moreChannels: NETS.slice(1).map(f => ({ freqHz: Math.round(f * 1e6) })) } } }).ok);
+  r = c.update({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.4', freqHz: 151525000 }, { key: 'sdr-port:1-1.5', freqHz: 162000000 }] } });
+  assert.ok(r.ok, r.errors.join('; '));
+  assert.deepEqual(c.get().receivers.sdrDevices.map(e => [e.freqHz / 1e6, freqs(e.moreChannels)]), [[151.525, [151.5, 151.95, 152.4]], [162, []]]);
+  const kept = JSON.stringify(c.get().receivers.sdrDevices);
+  assert.deepEqual(c.update({ receivers: { sdrDevices: JSON.parse(kept) } }).changed, []);
 });
 
 test('a stick\'s channels: each a receiver with its own name, receiver id and decoder', () => {
@@ -150,9 +197,10 @@ test('a stick\'s channels: each a receiver with its own name, receiver id and de
     deviceAttached: (s) => attached.push(s.point.pointId), deviceDetached: (s) => detached.push(s.point.pointId) };
   const st = { busPath: '1-1.3', vid: '0bda', pid: '2838', manufacturer: 'RTLSDRBlog', product: 'Blog V4', serial: '00000001', busnum: 1, devnum: 4 };
   st.key = state.assignSdrs([st]).get(st);
+  // One channel, as a base station told one hears it: the stick as it always was.
+  config.update({ receivers: { sdr: { moreChannels: [] } } });
   const s = new SdrSession(agent, st);
   const id = s.point.pointId;
-  // One channel: the stick as it always was.
   assert.deepEqual(s.channels.map(ch => [ch.name(), ch.key, ch.point.pointId]), [['RTL-SDR', st.key, id]]);
   assert.equal(s.tunerKey(s.cfg()), '-d  -f 151260000 -s 960000 -g 29.7 -b 65536 -', 'what rtl_sdr was always told');
   s.attach();

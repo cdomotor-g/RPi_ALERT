@@ -32,7 +32,8 @@ Any RTL2832U stick works through `librtlsdr`'s `rtl_sdr`; the agent decodes the 
 | RTL-SDR Blog V2 / generic FC0013 | FC0013 | Known to work on the bench Pi. Zero-IF tuner with a DC spike at the centre: the agent tunes a quarter of the sample rate below the channel, so the spike never lands on a burst. |
 | Generic R820T/R820T2 | | Supported. |
 
-Settings that matter: **frequency** (151.5 MHz for the MegaNet networks), **format** (ALERT Binary
+Settings that matter: **frequency** (a new base station hears all four of MegaNet's channels —
+151.5, 151.525, 151.95 and 152.4 MHz — on one stick: below), **format** (ALERT Binary
 for the live networks; Enhanced iFLOWS for an ERT-A2 set to it — one at a time, see
 `alert-dsp.js`), **gain** (~30 dB; lower if the ADC clips, which the Receivers page shows),
 **ppm** (the stick's frequency error; the decoder searches ±10 kHz so it matters little).
@@ -44,7 +45,8 @@ blacklisted. Only one program can hold a stick: stop `rtl_tcp`, SDR++ or GQRX wh
 
 A stick hands over a whole slice of the band at once — as wide as its sample rate — so it does not
 have to choose one channel: the agent decodes **every ALERT channel in the slice at the same time**,
-each with a decoder thread of its own, and each is a receiver of its own in MegaNet. List them under
+each with a decoder thread of its own, and each is a receiver of its own in MegaNet. A new base
+station listens on all four of the channels MegaNet's stations use; change them under
 **Settings → RTL-SDR → More channels on the same stick** (or `rpi-alert sdr 1 freq 151.5, 151.525,
 152.4`, or `sdr_frequency_mhz = 151.5, 151.525, 152.4` on the SD card).
 
@@ -62,7 +64,8 @@ each with a decoder thread of its own, and each is a receiver of its own in Mega
 - **What it costs**: a decoder thread per channel, each working through the whole slice. On a Pi 4,
   roughly 15–20% of a core per channel at 960 ksps and 30–40% at 1.92 Msps, plus a second or two
   per burst decoded (estimated from a PC; [bench-test.md](bench-test.md) measures it). Four channels
-  at 1.92 Msps is well within a Pi 4; a Zero 2 W manages a few at 960 ksps. A decoder that cannot
+  at 1.92 Msps is well within a Pi 4; a Zero 2 W manages a few at 960 ksps — on one, list only the
+channels the site needs, since the four together need 1.92 Msps. A decoder that cannot
   keep up drops samples and says so in the log. At most 8 channels a stick; each uses ~30 MB.
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
   push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.

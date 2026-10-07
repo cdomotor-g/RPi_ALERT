@@ -92,11 +92,11 @@
         <fieldset>
           <legend>RTL-SDR</legend>
           <div class="row">
-            <label>Frequency, MHz <input name="sdr_frequency_mhz" value="151.5" spellcheck="false" title="One channel, or several for one stick to hear at once: 151.5, 151.525, 152.4"></label>
+            <label class="wide">Frequency, MHz <input name="sdr_frequency_mhz" value="151.5, 151.525, 151.95, 152.4" spellcheck="false" title="The channels the stick hears: one, or several for one stick to hear at once. MegaNet's four are filled in."></label>
             <label>Frame format <select name="sdr_format"><option value="binary">ALERT Binary (151.5 MHz networks)</option><option value="enhanced_iflows">Enhanced iFLOWS (ERT-A2 set to it)</option><option value="ascii">ALERT ASCII</option></select></label>
             <label>Gain, dB <input name="sdr_gain_db" value="29.7" placeholder="auto"></label>
           </div>
-          <span class="small">One stick hears several channels at once when they are within about 1.9 MHz of each other: list them, e.g. <code>151.5, 151.525, 152.4</code> (a format after one sent in another: <code>152.4 eif</code>). Each is a receiver of its own in MegaNet. For every stick; with several sticks, each can have channels of its own once the Pi has seen it: on its web page, Settings → RTL-SDR → Each stick.</span>
+          <span class="small">Filled in: the four channels MegaNet's stations use, which one stick hears all at once. Leave out any this site does not need, or list others within about 1.9 MHz of each other (a format after one sent in another: <code>152.4 eif</code>); the stick hears what is listed. Each is a receiver of its own in MegaNet. For every stick; with several sticks, each can have channels of its own once the Pi has seen it: on its web page, Settings → RTL-SDR → Each stick.</span>
         </fieldset>
         <fieldset>
           <legend>Sound and screen</legend>

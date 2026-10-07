@@ -14,7 +14,7 @@ test('settings: defaults, a valid change saved 0600, a bad one refused with a re
   const c = tmpConfig();
   assert.equal(c.get().receivers.sdr.freqHz, 151500000);
   const ok = c.update({ receivers: { sdr: { freqHz: 151525000 } } });
-  assert.ok(ok.ok); assert.deepEqual(ok.changed, ['receivers.sdr.freqHz']);
+  assert.ok(ok.ok); assert.deepEqual(ok.changed, ['receivers.sdr.freqHz', 'receivers.sdr.moreChannels'], 'MegaNet\'s channels kept around it');
   assert.equal(fs.statSync(c.file).mode & 0o777, 0o600);
   const bad = c.update({ receivers: { sdr: { format: 'BOTH' } } });
   assert.equal(bad.ok, false); assert.match(bad.errors[0], /format/);

@@ -66,8 +66,9 @@ the token's label, the clock **ok (ntp)**, and the location.
 
 ## 3b. Several channels on one stick
 
-1. **Settings → RTL-SDR → More channels on the same stick**: `151.525, 151.95, 152.4` (or whichever
-   of the networks' channels the bench can hear) and save. Expect the stick to restart at
+1. **Settings → RTL-SDR → More channels on the same stick**: a new install already has
+   `151.525, 151.95, 152.4` there (MegaNet's channels besides 151.5); on one set up before that,
+   type them (or whichever of the networks' channels the bench can hear) and save. Expect the stick at
    1.92 Msps, tuned to about 151.85 MHz: its Receivers card lists four channels, each with its own
    receiver id (`…-sdr1`, `…-sdr1-151.525`, `…-sdr1-151.950`, `…-sdr1-152.400`), and the spectrum
    has a green line for each.

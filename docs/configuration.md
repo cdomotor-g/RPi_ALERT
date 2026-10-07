@@ -88,11 +88,12 @@ rpi-alert config get [key]       e.g. rpi-alert config get receivers.sdr
 rpi-alert config set key value   e.g. rpi-alert config set receivers.sdr.freqHz 151525000
 rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
 rpi-alert sdr 1                  one stick: where it is tuned, and each channel with its receiver id
-rpi-alert sdr 2 freq 151.525     one stick's own setting: freq (MHz), format, gain (dB or auto),
+rpi-alert sdr 2 freq 151.525     one stick's own setting: freq (the channels it hears, MHz), format, gain (dB or auto),
                                  ppm, squelch, bias-tee, name — "shared" goes back to the shared
                                  one; rpi-alert sdr 2 off / on. A stick by number, name or USB port
 rpi-alert sdr 1 freq 151.5, 151.525, 152.4 eif
-                                 several channels on one stick, all heard at once (its own first)
+                                 several channels on one stick, all heard at once (its own first);
+                                 one alone is that channel alone
 rpi-alert sdr 1 channels 151.95  just its more channels ("none" for none, "shared" for the shared)
 rpi-alert sdr remove 3           forget an unplugged stick (name, settings, receiver id)
 rpi-alert password               the web page password
@@ -123,7 +124,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `gps_bluetooth` | Bluetooth address, or off | a Bluetooth GPS (an Emlid Reach set to *Position output → Bluetooth, NMEA*): Bluetooth turned on, the receiver paired and kept connected by `rpi-alert-btgps.service`, read as `/dev/rpi-alert-gps` (added to `receivers.extraPorts`); turns `location.useGps` on unless `use_gps` says otherwise. For a mobile unit |
 | `gps_bluetooth_pin` | e.g. 123456 | the PIN the receiver asks for when pairing (Emlid's default is 123456) |
 | `gps_bluetooth_channel` | 1–30 | its serial channel, if not 1 (else 1 to 10 are tried) |
-| `sdr_frequency_mhz` | e.g. 151.5 — or several, `151.5, 151.525, 152.4 eif` | `receivers.sdr.freqHz` (the first); several: also `receivers.sdr.moreChannels` (the rest), all heard by one stick at once |
+| `sdr_frequency_mhz` | e.g. `151.5, 151.525, 151.95, 152.4` (what the set-up page fills in), or one, or with a format: `152.4 eif` | The channels one stick hears: `receivers.sdr.freqHz` (the first) and `receivers.sdr.moreChannels` (the rest, all heard at once). One alone is that channel alone, unless `sdr_more_channels_mhz` gives the more channels. Absent: MegaNet's four |
 | `sdr_more_channels_mhz` | e.g. `151.525, 152.4`, or none | `receivers.sdr.moreChannels` alone |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
@@ -174,13 +175,13 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.extraPorts[]` | — | Non-USB ports to scan too |
 | `receivers.sdr.enabled` | true | Use RTL-SDR sticks |
 | `receivers.sdr.freqHz` | 151500000 | The ALERT channel (a stick's own) |
-| `receivers.sdr.moreChannels` | [] | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz`; none listed twice |
+| `receivers.sdr.moreChannels` | 151.525, 151.95 and 152.4 MHz | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz`; none listed twice. By default the rest of the channels MegaNet's stations use, so a new base station hears all four. While they are those, a change to `freqHz` alone (MegaNet's Base Stations tab, `rpi-alert config set`) keeps them: the channel moved to stops being a more channel, the one left becomes one, and any too far from the new one to share the stick are dropped. More channels anyone chose stay as they are |
 | `receivers.sdr.format` | BINARY | BINARY · ENHANCED_IFLOWS · ASCII (one per channel: alert-dsp.js explains why) |
 | `receivers.sdr.sampleRate` | 0 (auto) | 960000 on a 4-core Pi with ≥ 1 GB, else 240000 — or higher, as much as a stick's channels need (the setting is the least used) |
 | `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
-| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
+| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |

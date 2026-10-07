@@ -112,7 +112,7 @@ test('remote: what an administrator asks is done once and answered; what it may 
   const send = m.ask('send-now');
   assert.ok(await until(() => m.asked.every(c => c.status === 'done' || c.status === 'failed'), 8000), 'every request answered');
   assert.equal(freq.status, 'done');
-  assert.deepEqual(freq.result.changed, ['receivers.sdr.freqHz']);
+  assert.deepEqual(freq.result.changed, ['receivers.sdr.freqHz', 'receivers.sdr.moreChannels'], 'MegaNet\'s other channels kept around it');
   assert.equal(cfg.get().receivers.sdr.freqHz, 151525000, 'the setting changed, through the same checks as the web page');
   for (const c of [token, ends]) { assert.equal(c.status, 'failed'); assert.match(c.error, /set on the base station itself/); }
   assert.equal(cfg.get().meganet.token, 'mgn_test_token');

@@ -38,7 +38,7 @@ test('two sticks with one serial: the first keeps its name, each hears its own c
     name: 'Two sticks', web: { port },
     meganet: { token: 'mgn_test_token', endpoints: [m.url + '/rest/v1'], stationsUrls: [m.url + '/stations.json'] },
     location: { source: 'manual', lat: -27.47, lon: 153.02 },
-    receivers: { sdr: { sampleRate: 240000 } },
+    receivers: { sdr: { sampleRate: 240000, moreChannels: [] } },
   }));
   const env = Object.assign({}, process.env, {
     PATH: path.join(dir, 'bin') + ':' + process.env.PATH, RPI_ALERT_CONFIG: path.join(dir, 'etc', 'config.json'), RPI_ALERT_DATA: path.join(dir, 'data'),

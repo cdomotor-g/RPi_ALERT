@@ -167,7 +167,7 @@
         <label>Squelch, dB over the noise floor <input name="squelch" type="number" step="1" min="2" max="40"></label>
       </div>
       <label>More channels on the same stick, MHz <input name="more" autocomplete="off" spellcheck="false" placeholder="none — e.g. 151.525, 151.95, 152.4"></label>
-      <p class="hint">One stick hears every channel in a stretch of the band about 1.9 MHz wide, all at once, and each is a receiver of its own in MegaNet. Put a format after a channel sent in another one: <code>152.4 EIF</code>. The sample rate goes up by itself to hold them — more channels and a higher rate take more of the Pi.</p>
+      <p class="hint">One stick hears every channel in a stretch of the band about 1.9 MHz wide, all at once, and each is a receiver of its own in MegaNet. A new base station hears all four of MegaNet's channels — 151.5, 151.525, 151.95 and 152.4 — and keeps hearing them when only its frequency is changed. Put a format after a channel sent in another one: <code>152.4 EIF</code>. The sample rate goes up by itself to hold them — more channels and a higher rate take more of the Pi.</p>
       <label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label>
       <label class="check"><input type="checkbox" name="biasTee"> Bias tee (4.5 V on the antenna socket — only for an LNA that wants it)</label>
       <h3>Each stick</h3>

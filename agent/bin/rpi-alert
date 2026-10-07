@@ -15,9 +15,10 @@
 //   rpi-alert config set key value   change one (value as JSON, or plain text)
 //   rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
 //   rpi-alert sdr <stick> <setting> <value>
-//                                    a stick's own setting: freq (MHz; several — 151.5, 152.4 —
-//                                    to hear them all at once), channels (the more channels
-//                                    besides freq: "151.525, 152.4 eif", or none), format, gain
+//                                    a stick's own setting: freq (the channels it hears, MHz:
+//                                    one, or several — 151.5, 152.4 — to hear them all at once),
+//                                    channels (the more channels besides its own: "151.525,
+//                                    152.4 eif", or none), format, gain
 //                                    (dB or auto), ppm, squelch, bias-tee, name; or on / off. The
 //                                    value "shared" goes back to the setting all sticks share.
 //                                    <stick>: its number (2 for "RTL-SDR 2"), name or USB port
@@ -268,10 +269,10 @@ const STICK_SETTINGS = {
   'bias-tee': 'biasTee', biastee: 'biasTee', bias: 'biasTee', name: 'name', enabled: 'enabled',
 };
 
-// A stick's channels, as typed (web/channels.js reads them): freq is its own
-// channel — or, given several, its own and its more channels at once; channels
-// is the more channels alone ("none" for none). → the fields to set, a field
-// undefined going back to the shared setting.
+// A stick's channels, as typed (web/channels.js reads them): freq is the
+// channels it hears — its own, then any more channels it hears at once, so one
+// alone is that channel alone; channels is the more channels alone ("none" for
+// none). → the fields to set, a field undefined going back to the shared setting.
 function channelSetting(field, s) {
   s = String(s || '').trim();
   if (/^(shared|default|same)$/i.test(s)) return field === 'freqHz' ? { freqHz: undefined, moreChannels: undefined } : { moreChannels: undefined };
@@ -282,7 +283,7 @@ function channelSetting(field, s) {
   const [first, ...rest] = p.channels;
   const out = { freqHz: first.freqHz };
   if (first.format) out.format = first.format;
-  if (rest.length) out.moreChannels = rest;
+  out.moreChannels = rest;
   return out;
 }
 
@@ -433,6 +434,7 @@ async function setup() {
   const where = await ask(rl, 'Location', c.location.lat != null ? c.location.lat + ', ' + c.location.lon : '');
   console.log('\nRTL-SDR: the ALERT channel, and the frame format the network sends (binary for the 151.5 MHz network; enhanced_iflows for an ERT-A2 set to it).');
   console.log('One stick hears several channels at once when they are within about 1.9 MHz of each other: list them, e.g. 151.5, 151.525, 152.4 (a format after one that differs: 152.4 eif).');
+  console.log('A new base station hears all four of MegaNet\'s channels: 151.5, 151.525, 151.95, 152.4.');
   const sticks = (await api('/api/status')).devices.sdrs;
   if (sticks.length > 1) console.log('This is for every stick; to give one of the ' + sticks.length + ' its own channels afterwards: rpi-alert sdr ' + sticks[1].n + ' freq <MHz>');
   const sd = c.receivers.sdr;

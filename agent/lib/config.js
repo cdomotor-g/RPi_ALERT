@@ -26,6 +26,18 @@ const MEGANET_ENDPOINTS = [
 ];
 const MEGANET_APIKEY = 'sb_publishable_PV9VjCM8NQeGAJMuwa5TKA_yX9GWacY';
 
+// The ALERT channels MegaNet's stations use — every repeater's rx_mhz/tx_mhz
+// in its stations.json is one of these four (151.500 by far the most) — so a
+// fresh base station listens on all of them: 151.5 as the stick's own
+// channel, the other three as more channels on the same stick. They span
+// 900 kHz, well inside what one stick hears (sdr-plan.js: 1.92 Msps around
+// 151.85 MHz). A base station given a list of channels (the card, the set-up
+// page, rpi-alert setup, the web page) hears that list instead.
+const ALERT_CHANNELS_HZ = [151500000, 151525000, 151950000, 152400000];
+// They are 25 kHz apart at the closest: one nearer than that to a stick's own
+// frequency is taken to be that channel, not another beside it.
+const ALERT_SPACING_HZ = 25000;
+
 const SDR_FORMATS = ['BINARY', 'ENHANCED_IFLOWS', 'ASCII'];
 const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 // What one stick can set for itself (receivers.sdrDevices[]), besides its name.
@@ -79,12 +91,12 @@ function defaults() {
       extraPorts: [],
       sdr: {
         enabled: true,
-        freqHz: 151500000,
+        freqHz: ALERT_CHANNELS_HZ[0],
         // More channels for the same stick to hear at once, each a receiver of
         // its own (rpi-<host>-sdr<n>-<MHz>): [{ freqHz, format }] (format: the
         // one below when left out). One stick hears channels up to 1.89 MHz
-        // apart (sdr-plan.js).
-        moreChannels: [],
+        // apart (sdr-plan.js). By default the rest of MegaNet's channels.
+        moreChannels: standardMore(ALERT_CHANNELS_HZ[0]),
         sampleRate: 0,         // 0: 960 ksps on a 4-core Pi with 1 GB+, 240 ksps otherwise — or what the channels need
         offsetHz: 0,           // 0: tune off-centre by a quarter of the rate, away from the DC spike (one channel)
         gainDb: 29.7,          // null: tuner AGC
@@ -156,6 +168,48 @@ function moreOk(list) {
   return Array.isArray(list) && list.length <= MAX_CHANNELS - 1
     && list.every(m => isObj(m) && isNum(m.freqHz, 24e6, 1766e6) && (m.format === undefined || SDR_FORMATS.includes(m.format)));
 }
+// The more channels a stick whose own channel is `own` hears by default: the
+// rest of MegaNet's channels, those that fit one stick beside it (nearest
+// first). [] for a stick far from all of them.
+function standardMore(own) {
+  const fit = [own];
+  const others = ALERT_CHANNELS_HZ.filter(f => Math.abs(f - own) >= ALERT_SPACING_HZ).sort((a, b) => Math.abs(a - own) - Math.abs(b - own));
+  for (const f of others) if (Math.max(...fit, f) - Math.min(...fit, f) <= MAX_SPAN_HZ) fit.push(f);
+  return ALERT_CHANNELS_HZ.filter(f => fit.includes(f) && f !== own).map(freqHz => ({ freqHz }));
+}
+function onStandard(own, more) {
+  return Array.isArray(more) && more.every(m => isObj(m) && m.format === undefined)
+    && more.map(m => m.freqHz).sort((a, b) => a - b).join() === standardMore(own).map(m => m.freqHz).join();
+}
+
+// MegaNet's channels are kept when only a stick's own frequency changes, as
+// MegaNet's Base Stations tab and `rpi-alert config set` change it: a stick
+// on the default channels (standardMore()) hears the rest of them that fit
+// beside its new one — the channel it moved to is no longer a more channel,
+// the one it left becomes one, those too far away are dropped. More channels
+// anyone chose are theirs, and are left as they are. On next, from merge():
+// only the parts the patch changed are new objects, and only those change.
+function followChannels(prev, next) {
+  const pr = prev.receivers || {}, nr = next.receivers || {};
+  if (!isObj(pr.sdr) || !isObj(nr.sdr) || pr === nr) return;
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  // A stick's own channel and more channels, before and after → its more
+  // channels now, or undefined to leave them as they are.
+  const moved = (wasOwn, wasMore, nowOwn, nowMore) =>
+    (isNum(nowOwn, 24e6, 1766e6) && nowOwn !== wasOwn && same(nowMore, wasMore) && onStandard(wasOwn, wasMore) ? standardMore(nowOwn) : undefined);
+  const shared = pr.sdr !== nr.sdr && moved(pr.sdr.freqHz, pr.sdr.moreChannels, nr.sdr.freqHz, nr.sdr.moreChannels);
+  if (shared) nr.sdr.moreChannels = shared;
+  if (!Array.isArray(nr.sdrDevices)) return;
+  const before = Array.isArray(pr.sdrDevices) ? pr.sdrDevices : [];
+  const pick = (own, sdr, f) => (own[f] !== undefined ? own[f] : sdr[f]);
+  nr.sdrDevices = nr.sdrDevices.map(e => {
+    if (!isObj(e)) return e;
+    const b = before.find(x => isObj(x) && (e.key ? x.key === e.key : !x.key && x.serial === e.serial)) || {};
+    const more = moved(pick(b, pr.sdr, 'freqHz'), pick(b, pr.sdr, 'moreChannels'), pick(e, nr.sdr, 'freqHz'), pick(e, nr.sdr, 'moreChannels'));
+    return more ? Object.assign({}, e, { moreChannels: more }) : e;
+  });
+}
+
 const MORE_RULE = 'a list of up to ' + (MAX_CHANNELS - 1) + ' more channels, each { freqHz: 24–1766 MHz, format: '
   + SDR_FORMATS.join(' | ') + ' (or left out: the stick\'s own) }';
 
@@ -340,6 +394,7 @@ class Config extends EventEmitter {
   update(patch) {
     const next = merge(this.data, patch);
     // Arrays given in a patch replace the stored ones whole (merge() already does that).
+    followChannels(this.data, next);
     let errors = validate(next);
     if (!errors.length) errors = channelErrors(next);
     if (errors.length) return { ok: false, errors, changed: [] };
@@ -403,5 +458,5 @@ function changedPaths(a, b) {
 
 module.exports = {
   Config, defaults, validate, stickErrors, channelsOf, channelErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
-  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
+  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, ALERT_CHANNELS_HZ, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
 };
