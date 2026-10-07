@@ -19,6 +19,7 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const logm = require('../log');
 const { hashPassword, checkPassword } = require('../config');
+const webpw = require('../web-password');
 const system = require('../system');
 
 const STATIC = path.join(__dirname, '..', '..', 'web');
@@ -175,6 +176,9 @@ class WebServer {
     if (p === '/api/status' && req.method === 'GET') {
       const s = await a.status();
       s.auth = { authed, local: isLocal(req), passwordSet: !!a.config.get().web.passwordHash };
+      // The auto-generated password is shown only to a local caller — the kiosk
+      // screen or the CLI over the loopback — never over the network (H-4).
+      if (isLocal(req)) { const pw = webpw.initial(a.config); if (pw) s.auth.initialPassword = pw; }
       if (!authed) redactPlace(s);
       return this.json(res, 200, s);
     }
@@ -353,11 +357,13 @@ class WebServer {
     if (body.remove) {
       if (!isLocal(req)) return this.json(res, 403, { error: 'the password can only be removed from the Pi itself (its screen, or rpi-alert over SSH)' });
       cfg.update({ web: { passwordHash: '' } });
+      webpw.forget();
       this.sessions.clear();
       return this.json(res, 200, { ok: true });
     }
     if (pw.length < 6) return this.json(res, 400, { error: 'at least 6 characters' });
     cfg.update({ web: { passwordHash: hashPassword(pw) } });
+    webpw.forget();   // a human chose this one; the auto-generated plaintext is no longer in force
     this.sessions.clear();
     const id = crypto.randomBytes(24).toString('hex');
     this.sessions.set(id, Date.now() + SESSION_MS);

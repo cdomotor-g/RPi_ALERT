@@ -221,7 +221,9 @@ async function status(json) {
   if (json) { console.log(JSON.stringify(s, null, 2)); return; }
   const r = await api('/api/readings?limit=10');
   console.log(render(s, r.readings));
-  if (!s.passwordSet) console.log('\n' + C.y + 'No web password yet: anyone on this network can change settings at http://' + s.system.hostname + '.local/ — set one with: rpi-alert password' + C.x);
+  if (s.auth && s.auth.initialPassword) console.log('\n' + C.y + 'Web password (auto-generated at first start): ' + C.b + s.auth.initialPassword + C.x
+    + C.y + '\nOther computers on the network need it to open http://' + s.system.hostname + '.local/ — change it with: rpi-alert password' + C.x);
+  else if (!s.passwordSet) console.log('\n' + C.y + 'No web password set: anyone on this network can change settings — set one with: rpi-alert password' + C.x);
 }
 
 async function top() {

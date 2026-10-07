@@ -67,3 +67,30 @@ test('M-9: carrier-grade NAT is no longer a private network', () => {
   assert.ok(!access.PRIVATE_FROM.includes('100.64'), '100.64.0.0/10 is not in the private set');
   assert.ok(access.PRIVATE_FROM.includes('192.168.0.0/16'), 'RFC 1918 still is');
 });
+
+test('H-4: a fresh Pi generates a web password, and a chosen one replaces it', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'rpa-webpw-'));
+  process.env.RPI_ALERT_WEBPW_FILE = path.join(dir, 'web-password.txt');
+  // Fresh require so the helper picks up the env var for its FILE path.
+  delete require.cache[require.resolve('../lib/web-password')];
+  const webpw = require('../lib/web-password');
+  const { Config, checkPassword } = require('../lib/config');
+  const cfg = new Config(path.join(dir, 'config.json'));
+
+  assert.equal(cfg.get().web.passwordHash, '', 'starts with no password');
+  const pw = webpw.ensure(cfg);
+  assert.ok(pw && /^[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(pw), 'a readable password is generated');
+  assert.ok(cfg.get().web.passwordHash, 'the hash is stored');
+  assert.ok(checkPassword(pw, cfg.get().web.passwordHash), 'the hash verifies against the plaintext');
+  assert.equal(webpw.initial(cfg), pw, 'the plaintext is retrievable locally while in force');
+  assert.equal(webpw.ensure(cfg), null, 'a second start does not change it');
+
+  webpw.forget();
+  assert.equal(webpw.initial(cfg), null, 'once a human sets their own, the auto plaintext is gone');
+
+  delete process.env.RPI_ALERT_WEBPW_FILE;
+  delete require.cache[require.resolve('../lib/web-password')];
+  fs.rmSync(dir, { recursive: true, force: true });
+});

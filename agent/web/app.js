@@ -117,7 +117,13 @@ function renderHeader() {
     + ' <span class="dim">— an administrator approves it from their phone. Or paste one in <a href="#settings">Settings → MegaNet</a>.</span>']);
   if (m.tokenRefused && tr.state !== 'pending') banners.push(['bad', esc(m.lastError) + ' ' + ask.replace('Request a token', 'Request a new token') + ' <a href="#settings">Settings → MegaNet</a>']);
   if (s.system.power && (s.system.power.underVoltageNow || s.system.power.underVoltageSinceBoot)) banners.push(['bad', 'The Pi has seen under-voltage. A weak power supply makes USB receivers drop out — use the official supply (5 V 3 A, or 5 A for a Pi 5).']);
-  if (s.auth && !s.auth.passwordSet && !s.auth.local) banners.push(['', 'No web page password is set, so anyone on this network can change these settings. <a href="#settings">Set one</a>.']);
+  // Secure by default (H-4): a password is always set. The auto-generated one
+  // is shown only on this Pi's own screen (a local request), so whoever stands
+  // at the kiosk can read it and hand it out or change it; the network never
+  // gets it. The old "no password set" line is kept as a fallback.
+  if (s.auth && s.auth.initialPassword) banners.push(['', 'This base station\'s web password is <b class="mono">' + esc(s.auth.initialPassword)
+    + '</b> — other computers on the network need it to change settings. <a href="#settings">Change it</a>.']);
+  else if (s.auth && !s.auth.passwordSet && !s.auth.local) banners.push(['', 'No web page password is set, so anyone on this network can change these settings. <a href="#settings">Set one</a>.']);
   const b = $('#banner');
   b.hidden = !banners.length;
   b.className = 'banner' + (banners.some(x => x[0] === 'bad') ? ' bad' : '');

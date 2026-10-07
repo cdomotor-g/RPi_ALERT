@@ -31,6 +31,7 @@ const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
 const { board } = require('./serial/scan');
 const system = require('./system');
+const webpw = require('./web-password');
 const pkg = require('../package.json');
 
 const RECENT = 500;
@@ -73,6 +74,14 @@ class Agent extends EventEmitter {
 
   start() {
     this.log.info('RPi ALERT ' + pkg.version + ' on ' + (this.board.model || os.hostname()) + ' (' + this.board.cores + ' cores, ' + this.board.memMb + ' MB), node ' + process.version);
+    // Secure by default: never leave the dashboard open on the network. If no
+    // web password is set, make one and say so — it shows on the Pi's screen
+    // and in `rpi-alert status`; the network never sees the value (H-4).
+    try {
+      const pw = webpw.ensure(this.config);
+      if (pw) this.log.warn('No web password was set — generated one: ' + pw
+        + '  (shown on this Pi\'s screen and by `rpi-alert status`; change it in Settings, or with `rpi-alert password`)');
+    } catch (e) { this.log.warn('could not set an initial web password: ' + e.message); }
     this.clock.start();
     this.uplink.start();
     this.survey.start();
