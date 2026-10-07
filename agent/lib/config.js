@@ -203,7 +203,7 @@ function validate(c) {
   const r = c.receivers || {};
   need(Array.isArray(r.ports) && r.ports.every(p => isObj(p) && typeof p.match === 'string' && p.match && PORT_TYPES.includes(p.type || 'auto')),
     'receivers.ports: each needs a match and a type (' + PORT_TYPES.join(', ') + ')');
-  need(Array.isArray(r.extraPorts) && r.extraPorts.every(p => typeof p === 'string' && /^\/dev\/[\w./-]+$/.test(p)), 'receivers.extraPorts: /dev paths');
+  need(Array.isArray(r.extraPorts) && r.extraPorts.every(p => typeof p === 'string' && /^\/dev\/[\w./-]+$/.test(p) && !p.includes('..')), 'receivers.extraPorts: /dev paths (no ".." segments)');
   const s = r.sdr || {};
   need(num(s.freqHz, 24e6, 1766e6) !== undefined, 'receivers.sdr.freqHz: 24–1766 MHz');
   need(moreOk(s.moreChannels), 'receivers.sdr.moreChannels: ' + MORE_RULE);

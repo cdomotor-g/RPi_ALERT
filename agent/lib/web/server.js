@@ -31,6 +31,28 @@ function isLocal(req) {
   return (a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1') && !req.headers['x-forwarded-for'];
 }
 
+// Reject a Host the Pi is not known by, so a website the operator visits cannot
+// rebind its own name to the Pi's address and then read the API as same-origin
+// (DNS rebinding — security appraisal H-5). Legitimate access is by IP literal,
+// a *.local name, localhost, or the Pi's hostname; a rebinding attack arrives
+// with the attacker's own domain in Host, which none of those match. Reaching
+// the Pi by a bare IP is not a rebinding vector (the attacker cannot serve their
+// page from it), so IP literals are allowed.
+function hostAllowed(req) {
+  const raw = String(req.headers.host || '');
+  if (!raw) return true;
+  let host = raw.replace(/:\d+$/, '').toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  if (host === 'localhost' || host.endsWith('.local')) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return true;  // IPv4/IPv6 literal
+  if (host === require('node:os').hostname().toLowerCase()) return true;
+  return false;
+}
+
+// Live-event stream caps, so an unauthenticated visitor cannot hold every
+// socket and starve a small Pi of memory and file descriptors (appraisal M-7).
+const MAX_SSE = 24;
+const MAX_SSE_PER_IP = 6;
+
 function cookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
@@ -134,6 +156,11 @@ class WebServer {
   async handle(req, res) {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
+    // DNS-rebinding guard (H-5). Local requests (the kiosk, the CLI) are exempt.
+    if (!isLocal(req) && !hostAllowed(req)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      return res.end('unrecognised Host header');
+    }
     if (!p.startsWith('/api/')) return this.static(p, res);
     const a = this.agent;
     const authed = this.authed(req);
@@ -167,7 +194,7 @@ class WebServer {
     if (needAuth()) return;
 
     if (p === '/api/config' && req.method === 'GET') return this.json(res, 200, { config: a.config.redacted(), board: a.board });
-    if (p === '/api/config' && (req.method === 'PUT' || req.method === 'POST')) return this.saveConfig(res, body);
+    if (p === '/api/config' && (req.method === 'PUT' || req.method === 'POST')) return this.saveConfig(req, res, body);
     if (p === '/api/log') return this.json(res, 200, { lines: logm.recent(Number(url.searchParams.get('n')) || 200) });
     if (p === '/api/password' && req.method === 'POST') return this.setPassword(req, res, body);
     if (p === '/api/token/test' && req.method === 'POST') {
@@ -293,9 +320,21 @@ class WebServer {
     return this.json(res, 404, { error: 'no such API' });
   }
 
-  async saveConfig(res, body) {
+  async saveConfig(req, res, body) {
     const patch = body && body.config;
     if (!patch || typeof patch !== 'object') return this.json(res, 400, { error: 'send {config: {…}}' });
+    // Where readings go — the endpoints and the publishable key — can only be
+    // changed from the Pi itself. Repointing them would send the ingest token to
+    // a chosen host, so the network must not be able to do it even once signed
+    // in (security appraisal H-4). Only an actual change is refused; a form
+    // echoing the current values saves as before.
+    if (patch.meganet && !isLocal(req)) {
+      const cur = this.agent.config.get().meganet;
+      const changes = (k) => k in patch.meganet && JSON.stringify(patch.meganet[k]) !== JSON.stringify(cur[k]);
+      if (changes('endpoints') || changes('apikey')) {
+        return this.json(res, 403, { error: 'where readings go (endpoints/apikey) can only be changed from the Pi itself — its screen, or rpi-alert over SSH' });
+      }
+    }
     // A masked token coming back from the form is "unchanged", not a new token.
     if (patch.meganet && typeof patch.meganet.token === 'string') {
       const t = patch.meganet.token.trim();
@@ -342,9 +381,21 @@ class WebServer {
   }
 
   sse(req, res, authed) {
+    // Bounded so a flood of connections cannot exhaust the Pi (M-7). Local
+    // clients (the kiosk) are never refused.
+    const ip = req.socket.remoteAddress || '?';
+    if (!isLocal(req)) {
+      let perIp = 0;
+      for (const c of this.clients) if (c._ip === ip) perIp++;
+      if (this.clients.size >= MAX_SSE || perIp >= MAX_SSE_PER_IP) {
+        res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '30' });
+        return res.end('too many live connections');
+      }
+    }
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('retry: 3000\n\n');
     res.authed = authed;
+    res._ip = ip;
     this.clients.add(res);
     req.on('close', () => this.clients.delete(res));
   }
@@ -403,4 +454,4 @@ function parseWifi(text) {
   return [...seen.values()].sort((a, b) => b.signal - a.signal);
 }
 
-module.exports = { WebServer, isLocal, parseWifi };
+module.exports = { WebServer, isLocal, hostAllowed, parseWifi };

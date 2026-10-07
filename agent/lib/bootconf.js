@@ -65,7 +65,13 @@ const Channels = require('../web/channels');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
-const SECRET = new Set(['token', 'web_password', 'wifi_password', 'gps_bluetooth_pin', 'alert_password', 'hotspot_password']);
+// Every key that carries a secret, under every spelling the parser accepts
+// (see the `case` list below) — redactText matches the exact normalised key, so
+// an alias left out here would leave its value in plain text on the card
+// (security appraisal L-1). token/meganet_token/ingest_token are the ingest
+// token; password is the web password; wifi_psk is the Wi-Fi password.
+const SECRET = new Set(['token', 'meganet_token', 'ingest_token', 'web_password', 'password',
+  'wifi_password', 'wifi_psk', 'gps_bluetooth_pin', 'alert_password', 'hotspot_password']);
 // Keys a card may give more than once, each line one more value.
 const MULTI = new Set(['ssh_key', 'ssh_authorized_key']);
 const BT_GPS_PORT = '/dev/rpi-alert-gps';

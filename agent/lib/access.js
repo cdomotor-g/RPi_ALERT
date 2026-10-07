@@ -76,9 +76,13 @@ const FILES = {
   sync: path.join(STATE, 'last-sync.json'),
 };
 
-// The site's own network and the usual VPNs: RFC 1918, carrier-grade NAT
-// (Tailscale's range), link-local, loopback, and their IPv6 counterparts.
-const PRIVATE_FROM = '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,127.0.0.0/8,fc00::/7,fe80::/10,::1';
+// The site's own network and the usual VPNs: RFC 1918, link-local, loopback,
+// and their IPv6 counterparts. Carrier-grade NAT (100.64.0.0/10) is deliberately
+// NOT here: a Pi on a 4G modem shares that range with the carrier's other
+// subscribers, so treating it as "private" would hand them a fetched key. A
+// Pi reached only over Tailscale (which uses 100.64/10) needs `ssh_from = any`.
+// (Security appraisal M-9.)
+const PRIVATE_FROM = '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,127.0.0.0/8,fc00::/7,fe80::/10,::1';
 const KEY_TYPES = ['ssh-ed25519', 'sk-ssh-ed25519@openssh.com', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384',
   'ecdsa-sha2-nistp521', 'sk-ecdsa-sha2-nistp256@openssh.com', 'ssh-rsa'];
 const MAX_KEYS = 100;
