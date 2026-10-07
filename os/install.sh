@@ -159,6 +159,9 @@ install -d -m 0755 "$NEW" "$NEW/libexec" "$NEW/os"
 cp -a "$SRC/agent/bin" "$SRC/agent/lib" "$SRC/agent/vendor" "$SRC/agent/web" "$SRC/agent/package.json" "$NEW/"
 cp -a "$SRC/os/files" "$SRC/os/boot" "$SRC/os/install.sh" "$NEW/os/"
 [ -f "$SRC/os/bootstrap.sh" ] && cp -a "$SRC/os/bootstrap.sh" "$NEW/os/"
+# The pinned release signing key, so the next rpi-alert-update can verify its
+# download (security appraisal M-1). A placeholder until one is configured.
+[ -f "$SRC/os/release-signing-key.pem" ] && cp -a "$SRC/os/release-signing-key.pem" "$NEW/os/"
 install -m 0755 "$SRC/os/libexec/"* "$NEW/libexec/"
 # The Bluetooth GPS bridge is Python, kept apart from the shell helpers in libexec.
 install -m 0755 "$SRC/os/files/btgps/rpi-alert-btgps" "$NEW/libexec/"

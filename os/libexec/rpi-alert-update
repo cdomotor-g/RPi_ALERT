@@ -73,13 +73,56 @@ fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-fetch() { install -d "$tmp/$2"; curl -fsSL --max-time 300 "https://github.com/$REPO/archive/$1.tar.gz" | tar -xz -C "$tmp/$2" --strip-components=1; }
+
+PREFIX=/opt/rpi-alert
+PUBKEY=${RPI_ALERT_RELEASE_PUBKEY:-$PREFIX/os/release-signing-key.pem}
+VERIFY=${RPI_ALERT_VERIFY:-$PREFIX/libexec/verify-release.js}
+
+# A release tag is "v" + a version; anything else (a branch, for --ref) is the
+# unsigned testing path.
+is_release() { case "$1" in v[0-9]*) return 0 ;; *) return 1 ;; esac; }
+# A real signing key is pinned (not the shipped placeholder)?
+signing_configured() { grep -q 'BEGIN PUBLIC KEY' "$PUBKEY" 2>/dev/null; }
+
+# The GitHub source archive for a branch or tag → $tmp/$2. Unverified.
+fetch_archive() { install -d "$tmp/$2"; curl -fsSL --max-time 300 "https://github.com/$REPO/archive/$1.tar.gz" | tar -xz -C "$tmp/$2" --strip-components=1; }
+
+# A release's signed source tarball + signature → verify against the pinned key
+# → extract into $tmp/$2. Any failure (missing asset, missing or bad signature)
+# returns non-zero and extracts nothing, so an unverified tree is never run.
+fetch_release_verified() {
+  local tag=$1 dest=$2 url="https://github.com/$REPO/releases/download/$1"
+  local tb="$tmp/$1-src.tgz" sig="$tmp/$1-src.tgz.sig"
+  curl -fsSL --max-time 300 -o "$tb"  "$url/rpi-alert-$1-src.tar.gz"     || return 1
+  curl -fsSL --max-time 60  -o "$sig" "$url/rpi-alert-$1-src.tar.gz.sig" || return 1
+  node "$VERIFY" "$PUBKEY" "$sig" "$tb" || return 1
+  install -d "$tmp/$dest"; tar -xzf "$tb" -C "$tmp/$dest" --strip-components=1 || return 1
+}
+
+# A release with signing on is fetched as a signed asset and verified; a branch,
+# or a Pi with no key pinned yet, falls back to the unverified source archive.
+get_tree() { if is_release "$1" && signing_configured; then fetch_release_verified "$1" "$2"; else fetch_archive "$1" "$2"; fi; }
+
+if is_release "$REF" && ! signing_configured; then
+  echo "No release signing key is pinned yet — installing $REF without verifying it (see docs/release-signing.md)."
+elif ! is_release "$REF"; then
+  echo "Installing a branch ($REF) — no signature check."
+fi
 
 status running "Downloading $REF" "$REF"
-fetch "$REF" new
-# The way back, fetched now so it does not depend on the network later.
+if ! get_tree "$REF" new; then
+  if is_release "$REF" && signing_configured; then
+    status failed "$REF could not be downloaded and verified against the pinned release key — not installing (see docs/release-signing.md)" "$REF"
+  else
+    status failed "could not download $REF" "$REF"
+  fi
+  exit 1
+fi
+# The way back, fetched now so it does not depend on the network later. The
+# rollback target is the version already running, so it is taken from the source
+# archive rather than requiring a signed asset — recovery must not be blockable.
 back=""
-if [ "$current" != unknown ] && fetch "v$current" old 2>/dev/null; then back="v$current"; fi
+if [ "$current" != unknown ] && fetch_archive "v$current" old 2>/dev/null; then back="v$current"; fi
 
 # Is the agent up and answering as version $1? Two minutes to say so.
 healthy() {

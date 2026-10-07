@@ -87,12 +87,33 @@ jobs:
     if: needs.plan.outputs.tag != ''
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: rpi-alert-*
           path: out
           merge-multiple: true
       - run: ls -la out
+      # The tarball rpi-alert-update installs, and its Ed25519 signature. Once a
+      # release signing key is pinned in the image, the updater verifies this
+      # against it and refuses a release it cannot (security appraisal M-1).
+      # docs/release-signing.md has the one-time setup and the rollout order.
+      - name: Build and sign the update source tarball
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          tar -czf "out/rpi-alert-$TAG-src.tar.gz" --owner=0 --group=0 \
+            --transform "s,^,rpi-alert-$TAG/," agent os
+          if [ -n "${RELEASE_SIGNING_KEY:-}" ]; then
+            umask 077; printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/relkey.pem"
+            node os/libexec/sign-release.js "$RUNNER_TEMP/relkey.pem" "out/rpi-alert-$TAG-src.tar.gz"
+            rm -f "$RUNNER_TEMP/relkey.pem"
+          else
+            echo "::warning::RELEASE_SIGNING_KEY is not set — this release is UNSIGNED. A Pi with a pinned key will refuse it (see docs/release-signing.md)."
+          fi
+          ls -la out
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
@@ -104,6 +125,7 @@ jobs:
             out/*.img.xz
             out/*.sha256
             out/os-list-*.json
+            out/*-src.tar.gz*
           body: |
             Raspberry Pi SD-card images for RPi ALERT ${{ needs.plan.outputs.tag }} — Raspberry Pi OS Lite with the RPi ALERT agent.
 
@@ -114,3 +136,5 @@ jobs:
             `--repo https://cdomotor-g.github.io/RPi_ALERT/os_list.json` and pick RPi ALERT. Check a download against its `.sha256`.
 
             Already running Raspberry Pi OS? No reflash: `curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash`
+
+            The in-place updater installs **rpi-alert-${{ needs.plan.outputs.tag }}-src.tar.gz**; once a release signing key is configured it is verified against `…-src.tar.gz.sig` (docs/release-signing.md).
