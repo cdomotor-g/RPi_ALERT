@@ -35,4 +35,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
-      - run: shellcheck os/install.sh os/bootstrap.sh os/libexec/* build/build-image.sh os/files/profile/rpi-alert.sh agent/scripts/*.sh
+      # os/libexec's release signing helpers are Node, not shell.
+      - run: shellcheck os/install.sh os/bootstrap.sh $(find os/libexec -type f ! -name '*.js') build/build-image.sh os/files/profile/rpi-alert.sh agent/scripts/*.sh

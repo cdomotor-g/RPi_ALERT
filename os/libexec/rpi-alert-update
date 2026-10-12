@@ -92,9 +92,9 @@ fetch_archive() { install -d "$tmp/$2"; curl -fsSL --max-time 300 "https://githu
 # returns non-zero and extracts nothing, so an unverified tree is never run.
 fetch_release_verified() {
   local tag=$1 dest=$2 url="https://github.com/$REPO/releases/download/$1"
-  local tb="$tmp/$1-src.tgz" sig="$tmp/$1-src.tgz.sig"
-  curl -fsSL --max-time 300 -o "$tb"  "$url/rpi-alert-$1-src.tar.gz"     || return 1
-  curl -fsSL --max-time 60  -o "$sig" "$url/rpi-alert-$1-src.tar.gz.sig" || return 1
+  local tb="$tmp/$tag-src.tgz" sig="$tmp/$tag-src.tgz.sig"
+  curl -fsSL --max-time 300 -o "$tb"  "$url/rpi-alert-$tag-src.tar.gz"     || return 1
+  curl -fsSL --max-time 60  -o "$sig" "$url/rpi-alert-$tag-src.tar.gz.sig" || return 1
   node "$VERIFY" "$PUBKEY" "$sig" "$tb" || return 1
   install -d "$tmp/$dest"; tar -xzf "$tb" -C "$tmp/$dest" --strip-components=1 || return 1
 }
