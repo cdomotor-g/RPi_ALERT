@@ -50,6 +50,17 @@ behaviour until you opt in by pinning a real key.
    '
    ```
 
+   No computer with Node to hand? Any of these makes the same pair:
+
+   - **OpenSSL 1.1.1 or newer**:
+     `openssl genpkey -algorithm ed25519 -out rpi-alert-release.pem && openssl pkey -in rpi-alert-release.pem -pubout -out rpi-alert-release.pub.pem`
+   - **A browser** (Chrome, Safari, Firefox, phones included), with Web Crypto:
+     `crypto.subtle.generateKey({name: "Ed25519"}, true, ["sign", "verify"])`, then the
+     private key exported as `pkcs8` and the public key as `spki`, each in a PEM block.
+     Each block is three lines.
+   - **A GitHub Codespace** on this repository (Code → Codespaces), which has Node: run
+     the command above in its terminal, then delete the codespace.
+
    Keep `rpi-alert-release.pem` somewhere durable and private (a password
    manager, a hardware-backed store). If you lose it you can make a new one and
    re-pin; if it leaks, anyone can sign a release, so treat it like the fleet's
@@ -83,6 +94,9 @@ Do **not** pin the public key in the image without also setting the
 `RELEASE_SIGNING_KEY` secret: a pinned key plus unsigned releases means every
 such Pi refuses every update until a signed release appears. That is the
 intended safety behaviour, but it will look like updates have stopped.
+`build-image.yml` therefore refuses to publish a release when a key is pinned and
+the secret is missing, or when the secret's signature does not verify against the
+pinned key.
 
 ## Checking a release by hand
 
