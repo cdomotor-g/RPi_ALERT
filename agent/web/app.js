@@ -278,6 +278,7 @@ function deviceLine(d) {
       if (d.model || d.tuner) bits.push(d.model || d.tuner);
       if (d.level) bits.push('channel ' + d.level.chDb + ' dB (floor ' + d.level.nfDb + ')' + (d.level.open ? ' · OPEN' : ''));
       bits.push(d.counts.bursts + ' bursts, ' + d.counts.decodes + ' decodes');
+      if (tuneHint(d)) bits.push(tuneHint(d));
     }
   } else {
     bits.push(d.port.dev.split('/').pop() + (d.port.baud && !d.port.acm ? ' @ ' + d.port.baud : ''));
@@ -503,6 +504,7 @@ function stickLine(s) {
     if (s.model || s.tuner) bits.push(s.model || s.tuner);
     bits.push((s.centerHz / 1e6).toFixed(3) + ' MHz centre');
     if (s.level) bits.push('ADC ' + s.level.dbfs + ' dBFS' + (s.level.clipPct ? ', clipping ' + s.level.clipPct + '%' : ''));
+    if (tuneHint(s)) bits.push(tuneHint(s));
   }
   if (s.error) bits.push('⚠ ' + s.error);
   return bits.join(' · ');
@@ -560,9 +562,10 @@ function renderPi() {
   };
   const temps = line(1).filter(p => p[1] != null).map(p => p[1]);
   const hot = sy.tempC != null && sy.tempC > 75 ? '--bad' : sy.tempC != null && sy.tempC > 65 ? '--warn' : '--ok';
-  $('#pi-temp').textContent = sy.tempC != null ? sy.tempC + ' °C' : '—';
-  $('#pi-temp').style.color = 'var(' + hot + ')';
-  Charts.draw($('#pi-temp-c'), { t0, t1, gutter: 34, lines: [{ pts: line(1), color: hot, fill: true }], y: { minSpan: 10, unit: '°C', fmt: v => v + '°' },
+  $('#pi-temp').textContent = sy.tempC != null ? sy.tempC + ' °C' : 'not reported on this machine';
+  $('#pi-temp').style.color = sy.tempC != null ? 'var(' + hot + ')' : 'var(--dim)';
+  $('#pi-temp-c').hidden = sy.tempC == null && !temps.length;
+  if (!$('#pi-temp-c').hidden) Charts.draw($('#pi-temp-c'), { t0, t1, gutter: 34, lines: [{ pts: line(1), color: hot, fill: true }], y: { minSpan: 10, unit: '°C', fmt: v => v + '°' },
     refs: temps.length && Math.max(...temps) > 60 ? [{ v: 80, color: '--bad', label: 'slows down at 80 °C' }] : [], tip: tipOf(1, v => v + ' °C') });
   $('#pi-load').textContent = sy.load ? sy.load[0] + ' of ' + cores + ' cores' : '—';
   Charts.draw($('#pi-load-c'), { t0, t1, gutter: 34, lines: [{ pts: line(2), color: '--accent', fill: true }], y: { floor: 0, minSpan: 1 },
@@ -605,6 +608,75 @@ function renderTopHeard() {
   }).join('') : '<tr><td colspan="6" class="dim">Nothing heard yet.</td></tr>');
 }
 
+// ── tuning help: the ppm and gain to set (lib/devices/tune-help.js) ─────────
+
+const sgn = (v) => (v > 0 ? '+' : '') + v;
+const dB = (g) => (g == null ? 'AGC' : g + ' dB');
+
+// A few words for the dashboard's line: what to change, if anything.
+function tuneHint(d) {
+  const t = d.tuneHelp;
+  if (!t) return '';
+  const bits = [];
+  if (t.ppm && t.ppm.state === 'change') bits.push('ppm ' + sgn(t.ppm.suggest));
+  if (t.gain && t.gain.state === 'change') bits.push('gain ' + dB(t.gain.suggest));
+  return bits.length ? '⚙ suggests ' + bits.join(', ') : '';
+}
+
+function tuneButton(d, what, value, label) {
+  return '<button type="button" class="small" data-tune="' + what + '" data-key="' + esc(d.key) + '" data-name="' + esc(d.name) + '" data-value="' + esc(value) + '">' + esc(label) + '</button>';
+}
+
+function tuneHtml(d) {
+  const t = d.tuneHelp;
+  if (!t) return '';
+  const p = t.ppm, g = t.gain;
+  let ph;
+  if (p.state === 'measuring') {
+    ph = '<span class="dim">measuring — ' + p.bursts + ' of ' + p.need.bursts + ' decoded bursts, from ' + p.stations + ' of ' + p.need.stations + ' stations, so far</span>';
+  } else {
+    const meas = 'its bursts arrive as if it were ' + sgn(p.estimate) + ' ppm off, from ' + p.bursts + ' bursts by ' + p.stations + ' stations (' + (p.spread < 0.5 ? 'they agree closely' : 'they agree within ' + p.spread + ' ppm') + ')'
+      + (p.spread > 2 ? ' — they disagree a lot: check against a signal you know' : '');
+    ph = p.state === 'ok'
+      ? '<span class="status ok">✓ ' + esc(sgn(p.set)) + ' ppm is right</span> <span class="dim">— ' + esc(meas) + '</span>'
+      : '<b>' + esc(sgn(p.suggest)) + ' ppm</b> (now ' + esc(sgn(p.set)) + ') <span class="dim">— ' + esc(meas) + '</span>' + tuneButton(d, 'ppm', p.suggest, 'Set ' + sgn(p.suggest) + ' ppm');
+  }
+  let gh;
+  const strongest = g.strongest != null ? 'the strongest bursts peak at ' + g.strongest + ' dBFS' : '';
+  if (g.state === 'measuring') gh = '<span class="dim">measuring — ' + g.bursts + ' of ' + g.need.bursts + ' bursts heard at ' + esc(dB(g.set)) + ' so far</span>';
+  else if (g.state === 'ok') gh = '<span class="status ok">✓ ' + esc(dB(g.set)) + ' is right</span> <span class="dim">— ' + esc(strongest) + ', with room below full scale</span>';
+  else {
+    const why = g.why === 'clipping' ? (g.set == null ? 'the tuner\'s AGC lets the ADC clip (' + (d.level ? d.level.clipPct : '?') + '% of samples) — a fixed gain stops it'
+      : 'the ADC is clipping (' + (d.level ? d.level.clipPct : '?') + '% of samples) — something strong in the slice the stick hears, on a channel or not')
+      : g.why === 'saturated' ? g.saturated + ' of ' + g.bursts + ' bursts reached the ADC\'s full scale, so the strongest stations are louder than it can show — and decode worse'
+      : strongest + ': room for more gain before the strongest saturate';
+    gh = '<b>' + esc(dB(g.suggest)) + '</b> (now ' + esc(dB(g.set)) + ') <span class="dim">— ' + esc(why) + '</span>' + tuneButton(d, 'gain', g.suggest, 'Set ' + dB(g.suggest));
+  }
+  return '<div class="tune"><div class="chart-label">Tuning help <span class="dim small">— from what this stick has heard since the agent started; the button sets it for this stick only</span></div>'
+    + kv([['Frequency correction', ph], ['Gain', gh]]) + '</div>';
+}
+
+// Sets one stick's own ppm or gain: its entry in receivers.sdrDevices.
+async function applyTune(b) {
+  const what = b.dataset.tune, v = Number(b.dataset.value);
+  const text = what === 'ppm' ? 'frequency correction to ' + sgn(v) + ' ppm' : 'gain to ' + v + ' dB';
+  if (!confirm('Set ' + b.dataset.name + '\'s ' + text + '? Its rtl_sdr restarts, so a burst may be missed for a second or two.')) return;
+  b.disabled = true;
+  try {
+    const cfg = (await api('/api/config')).config;
+    const list = (cfg.receivers.sdrDevices || []).map(e => Object.assign({}, e));
+    const d = S.status.devices.sdrs.find(x => x.key === b.dataset.key);
+    let e = list.find(x => x.key === b.dataset.key) || (d && list.find(x => !x.key && x.serial && x.serial === d.device.serial));
+    if (!e) { e = {}; list.push(e); }
+    e.key = b.dataset.key; delete e.serial;
+    e[what === 'ppm' ? 'ppm' : 'gainDb'] = v;
+    const r = await api('/api/config', { method: 'PUT', body: { config: { receivers: { sdrDevices: list } } } });
+    S.config = r.config;
+    refresh();
+  } catch (err) { alert(err.message); b.disabled = false; }
+}
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-tune]'); if (b && !b.disabled) applyTune(b); });
+
 // ── receivers tab ───────────────────────────────────────────────────────────
 
 function kv(rows) { return '<div class="kv">' + rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join('') + '</div>'; }
@@ -626,11 +698,12 @@ function rxHeadHtml(d) {
 
 function renderRxFull() {
   keyedRows($('#rx-full'), allDevices(), {
-    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div><div class="hist"></div><div class="spec"></div>',
+    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div><div class="tune-box"></div><div class="hist"></div><div class="spec"></div>',
     empty: '<div class="card dim none">No receivers found yet.</div>',
     update: (card, d) => {
       setHtml($('.head', card), rxHeadHtml(d));
       setHtml($('.body', card), rxBodyHtml(d));
+      setHtml($('.tune-box', card), d.kind === 'sdr' ? tuneHtml(d) : '');
       renderRxHistory($('.hist', card), d);
       const spec = $('.spec', card);
       if (d.kind === 'sdr' && d.spectrum) {

@@ -10,7 +10,8 @@
 #
 # With --channels, the first stick is on the air on four channels at once —
 # 151.5, 151.525, 151.95 (Enhanced iFLOWS) and 152.4 MHz, as one stick hears
-# them — and the settings listen on all four.
+# them — and the settings listen on all four. Its crystal is 4 ppm fast, for
+# the Receivers page's tuning help to find.
 #
 #   agent/scripts/simulate.sh [--channels] [sticks]   (1–4 RTL-SDR sticks, default 1; needs node and socat)
 set -euo pipefail
@@ -29,7 +30,7 @@ mkdir -p "$S/dev" "$S/data" "$S/etc" "$S/bin"
 fake='{"1-1.3": {"frames": "2088:143,2089:12"}'
 sdr_cfg=''
 if (( channels )); then
-  fake='{"1-1.3": {"bursts": [{"channelHz": 151500000, "frames": "2088:143,2089:12"}, {"channelHz": 151525000, "frames": "2443:142"},'
+  fake='{"1-1.3": {"ppmError": 4, "bursts": [{"channelHz": 151500000, "frames": "2088:143,2089:12"}, {"channelHz": 151525000, "frames": "2443:142"},'
   fake+=' {"channelHz": 151950000, "frames": "4079:420", "format": "ENHANCED_IFLOWS"}, {"channelHz": 152400000, "frames": "6129:77"}]}'
   sdr_cfg=', "receivers": { "sdr": { "moreChannels": [{ "freqHz": 151525000 }, { "freqHz": 151950000, "format": "ENHANCED_IFLOWS" }, { "freqHz": 152400000 }] } }'
 fi

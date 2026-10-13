@@ -112,7 +112,12 @@ canvas.small-chart { height: 64px; }
 .seg button { background: transparent; color: var(--dim); border: 0; border-radius: 0; padding: 4px 11px; font-weight: 500; font-size: .86em; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--panel2); color: var(--text); font-weight: 600; }
-.pi-charts > div:first-child .chart-label { margin-top: 0; }
+.pi-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 0 18px; }
+.pi-charts .chart-label { margin-top: 0; }
+.pi-card canvas.small-chart { height: 70px; }
+.tune .kv { margin-bottom: 4px; }
+.tune button { margin-left: 6px; }
+.tune-hint { color: var(--warn); }
 .top-heard td { padding: 5px 8px; }
 
 .form label { display: block; margin: 8px 0; }

@@ -8,6 +8,7 @@
 
 const { parentPort, workerData } = require('node:worker_threads');
 const { AlertDsp } = require('../meganet-codecs');
+const { CarrierMeter } = require('./carrier');
 
 const PREROLL_S = 0.15, HANG_S = 0.25, MAX_CLIP_S = 4;
 const SPEC_BINS = 256;
@@ -24,7 +25,8 @@ const pipe = new AlertDsp.Pipeline((m) => {
   switch (m.type) {
     case 'decode':
       parentPort.postMessage({ type: 'decode', readings: m.readings, shadows: m.shadows, burst: m.burst, all: m.all,
-        ms: m.ms, combos: m.combos, seconds: m.seconds, format: m.format, carrier: m.trace ? m.trace.carrierHz : null });
+        ms: m.ms, combos: m.combos, seconds: m.seconds, format: m.format, carrier: m.trace ? m.trace.carrierHz : null,
+        cfoHz: meter.take(m.burst && m.burst.t) });
       break;
     case 'burst':
       parentPort.postMessage({ type: 'burst', ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });
@@ -79,6 +81,7 @@ parentPort.on('message', (m) => {
     if (m.type === 'iq') {
       const u8 = new Uint8Array(m.buf);
       pipe.feed(u8);
+      meter.after((u8.length >> 1) * AlertDsp.FS_BB / pipe.cfg.deviceRate);
       processed += u8.length >> 1;
       parentPort.postMessage({ type: 'fed', bytes: u8.length });
     } else if (m.type === 'config') {
@@ -86,11 +89,15 @@ parentPort.on('message', (m) => {
       pipe.configure(Object.assign({}, m.cfg, { audio: audioOn }));
     } else if (m.type === 'reset') {
       pipe.reset(); clip = null; preroll = []; prerollN = 0; processed = 0;
+      meter.cur = null; meter.ring = pipe.audio; meter.lastPos = pipe.audio ? pipe.audioPos : 0;
     }
   } catch (e) {
     parentPort.postMessage({ type: 'error', message: String((e && e.stack) || e) });
   }
 });
+
+// Each burst's carrier offset, from the pipeline's discriminator (lib/devices/carrier.js).
+const meter = new CarrierMeter(pipe, AlertDsp.FS_BB);
 
 pipe.configure(Object.assign({ specHz: 1, scopeHz: 1, fftSize: 2048 }, (workerData && workerData.cfg) || {}, { audio: audioOn }));
 parentPort.postMessage({ type: 'ready' });

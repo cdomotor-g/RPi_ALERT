@@ -52,6 +52,19 @@ listen to networks further apart than one stick hears. Changing one stick's chan
 bias tee restarts only that stick's `rtl_sdr` (and only if where it is tuned changes); a format or
 squelch change does not restart anything.
 
+**Tuning help.** Each stick's card on the **Receivers** page suggests the ppm and gain to set, from
+what it has heard since the agent started, with a button that sets it for that stick only:
+
+- *Frequency correction* — every decoded burst's carrier offset is measured (the FM discriminator
+  averaged over the burst, to a few tens of Hz). The offsets are the stick's crystal error plus each
+  station's own, so the suggestion is the median of the stations' medians — after 6 bursts from at
+  least 2 stations. Under 1 ppm off, it says the setting is right.
+- *Gain* — down (at least 8 dB) when bursts reach the ADC's full scale or the ADC clips; up (up to
+  12 dB) when even the strongest bursts peak below −30 dBFS; otherwise it says the gain is right.
+  Only bursts heard at the gain now set count, so each change is judged afresh.
+
+The dashboard's line for the stick says *⚙ suggests …* while there is something to change.
+
 Most sticks share one serial number (`00000001`), so sticks are told apart by the **USB port** they
 are in: keep each in its port and it keeps its name, settings and receiver id, across replugs and
 reboots, whatever else is plugged in. (A stick plugged into another port takes the place of a stick

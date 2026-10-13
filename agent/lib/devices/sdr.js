@@ -44,6 +44,7 @@ const { EventEmitter } = require('node:events');
 const { STICK_FIELDS, channelsOf } = require('../config');
 const { openedUsb } = require('./rtl-index');
 const { plan } = require('./sdr-plan');
+const { TuneHelp } = require('./tune-help');
 const { mhz } = require('../../web/channels');
 
 const STALL_MS = 10000;
@@ -141,6 +142,8 @@ class SdrChannel {
     const nf = m.burst ? Math.round(m.burst.nfDb * 10) / 10 : null;
     // Burst peak over the closed-squelch floor it opened on, both in the 12 kHz channel.
     const snr = level != null && nf != null ? Math.round((level - nf) * 10) / 10 : null;
+    // How far off the channel this burst's carrier was: the stick's ppm error, and the station's.
+    if (m.cfoHz != null && m.readings.length) this.stick.tuneHelp.carrier(m.readings[0].sensorId, m.cfoHz, this.spec.freqHz, this.stick.cfg().ppm);
     for (const r of m.readings) {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
@@ -198,6 +201,7 @@ class SdrSession extends EventEmitter {
     this.protocol = 'alert';
     this.point = agent.state.pointFor(this.key, 'sdr');
     this.log = agent.log.child('sdr' + this.point.n);
+    this.tuneHelp = new TuneHelp();   // the ppm and gain to suggest
     this.state = opts && opts.absent ? 'unplugged' : 'starting';
     this.proc = null;
     this.channels = [];         // SdrChannel, one per channel: the receivers
@@ -533,6 +537,7 @@ class SdrSession extends EventEmitter {
       ch.counts.bursts++;
       const peak = round(m.peakDb), nf = round(m.nfDb);
       ch.lastBurst = { t: Date.now(), ms: m.ms, peakDb: peak, nfDb: nf, snrDb: peak != null && nf != null ? round(peak - nf) : null };
+      this.tuneHelp.burst(peak, this.cfg().gainDb);
       this.agent.deviceEvent(ch, 'burst', { ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });
       return;
     }
@@ -615,6 +620,7 @@ class SdrSession extends EventEmitter {
       spectrum: this.spectrum && plugged ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: c.centerHz, channelHz: c.freqHz,
         channelsHz: this.channels.filter(ch => ch.spec.inBand).map(ch => ch.spec.freqHz) } : null,
       counts, lastDecode: latest('lastDecode'), lastBurst: latest('lastBurst'), stderr: this.stderr.slice(-5),
+      tuneHelp: plugged ? this.tuneHelp.status(c, lv) : null,
       rateKsps: this.startedAt && this.state === 'running' ? Math.round(this.bytesIn / 2 / Math.max(1, (Date.now() - this.startedAt) / 1000) / 1000) : 0,
       startedAt: this.startedAt || null,
     };

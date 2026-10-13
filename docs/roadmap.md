@@ -80,10 +80,9 @@ badly each one strands somebody:
 
 ## Seeing what the radio hears
 
-- **Tuning help.** `alert-dsp.js`'s `carrierSearch` already measures each burst's carrier offset.
-  Averaged over the stations a stick hears, it is the stick's own ppm error, so the page can suggest
-  the ppm to set; clipping is warned about today, so suggest the gain that stops it too. The same
-  offsets per station are MegaNet's transmitter-drift finding (*MegaNet side*).
+- **Transmitter drift per station.** The Receivers page's tuning help measures every decoded
+  burst's carrier offset to tens of Hz (lib/devices/carrier.js); with the stick's own error taken
+  out, what is left is each station's transmitter — MegaNet's transmitter-drift finding (*MegaNet side*).
 - **Record the next N seconds.** A button (and a CLI verb) that saves a stick's IQ or demodulated
   audio for a bad station, without stopping the agent and running `rtl_sdr` by hand as
   [bench-test.md](bench-test.md) does.
