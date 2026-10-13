@@ -184,8 +184,11 @@ class WebServer {
     }
     if (p === '/api/readings') {
       const n = Math.min(500, Number(url.searchParams.get('limit')) || 200);
-      return this.json(res, 200, { readings: a.recent.slice(0, n), bursts: a.bursts.slice(0, 50) });
+      // The bursts of the last half hour: the dashboard's live charts.
+      const since = Date.now() - 30 * 60 * 1000;
+      return this.json(res, 200, { readings: a.recent.slice(0, n), bursts: a.bursts.filter(b => b.t >= since) });
     }
+    if (p === '/api/history' && req.method === 'GET') return this.json(res, 200, a.history.get(url.searchParams.get('since')));
     if (p === '/api/events') return this.sse(req, res, authed);
     if (p === '/api/login' && req.method === 'POST') return this.login(req, res, body);
     if (p === '/api/logout' && req.method === 'POST') {

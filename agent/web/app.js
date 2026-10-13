@@ -298,13 +298,6 @@ function deviceLine(d) {
   return bits.join(' · ');
 }
 
-function renderRxMini() {
-  const list = receivers();
-  $('#rx-mini').innerHTML = list.length ? list.map(d => '<div class="rx"><span class="dot ' + esc(d.state) + '"></span><b>' + esc(d.name) + '</b><span>'
-    + (d.protocol ? protoTag(d.protocol) + ' ' : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span></span><div class="meta">' + esc(deviceLine(d)) + '</div></div>').join('')
-    : '<div class="dim">No receivers found. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware (USB-C), an ERT-A2 (USB-serial cable) or a USB GPS — each is picked up within a few seconds.</div>';
-}
-
 // A channel peak this close to 0 dBFS is the ADC's ceiling, not the signal:
 // the burst saturated the stick and its level and SNR are only lower bounds.
 const SATURATED_DBFS = -3;
@@ -342,37 +335,274 @@ function renderReadings(freshOne) {
   $('#readings').innerHTML = list.length ? list.map((r, i) => readingRow(r, freshOne && i === 0)).join('')
     : '<tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr>';
   $('#read-count').textContent = S.readings.length ? '(' + S.readings.length + ' this session)' : '';
+  renderTopHeard();
+}
+
+// ── charts: the time shown, and the last day a minute at a time ─────────────
+// One choice of time for every chart (remembered in this browser): the last
+// half hour burst by burst, or 6 or 24 hours a few minutes a bar, from the
+// agent's history (lib/history.js) — which is kept through restarts.
+
+const MIN = 60 * 1000;
+const WINDOWS = { '30m': { ms: 30 * MIN, bucket: MIN, text: 'the last 30 min' }, '6h': { ms: 6 * 60 * MIN, bucket: 5 * MIN, text: 'the last 6 h' },
+  '24h': { ms: 24 * 60 * MIN, bucket: 15 * MIN, text: 'the last 24 h' } };
+try { const w = localStorage.getItem('rpi-alert.win'); if (WINDOWS[w]) S.win = w; } catch (_) {}
+if (!S.win) S.win = '30m';
+S.hist = { sys: [], rx: new Map(), cores: null, lastT: 0 };
+
+function setWin(w) {
+  if (!WINDOWS[w]) return;
+  S.win = w;
+  try { localStorage.setItem('rpi-alert.win', w); } catch (_) {}
+  $$('[data-win]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.win === w)));
+  renderCharts(true);
+}
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-win]'); if (b) setWin(b.dataset.win); });
+
+// Rows from `since` on replace what the page had from then (the minute still
+// being filled comes again, with its final counts).
+function mergeRows(have, rows) {
+  if (!rows.length) return have;
+  const from = rows[0][0];
+  const keep = have.filter(p => p[0] < from && p[0] >= Date.now() - 24 * 60 * MIN);
+  return keep.concat(rows);
+}
+
+async function loadHistory() {
+  try {
+    const h = await api('/api/history' + (S.hist.lastT ? '?since=' + S.hist.lastT : ''));
+    S.hist.cores = h.cores;
+    S.hist.sys = mergeRows(S.hist.sys, h.sys);
+    for (const r of h.rx) {
+      const was = S.hist.rx.get(r.key);
+      S.hist.rx.set(r.key, { name: r.name, unit: r.unit, rows: mergeRows(was ? was.rows : [], r.rows) });
+    }
+    let last = 0;
+    for (const p of S.hist.sys) last = Math.max(last, p[0]);
+    for (const r of S.hist.rx.values()) if (r.rows.length) last = Math.max(last, r.rows[r.rows.length - 1][0]);
+    S.hist.lastT = last;
+    renderCharts(true);
+  } catch (_) {}
+}
+
+// A receiver's bursts and readings in buckets across the window: [{ t, b, d }].
+function bucketed(keys, t0, bucket) {
+  const out = new Map();
+  for (const k of keys) {
+    const r = S.hist.rx.get(k);
+    if (!r) continue;
+    for (const p of r.rows) {
+      if (p[0] < t0 - bucket) continue;
+      const t = Math.floor(p[0] / bucket) * bucket;
+      const o = out.get(t) || { t, b: 0, d: 0 };
+      o.b += p[1]; o.d += p[2];
+      out.set(t, o);
+    }
+  }
+  return [...out.values()];
+}
+
+function activityBars(buckets, bucket) {
+  const bars = [];
+  for (const o of buckets) {
+    bars.push({ t: o.t, w: bucket, v: o.b, color: Charts.alpha('--accent', 0.35) });
+    bars.push({ t: o.t + bucket * 0.2, w: bucket * 0.6, v: o.d, color: '--ok' });
+  }
+  return bars;
+}
+
+function bucketTip(buckets, bucket) {
+  return (t) => {
+    const o = buckets.find(x => t >= x.t && t < x.t + bucket);
+    const from = Math.floor(t / bucket) * bucket;
+    return Charts.hhmm(from) + '–' + Charts.hhmm(from + bucket) + ' · ' + (o ? o.b + ' burst' + (o.b === 1 ? '' : 's') + ', ' + o.d + ' reading' + (o.d === 1 ? '' : 's') : 'nothing heard');
+  };
+}
+
+// How high a burst's stem stands: its peak, on its own kind of scale.
+function burstF(b) {
+  const pk = b.peakDb != null ? b.peakDb : b.peak;
+  if (pk == null) return 0.4;
+  return b.kind === 'sdr' ? (pk + 60) / 60 : (pk + 130) / 80;
+}
+const burstOf = (b, d) => (b.key ? b.key === d.key : b.receiver === d.name);
+const readingOf = (r, d) => (r.receiverKey ? r.receiverKey === d.key : r.receiver === d.name);
+
+// The live half hour: a stem for each burst (green once decoded), a dot for
+// each reading. `d` is one receiver, or none for all of them.
+function liveChart(c, d, t0, t1) {
+  const bursts = S.bursts.filter(b => b.t >= t0 && (!d || burstOf(b, d)));
+  const reads = S.readings.filter(r => r.t >= t0 && (!d || readingOf(r, d)));
+  const decoded = (b) => b.frames > 0 || reads.some(r => Math.abs(r.t - b.t) < 4000 && (!b.key || !r.receiverKey || r.receiverKey === b.key));
+  const stems = bursts.map(b => ({ t: b.t, f: burstF(b), color: decoded(b) ? '--ok' : '--warn', b }));
+  Charts.draw(c, {
+    t0, t1, stems, noY: true, xAxis: !d, gutter: d ? 26 : 0,
+    dots: reads.map(r => ({ t: r.t, f: 0.92, color: '--accent', r: d ? 2 : 2.5 })),
+    tip: (t) => {
+      const tol = (t1 - t0) / Math.max(1, c.clientWidth) * 5;
+      const near = stems.filter(s => Math.abs(s.t - t) <= tol).map(s => s.b);
+      const rd = reads.filter(r => Math.abs(r.t - t) <= tol);
+      if (!near.length && !rd.length) return null;
+      const lines = near.slice(0, 4).map(b => hhmmss(b.t) + (d ? '' : ' · ' + b.receiver) + ((b.peakDb ?? b.peak) != null ? ' · peak ' + (b.peakDb ?? b.peak) + (b.kind === 'sdr' ? ' dBFS' : ' dBm') : ''));
+      for (const r of rd.slice(0, 4)) lines.push(hhmmss(r.t) + ' · ' + r.alert_id + (r.station ? ' ' + r.station.name : '') + ' = ' + r.eng);
+      return lines.join('\n');
+    },
+  });
+  return { bursts: bursts.length, readings: reads.length };
+}
+
+let chartsQueued = false;
+function renderCharts(now) {
+  if (now) { chartsQueued = false; drawCharts(); return; }
+  if (chartsQueued) return;
+  chartsQueued = true;
+  requestAnimationFrame(() => { if (chartsQueued) { chartsQueued = false; drawCharts(); } });
+}
+
+function drawCharts() {
+  $$('[data-win]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.win === S.win)));
+  if (S.tab === 'dash') { renderBursts(); renderRxMini(); renderPi(); }
+  if (S.tab === 'rx') renderRxFull();
 }
 
 function renderBursts() {
   const c = $('#burst-canvas');
   if (!c || S.tab !== 'dash') return;
-  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
-  c.width = w * dpr; c.height = h * dpr;
-  const g = c.getContext('2d');
-  g.scale(dpr, dpr);
-  const css = getComputedStyle(document.documentElement);
-  const now = Date.now(), span = 30 * 60 * 1000;
-  g.strokeStyle = css.getPropertyValue('--line'); g.lineWidth = 1;
-  g.beginPath(); g.moveTo(0, h - 0.5); g.lineTo(w, h - 0.5); g.stroke();
-  // Bursts: stems from the bottom; readings: dots.
-  const readT = S.readings.filter(r => now - r.t < span).map(r => r.t);
-  let n = 0;
-  for (const b of S.bursts) {
-    const age = now - b.t;
-    if (age > span) continue;
-    n++;
-    const x = w - (age / span) * w;
-    const lvl = b.peakDb != null ? (b.kind === 'sdr' ? b.peakDb + 60 : b.peakDb + 130) : 30;
-    const y = h - Math.max(6, Math.min(h - 4, lvl / 80 * h));
-    const decoded = b.frames > 0 || readT.some(t => Math.abs(t - b.t) < 4000);
-    g.strokeStyle = decoded ? css.getPropertyValue('--ok') : css.getPropertyValue('--warn');
-    g.lineWidth = 2;
-    g.beginPath(); g.moveTo(x, h); g.lineTo(x, y); g.stroke();
+  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
+  if (S.win === '30m') {
+    const n = liveChart(c, null, t0, t1);
+    $('#burst-count').textContent = n.bursts ? '(' + n.bursts + ' in 30 min)' : '';
+    $('#burst-note').textContent = 'Each burst is a line, as high as its signal: green once decoded, amber if not. Blue dots: readings. Point at one to see it.';
+  } else {
+    const bk = bucketed([...S.hist.rx.keys()], t0, w.bucket);
+    Charts.draw(c, { t0, t1, bars: activityBars(bk, w.bucket), y: { floor: 0, minSpan: 4, fmt: v => String(v) }, tip: bucketTip(bk, w.bucket) });
+    const n = bk.reduce((a, o) => a + o.b, 0);
+    $('#burst-count').textContent = n ? '(' + n + ' in ' + S.win.replace('h', ' h') + ')' : '';
+    $('#burst-note').textContent = 'Every receiver together, ' + Math.round(w.bucket / MIN) + ' minutes a bar: bursts (pale) and the readings decoded from them (green).';
   }
-  g.fillStyle = css.getPropertyValue('--accent');
-  for (const t of readT) { const x = w - ((now - t) / span) * w; g.beginPath(); g.arc(x, 6, 2.5, 0, 7); g.fill(); }
-  $('#burst-count').textContent = n ? '(' + n + ')' : '';
+}
+
+// The receivers, a line each — a stick with several channels as a heading
+// with its channels under it — each with its own chart over the same time.
+function rxLines() {
+  const out = [];
+  for (const d of allDevices()) {
+    if (d.kind === 'sdr' && d.channels && d.channels.length > 1) {
+      out.push({ key: 'stick:' + d.key, stick: d });
+      for (const ch of d.channels) out.push({ key: ch.key, d: Object.assign({}, ch, { kind: 'sdr', protocol: 'alert', stick: d }), chan: true });
+    } else out.push({ key: d.key, d });
+  }
+  return out;
+}
+
+function stickLine(s) {
+  const bits = [s.channels.length + ' channels'];
+  if (s.state === 'unplugged' || S.status.devices.sdrs.length > 1) bits.push('USB port ' + (s.device.port || '?'));
+  if (s.state === 'unplugged') { if (s.lastSeen) bits.push('last seen ' + ago(Date.now() - s.lastSeen)); }
+  else {
+    if (s.model || s.tuner) bits.push(s.model || s.tuner);
+    bits.push((s.centerHz / 1e6).toFixed(3) + ' MHz centre');
+    if (s.level) bits.push('ADC ' + s.level.dbfs + ' dBFS' + (s.level.clipPct ? ', clipping ' + s.level.clipPct + '%' : ''));
+  }
+  if (s.error) bits.push('⚠ ' + s.error);
+  return bits.join(' · ');
+}
+
+function renderRxMini() {
+  const box = $('#rx-mini');
+  if (!box || !S.status) return;
+  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
+  $('#rx-note').textContent = 'Charts: ' + w.text + '.';
+  keyedRows(box, rxLines(), {
+    key: x => x.key, cls: 'rx-line', make: '<div class="rx-info"></div><canvas class="chart rx-chart"></canvas>',
+    empty: '<div class="dim none">No receivers found. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware (USB-C), an ERT-A2 (USB-serial cable) or a USB GPS — each is picked up within a few seconds.</div>',
+    update: (row, x) => {
+      const c = $('canvas', row);
+      if (x.stick) {
+        const s = x.stick;
+        row.className = 'rx-line is-stick';
+        setHtml($('.rx-info', row), '<div class="rx-top"><span class="dot ' + esc(s.state) + '"></span><b>' + esc(s.name) + '</b>' + protoTag('alert')
+          + '<span class="dim small">' + esc(stateLabel(s.state)) + '</span></div><div class="meta">' + esc(stickLine(s)) + '</div>');
+        return;
+      }
+      const d = x.d, charted = d.kind !== 'gps';
+      row.className = 'rx-line' + (x.chan ? ' chan' : '') + (charted ? '' : ' no-chart');
+      let n = null;
+      if (charted) {
+        if (S.win === '30m') n = liveChart(c, d, t0, t1);
+        else {
+          const bk = bucketed([d.key], t0, w.bucket);
+          Charts.draw(c, { t0, t1, xAxis: false, gutter: 26, bars: activityBars(bk, w.bucket), y: { floor: 0, minSpan: 2, fmt: v => String(v) }, tip: bucketTip(bk, w.bucket) });
+          n = { bursts: bk.reduce((a, o) => a + o.b, 0), readings: bk.reduce((a, o) => a + o.d, 0) };
+        }
+      }
+      setHtml($('.rx-info', row), '<div class="rx-top"><span class="dot ' + esc(d.state) + '"></span><b>' + esc(d.name) + '</b>'
+        + (d.protocol && !x.chan ? protoTag(d.protocol) : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span></div>'
+        + '<div class="meta">' + esc(deviceLine(d)) + '</div>'
+        + (n ? '<div class="rx-count small"><b>' + n.bursts + '</b> burst' + (n.bursts === 1 ? '' : 's') + ' · <b>' + n.readings + '</b> reading' + (n.readings === 1 ? '' : 's')
+          + ' <span class="dim">in ' + esc(w.text.replace('the ', '')) + '</span></div>' : ''));
+    },
+  });
+}
+
+// The Pi itself: temperature, load and memory over the window, a point a minute.
+function renderPi() {
+  const s = S.status;
+  if (!s || !$('#pi-temp-c')) return;
+  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
+  const sys = S.hist.sys.filter(p => p[0] >= t0 - MIN);
+  const sy = s.system, cores = S.hist.cores || sy.cores || 4;
+  const line = (i) => sys.map(p => [p[0], p[i]]);
+  const tipOf = (i, fmt) => (t) => {
+    let best = null;
+    for (const p of sys) if (p[i] != null && (!best || Math.abs(p[0] - t) < Math.abs(best[0] - t))) best = p;
+    return best && Math.abs(best[0] - t) < Math.max(2 * MIN, (t1 - t0) / 60) ? Charts.hhmm(best[0]) + ' · ' + fmt(best[i]) : null;
+  };
+  const temps = line(1).filter(p => p[1] != null).map(p => p[1]);
+  const hot = sy.tempC != null && sy.tempC > 75 ? '--bad' : sy.tempC != null && sy.tempC > 65 ? '--warn' : '--ok';
+  $('#pi-temp').textContent = sy.tempC != null ? sy.tempC + ' °C' : '—';
+  $('#pi-temp').style.color = 'var(' + hot + ')';
+  Charts.draw($('#pi-temp-c'), { t0, t1, gutter: 34, lines: [{ pts: line(1), color: hot, fill: true }], y: { minSpan: 10, unit: '°C', fmt: v => v + '°' },
+    refs: temps.length && Math.max(...temps) > 60 ? [{ v: 80, color: '--bad', label: 'slows down at 80 °C' }] : [], tip: tipOf(1, v => v + ' °C') });
+  $('#pi-load').textContent = sy.load ? sy.load[0] + ' of ' + cores + ' cores' : '—';
+  Charts.draw($('#pi-load-c'), { t0, t1, gutter: 34, lines: [{ pts: line(2), color: '--accent', fill: true }], y: { floor: 0, minSpan: 1 },
+    refs: [{ v: cores, color: '--warn', label: 'every core busy', always: sys.some(p => p[2] > cores * 0.6) }], tip: tipOf(2, v => 'load ' + v) });
+  const memPct = sy.memMb ? Math.round((1 - sy.memMb.free / sy.memMb.total) * 100) : null;
+  $('#pi-mem').textContent = memPct != null ? memPct + '% of ' + (sy.memMb.total >= 1024 ? Math.round(sy.memMb.total / 1024) + ' GB' : sy.memMb.total + ' MB') : '—';
+  Charts.draw($('#pi-mem-c'), { t0, t1, gutter: 34, lines: [{ pts: line(3), color: '--alert2', fill: true }], y: { min: 0, max: 100, fmt: v => v + '%' }, tip: tipOf(3, v => v + '% in use') });
+  const bits = ['up ' + ago(sy.uptimeS * 1000).replace(' ago', '')];
+  if (sy.disk) bits.push((sy.disk.freeMb >= 1024 ? (sy.disk.freeMb / 1024).toFixed(1) + ' GB' : sy.disk.freeMb + ' MB') + ' free on the card');
+  $('#pi-now').textContent = bits.join(' · ');
+  const p = sy.power, notes = [];
+  if (p && p.underVoltageNow) notes.push('⚠ Under-voltage now.');
+  else if (p && p.underVoltageSinceBoot) notes.push('⚠ Under-voltage since boot.');
+  if (p && p.throttledNow) notes.push('⚠ Slowed down (throttled) now.');
+  else if (p && p.throttledSinceBoot) notes.push('Throttled at some point since boot.');
+  if (p && !notes.length) notes.push('Power: no under-voltage or throttling since boot.');
+  notes.push(sys.length < 3 ? 'The graphs fill in a point a minute.' : 'A point a minute; the last day is kept, through restarts.');
+  $('#pi-note').textContent = notes.join(' ');
+}
+
+// The stations heard most in this session's readings (the newest 500).
+function renderTopHeard() {
+  const box = $('#top-heard');
+  if (!box) return;
+  const by = new Map();
+  for (const r of S.readings) {
+    const k = r.protocol + ':' + r.alert_id;
+    let o = by.get(k);
+    if (!o) { o = { r, n: 0, best: null }; by.set(k, o); }
+    o.n++;
+    const sig = r.snr_db != null ? r.snr_db : null;
+    if (sig != null && (o.best == null || sig > o.best)) o.best = sig;
+  }
+  const top = [...by.values()].sort((a, b) => b.n - a.n || b.r.t - a.r.t).slice(0, KIOSK ? 8 : 10);
+  setHtml(box, top.length ? top.map(o => {
+    const r = o.r;
+    return '<tr><td class="wrap">' + (r.station ? esc(r.station.name) : '<span class="dim">—</span>') + '</td><td class="num">' + protoTag(r.protocol) + ' ' + esc(r.alert_id)
+      + '</td><td class="num"><b>' + o.n + '</b></td><td><b>' + esc(r.eng) + '</b></td><td class="dim small">' + (o.best != null ? esc('SNR ' + Math.round(o.best) + ' dB') : r.rssi_dbm != null ? esc(r.rssi_dbm + ' dBm') : '—')
+      + '</td><td class="dim small">' + esc(ago(Date.now() - r.t)) + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="dim">Nothing heard yet.</td></tr>');
 }
 
 // ── receivers tab ───────────────────────────────────────────────────────────
@@ -396,20 +626,84 @@ function rxHeadHtml(d) {
 
 function renderRxFull() {
   keyedRows($('#rx-full'), allDevices(), {
-    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div>',
+    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div><div class="hist"></div><div class="spec"></div>',
     empty: '<div class="card dim none">No receivers found yet.</div>',
     update: (card, d) => {
       setHtml($('.head', card), rxHeadHtml(d));
       setHtml($('.body', card), rxBodyHtml(d));
-      let cv = $('canvas', card);
+      renderRxHistory($('.hist', card), d);
+      const spec = $('.spec', card);
       if (d.kind === 'sdr' && d.spectrum) {
-        if (!cv) { card.insertAdjacentHTML('beforeend', '<canvas height="120"></canvas><div class="dim small spec-note"></div>'); cv = $('canvas', card); }
-        $('.spec-note', card).textContent = d.spectrum.channelsHz && d.spectrum.channelsHz.length > 1
-          ? 'The whole slice the stick hears; its channels are the green lines. 1 s max hold.' : 'Spectrum around the channel (green line); 1 s max hold.';
-        drawSpectrum(cv, d);
-      } else if (cv) { cv.remove(); $('.spec-note', card).remove(); }
+        if (!spec.firstChild) {
+          spec.innerHTML = '<div class="chart-label">Spectrum <span class="dim small spec-note"></span></div><canvas class="spectrum"></canvas>'
+            + '<div class="chart-label">Waterfall <span class="dim small">— newest at the top; the last few minutes while this page is open</span></div><canvas class="waterfall"></canvas>';
+        }
+        $('.spec-note', spec).textContent = d.spectrum.channelsHz && d.spectrum.channelsHz.length > 1
+          ? '— the whole slice the stick hears; its channels are the green lines. 1 s max hold.' : '— around the channel (green line); 1 s max hold.';
+        drawSpectrum($('canvas.spectrum', spec), d);
+        const wf = S.wf.get(d.key);
+        if (wf && wf.rows.length) { const c = $('canvas.waterfall', spec); c.dataset.rows = WF_ROWS; Charts.waterfall(c, wf.rows, wf.lo, wf.hi); }
+      } else if (spec.firstChild) spec.innerHTML = '';
     },
   });
+}
+
+// Each receiver on a card — a serial device, or each channel of a stick — with
+// what it heard and its noise floor over the chosen time.
+function renderRxHistory(box, d) {
+  const list = d.kind === 'gps' ? [] : d.kind === 'sdr' && d.channels && d.channels.length > 1
+    ? d.channels.map(ch => Object.assign({}, ch, { label: Channels.mhz(ch.freqHz) + ' MHz' })) : [Object.assign({}, d, { label: '' })];
+  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
+  // The half hour a minute a bar, from the history too, so every chart on this tab reads the same way.
+  const bucket = S.win === '30m' ? MIN : w.bucket;
+  if (!list.length) { if (box.firstChild) box.innerHTML = ''; return; }
+  keyedRows(box, list, {
+    key: x => x.key, cls: 'hist-rx',
+    make: '<div class="chart-label act-label"></div><canvas class="chart hist-act"></canvas><div class="chart-label nf-label"></div><canvas class="chart hist-nf"></canvas>',
+    empty: '',
+    update: (el, x) => {
+      const bk = bucketed([x.key], t0, bucket);
+      const nb = bk.reduce((a, o) => a + o.b, 0), nd = bk.reduce((a, o) => a + o.d, 0);
+      setHtml($('.act-label', el), (x.label ? '<b>' + esc(x.label) + '</b> · ' : '') + 'Heard: ' + nb + ' bursts, ' + nd + ' readings <span class="dim small">in ' + esc(w.text.replace('the ', ''))
+        + ', ' + Math.round(bucket / MIN) + ' min a bar</span>');
+      Charts.draw($('.hist-act', el), { t0, t1, gutter: 34, bars: activityBars(bk, bucket), y: { floor: 0, minSpan: 2, fmt: v => String(v) }, tip: bucketTip(bk, bucket) });
+      const h = S.hist.rx.get(x.key);
+      const pts = h ? h.rows.filter(p => p[0] >= t0 - MIN && p[3] != null).map(p => [p[0] + MIN / 2, p[3]]) : [];
+      const nfc = $('.hist-nf', el), nfl = $('.nf-label', el);
+      nfc.hidden = nfl.hidden = !pts.length;
+      if (pts.length) {
+        const unit = h.unit || '';
+        const vals = pts.map(p => p[1]);
+        nfl.title = 'A rise is interference, or a stronger noise source nearby';
+        setHtml(nfl, 'Noise floor <span class="dim small">' + esc(unit) + ' · now ' + esc(vals[vals.length - 1]) + ' · ' + esc(Math.min(...vals)) + ' to ' + esc(Math.max(...vals)) + '</span>');
+        Charts.draw(nfc, { t0, t1, gutter: 34, lines: [{ pts, color: '--accent' }], y: { minSpan: 6, fmt: v => String(Math.round(v)) },
+          tip: (t) => { let b = null; for (const p of pts) if (!b || Math.abs(p[0] - t) < Math.abs(b[0] - t)) b = p; return b && Math.abs(b[0] - t) < 3 * MIN ? Charts.hhmm(b[0]) + ' · ' + b[1] + ' ' + unit : null; } });
+      }
+    },
+  });
+}
+
+// A waterfall for each stick, from the spectrum in each status (every 2 s).
+const WF_ROWS = 90;
+S.wf = new Map();
+function collectSpectra() {
+  for (const d of (S.status && S.status.devices.sdrs) || []) {
+    const sp = d.spectrum;
+    if (!sp || !sp.db || !sp.db.length) continue;
+    let wf = S.wf.get(d.key);
+    const sig = sp.db.length + ':' + sp.centerHz + ':' + sp.rate;
+    if (!wf || wf.sig !== sig) { wf = { sig, rows: [], lo: 0, hi: 1, last: '' }; S.wf.set(d.key, wf); }
+    const fp = sp.db.slice(0, 8).join(',') + sp.db[sp.db.length >> 1];
+    if (fp === wf.last) continue;
+    wf.last = fp;
+    wf.rows.unshift(Float32Array.from(sp.db));
+    if (wf.rows.length > WF_ROWS) wf.rows.length = WF_ROWS;
+    // The colours span from the noise to a strong signal, steadied over the rows.
+    const sorted = Array.from(sp.db).sort((a, b) => a - b);
+    const lo = sorted[Math.floor(sorted.length * 0.2)], hi = Math.max(lo + 30, sorted[sorted.length - 1]);
+    wf.lo = wf.rows.length > 1 ? wf.lo * 0.8 + lo * 0.2 : lo;
+    wf.hi = wf.rows.length > 1 ? wf.hi * 0.8 + hi * 0.2 : hi;
+  }
 }
 
 function rxBodyHtml(d) {
@@ -493,19 +787,34 @@ function channelTable(d) {
 function drawSpectrum(c, d) {
   if (!c) return;
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
   c.width = w * dpr; c.height = h * dpr;
   const g = c.getContext('2d'); g.scale(dpr, dpr);
-  const css = getComputedStyle(document.documentElement);
+  const col = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const db = d.spectrum.db, lo = Math.min(...db), hi = Math.max(...db), span = Math.max(10, hi - lo);
-  g.strokeStyle = css.getPropertyValue('--accent'); g.lineWidth = 1.2; g.beginPath();
-  db.forEach((v, i) => { const x = i / (db.length - 1) * w, y = h - 4 - (v - lo) / span * (h - 10); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-  g.stroke();
-  const rate = d.spectrum.rate;
-  g.strokeStyle = css.getPropertyValue('--ok');
-  for (const hz of d.spectrum.channelsHz || [d.spectrum.channelHz]) {
-    const cx = (0.5 + (hz - d.spectrum.centerHz) / rate) * w;
-    g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, h); g.stroke();
+  const rate = d.spectrum.rate, cHz = d.spectrum.centerHz, bottom = 14, ph = h - bottom;
+  const X = (hz) => (0.5 + (hz - cHz) / rate) * w;
+  g.font = '10.5px ' + col('--font');
+  // The frequency along the bottom, at round steps.
+  const stepHz = [10e3, 25e3, 50e3, 100e3, 200e3, 250e3, 500e3, 1e6].find(s => rate / s <= Math.max(2, w / 90)) || 1e6;
+  g.strokeStyle = col('--line'); g.fillStyle = col('--dim'); g.textAlign = 'center'; g.lineWidth = 1;
+  for (let f = Math.ceil((cHz - rate / 2) / stepHz) * stepHz; f <= cHz + rate / 2; f += stepHz) {
+    const x = Math.round(X(f)) + 0.5;
+    g.globalAlpha = 0.4; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.globalAlpha = 1;
+    const s = (f / 1e6).toFixed(stepHz < 100e3 ? 3 : stepHz < 1e6 ? 2 : 1);
+    const tw = g.measureText(s).width;
+    g.fillText(s, Math.min(w - tw / 2, Math.max(tw / 2, x)), h - 2);
   }
+  g.strokeStyle = col('--ok');
+  for (const hz of d.spectrum.channelsHz || [d.spectrum.channelHz]) {
+    const cx = Math.round(X(hz)) + 0.5;
+    g.globalAlpha = 0.8; g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, ph); g.stroke(); g.globalAlpha = 1;
+  }
+  g.strokeStyle = col('--accent'); g.lineWidth = 1.2; g.beginPath();
+  db.forEach((v, i) => { const x = i / (db.length - 1) * w, y = ph - 4 - (v - lo) / span * (ph - 10); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.stroke();
+  g.fillStyle = col('--dim'); g.textAlign = 'left';
+  g.fillText(Math.round(hi) + ' dB', 4, 11); g.fillText(Math.round(lo) + ' dB', 4, ph - 4);
 }
 
 // ── settings ────────────────────────────────────────────────────────────────
@@ -1004,11 +1313,11 @@ function wireSurvey() {
 async function refresh() {
   try {
     S.status = await api('/api/status');
-    renderHeader(); renderStats(); renderRxMini();
-    if (S.tab === 'rx') renderRxFull();
+    collectSpectra();
+    renderHeader(); renderStats();
+    renderCharts();
     if (S.tab === 'survey') loadSurvey();
     if (S.tab === 'settings' && S.config) { renderPortOverrides(); renderSticks(); renderRemote(); renderHotspot(); }
-    renderBursts();
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;
   }
@@ -1018,8 +1327,8 @@ function connectEvents() {
   if (S.sse) S.sse.close();
   const es = new EventSource('/api/events');
   S.sse = es;
-  es.addEventListener('reading', (e) => { S.readings.unshift(JSON.parse(e.data)); if (S.readings.length > 500) S.readings.length = 500; renderReadings(true); renderBursts(); });
-  es.addEventListener('burst', (e) => { S.bursts.unshift(JSON.parse(e.data)); if (S.bursts.length > 300) S.bursts.length = 300; renderBursts(); });
+  es.addEventListener('reading', (e) => { S.readings.unshift(JSON.parse(e.data)); if (S.readings.length > 500) S.readings.length = 500; renderReadings(true); renderCharts(); });
+  es.addEventListener('burst', (e) => { S.bursts.unshift(JSON.parse(e.data)); if (S.bursts.length > 2000) S.bursts.length = 2000; renderCharts(); });
   es.addEventListener('tick', () => refresh());
   es.addEventListener('devices', () => refresh());
   // Approved: the settings page shows the token as set, without a reload.
@@ -1204,7 +1513,7 @@ function showTab(t) {
   if (t === 'survey') loadSurvey(true);
   if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
-  if (t === 'dash') renderBursts();
+  if (t === 'dash') renderCharts(true);
 }
 
 // #settings, or #settings-sdr: the tab, then that card (id f-sdr).
@@ -1218,14 +1527,16 @@ function route() {
 
 $$('.tabs button').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', route);
-window.addEventListener('resize', debounce(renderBursts, 200));
+window.addEventListener('resize', debounce(() => renderCharts(true), 200));
 
 (async function init() {
   wireSettings();
   wireSurvey();
   await refresh();
   try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); } catch (_) {}
+  loadHistory();
+  setInterval(loadHistory, 60 * 1000);
   connectEvents();
   route();
-  setInterval(renderBursts, 15000);
+  setInterval(() => renderCharts(), 15000);
 })();

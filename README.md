@@ -25,6 +25,7 @@ itself after an unplug or a power cut.
 | **ALERT and ALERT2** | Each device is recognised from what it sends and every reading is tagged with its protocol: legacy **ALERT** (300-baud AFSK — ALERT Binary, Enhanced iFLOWS, ASCII) from SDRs and radios, **ALERT2** from the ERT-A2. |
 | **Several channels on one stick** | A stick hears a whole slice of the band at once, and every ALERT channel in it is decoded at the same time — each with its own decoder thread, and each a receiver of its own in MegaNet. The channels MegaNet's stations use (151.500, 151.525, 151.950 and 152.400 MHz) fit one stick, and a new base station listens on all four by default — list fewer, or others, for a site that needs them. The agent picks the sample rate and where to tune so that the DC spike and a zero-IF tuner's mirror images stay off every channel. |
 | **Several sticks** | Each RTL-SDR stick can have its own channels, format, gain, ppm and bias tee — for networks further apart than one stick hears (about 1.9 MHz). Sticks that share a serial number, as most do, are told apart by their USB port, and each `rtl_sdr` is checked to have opened its own stick. Plugging in another stick never renames or restarts the ones running; an unplugged one stays listed until you remove it. |
+| **Graphs** | Each receiver — each channel of a stick — has a line on the dashboard with its own chart of what it heard, under one chart of every receiver together: the last half hour burst by burst, or 6 or 24 hours a bar every few minutes. Beside them, the Pi's temperature, load and memory, and the stations heard most. The Receivers page draws each channel's noise floor over the day, and a spectrum with a frequency axis over a waterfall. A day is kept on the card, through restarts. |
 | **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. |
 | **MegaNet** | Posts through `ingest_http()` with one ingest token per Pi, one receiver id per device (`serial-monitor/rpi-<host>-qs1`), each reading with the frequency it was heard on and its signal — RSSI, or an SDR's level, and SNR — for the Message Log's Freq, Signal and SNR columns; describes each receiver through `report_ingest_point()` and every frame heard through `report_receptions()` (the Reception Map) — the contract MegaNet's Serial Monitor already uses. Falls back from the floodwarning.net proxy to Supabase directly. |
 | **Its token, without typing it** | Press **Request a token** on the Pi (or `rpi-alert request-token`, or `request_token = yes` on the SD card): it shows a code and a QR code, an administrator signed in to MegaNet on their phone approves it on the Admin tab, and the Pi starts sending within seconds. Nobody signs in on the Pi and nothing is copied: the Pi makes the token and MegaNet keeps only its hash. |
@@ -86,9 +87,9 @@ agent/            the RPi ALERT agent (Node.js, no npm dependencies)
   bin/rpi-alert     daemon + command line (status, top, setup, token, config, remote, access, …)
   bin/rpi-alert-access  the root helper for SSH access (the alert account's keys)
   lib/              devices (serial ports, sniffing, drivers, SDR), uplink, token request, remote
-                    management, SSH access, clock, web server
+                    management, SSH access, clock, history (the graphs' last day), web server
   vendor/meganet/   MegaNet's decoders, verbatim (see SOURCE; scripts/sync-meganet.sh)
-  web/              the dashboard and settings page (and qr.js, its QR codes)
+  web/              the dashboard and settings page (qr.js, its QR codes; charts.js, its graphs)
   test/             node --test: real off-air vector, protocol vectors, MegaNet stand-in,
                     pty receivers, a fake rtl_sdr, the whole agent end to end
   scripts/          simulate.sh (a base station with no hardware), sync-meganet.sh

@@ -26,6 +26,7 @@ const { TokenRequest } = require('./token-request');
 const { Remote } = require('./remote');
 const { Survey } = require('./survey');
 const { Hotspot } = require('./hotspot');
+const { History } = require('./history');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -35,6 +36,8 @@ const webpw = require('./web-password');
 const pkg = require('../package.json');
 
 const RECENT = 500;
+// Enough for the dashboard's half hour on a busy stick with four channels.
+const BURSTS = 2000;
 const KIOSK_MIN_MB = 900;
 
 class Agent extends EventEmitter {
@@ -64,6 +67,7 @@ class Agent extends EventEmitter {
     this.remote = new Remote(this, opts.remote);
     this.survey = new Survey(this).load();
     this.hotspot = new Hotspot(this, opts.hotspot);
+    this.history = new History(this).load();
     this.recent = [];
     this.bursts = [];
     this.counts = { readings: 0, alert: 0, alert2: 0, receptions: 0 };
@@ -85,6 +89,7 @@ class Agent extends EventEmitter {
     this.clock.start();
     this.uplink.start();
     this.survey.start();
+    this.history.start();
     this.survey.on('change', () => this.emit('survey'));
     this.hotspot.start();
     this.hotspot.on('change', () => this.emit('devices'));
@@ -112,6 +117,7 @@ class Agent extends EventEmitter {
     this.timers.forEach(clearInterval);
     this.remote.stop();
     this.survey.stop();
+    this.history.stop();
     this.hotspot.stop();
     await this.devices.stop();
     this.tokenRequest.stop();
@@ -185,9 +191,9 @@ class Agent extends EventEmitter {
     if (type === 'gps-time') { this.clock.gpsTime(data); return; }
     if (type === 'gps') { this.emit('gps', data); return; }
     if (type === 'burst') {
-      const b = Object.assign({ t: Date.now(), receiver: session.name(), kind: session.kind }, data);
+      const b = Object.assign({ t: Date.now(), receiver: session.name(), key: session.key, kind: session.kind }, data);
       this.bursts.unshift(b);
-      if (this.bursts.length > 100) this.bursts.length = 100;
+      if (this.bursts.length > BURSTS) this.bursts.length = BURSTS;
       this.emit('burst', b);
       return;
     }

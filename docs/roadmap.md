@@ -80,11 +80,6 @@ badly each one strands somebody:
 
 ## Seeing what the radio hears
 
-- **Decode history per channel.** The Receivers page's bursts, decodes and floor are counted since
-  the agent started and lost on a restart; keep hourly counts on disk and draw a day of them, so
-  "this channel went quiet at 3 a.m." is on the page.
-- **A spectrum you can read.** The 1 s max-hold line has no axes: give it frequency and level axes,
-  mark the channels, and add a waterfall of the last few minutes.
 - **Tuning help.** `alert-dsp.js`'s `carrierSearch` already measures each burst's carrier offset.
   Averaged over the stations a stick hears, it is the stick's own ppm error, so the page can suggest
   the ppm to set; clipping is warned about today, so suggest the gain that stops it too. The same

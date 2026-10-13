@@ -34,15 +34,38 @@
   <section id="tab-dash" class="tab">
     <div id="pair-dash"></div>
     <div class="stats" id="stats"></div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Bursts heard — every receiver <span class="dim" id="burst-count"></span></h2>
+        <div class="seg" role="group" aria-label="Time shown in the charts">
+          <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+        </div>
+      </div>
+      <canvas id="burst-canvas" class="chart" aria-label="Bursts heard by every receiver"></canvas>
+      <div class="dim small" id="burst-note"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Receivers</h2><span class="dim small" id="rx-note"></span></div>
+      <div id="rx-mini" class="rx-mini"></div>
+    </div>
     <div class="grid2">
       <div class="card">
-        <h2>Receivers</h2>
-        <div id="rx-mini" class="rx-mini"></div>
+        <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
+        <div class="pi-charts">
+          <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart" aria-label="CPU temperature"></canvas></div>
+          <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
+          <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
+        </div>
+        <div class="dim small" id="pi-note"></div>
       </div>
       <div class="card">
-        <h2>Bursts heard <span class="dim" id="burst-count"></span></h2>
-        <canvas id="burst-canvas" height="110" aria-label="Bursts over the last 30 minutes"></canvas>
-        <div class="dim small">Last 30 minutes. Height: signal level. Green: decoded.</div>
+        <h2>Most heard <span class="dim small">(this session)</span></h2>
+        <div class="table-wrap">
+          <table class="top-heard">
+            <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Heard</th><th>Last value</th><th>Best signal</th><th>Last</th></tr></thead>
+            <tbody id="top-heard"><tr><td colspan="6" class="dim">Nothing heard yet.</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -60,6 +83,9 @@
   <section id="tab-rx" class="tab" hidden>
     <div class="row-actions">
       <button id="rescan" class="ghost">Look for devices now</button>
+      <div class="seg" role="group" aria-label="Time shown in the charts">
+        <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+      </div>
       <span class="dim small">Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut.</span>
     </div>
     <div id="rx-full"></div>
@@ -326,6 +352,7 @@
 <footer class="dim small"><span id="foot"></span></footer>
 <script src="qr.js"></script>
 <script src="channels.js"></script>
+<script src="charts.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

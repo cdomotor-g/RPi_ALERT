@@ -39,7 +39,7 @@ header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wra
 main { padding: 12px 16px 24px; max-width: 1400px; margin: 0 auto; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
 .card h2 { margin: 0 0 10px; font-size: 1.02em; font-weight: 650; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
 .grid2 > .card { margin-bottom: 0; }
 .grid2 { margin-bottom: 14px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -59,18 +59,37 @@ tr.fresh td { animation: flash 2s ease-out; }
 .proto.alert { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 50%, transparent); }
 .proto.alert2 { color: var(--alert2); border-color: color-mix(in srgb, var(--alert2) 50%, transparent); }
 
-.rx-mini { display: grid; gap: 8px; }
-.rx { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 10px; background: var(--panel2); border-radius: 8px; }
+.rx-mini { display: grid; gap: 6px; }
+/* A receiver a line: what it is on the left, its own chart on the right — every
+   chart over the same time, so a burst heard on two lines up. */
+.rx-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 4px 14px; align-items: center; padding: 8px 10px;
+  background: var(--panel2); border-radius: 8px; }
+.rx-line .rx-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rx-line .meta { color: var(--dim); font-size: .85em; margin-top: 2px; }
+.rx-line .rx-count { margin-top: 3px; }
+.rx-line .rx-chart { height: 58px; }
+.rx-line.no-chart { grid-template-columns: 1fr; }
+.rx-line.no-chart .rx-chart, .rx-line.is-stick .rx-chart { display: none; }
+.rx-line.is-stick { grid-template-columns: 1fr; background: transparent; padding: 10px 2px 2px; }
+.rx-line.chan { margin-left: 16px; border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.rx-line.chan + .rx-line:not(.chan) { margin-top: 6px; }
+@media (max-width: 720px) { .rx-line { grid-template-columns: 1fr; } .rx-line.chan { margin-left: 8px; } }
 .dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
 .dot.running { background: var(--ok); } .dot.identifying, .dot.starting, .dot.opening { background: var(--accent); }
 .dot.disconnected, .dot.unplugged, .dot.restarting, .dot.error { background: var(--warn); }
-.rx .meta { color: var(--dim); font-size: .85em; grid-column: 2 / 4; }
 .rxcard .kv, #f-access .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
 .rxcard .kv div:nth-child(odd), #f-access .kv div:nth-child(odd) { color: var(--dim); }
 #f-access .kv div { min-width: 0; overflow-wrap: anywhere; }
 .remote-history { margin: 4px 0 8px; padding-left: 1.2em; }
 #f-access details ul { margin: 6px 0; padding-left: 1.2em; }
-.rxcard canvas { width: 100%; height: 120px; display: block; margin-top: 10px; background: var(--panel2); border-radius: 6px; }
+.rxcard canvas.spectrum { width: 100%; height: 130px; display: block; background: var(--panel2); border-radius: 6px; }
+.rxcard canvas.waterfall { width: 100%; height: 110px; display: block; border-radius: 6px; background: #081028; }
+.rxcard .spec .chart-label { margin-top: 10px; }
+.rxcard .hist { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 4px 18px; }
+.rxcard .hist:empty { display: none; }
+.hist-rx { min-width: 0; }
+.hist-rx .hist-act { height: 70px; }
+.hist-rx .hist-nf { height: 70px; }
 .rxcard .chans { margin-top: 10px; font-size: .9em; }
 .rxcard .chans td:nth-child(4) { white-space: normal; }
 .rxcard .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -78,7 +97,23 @@ tr.fresh td { animation: flash 2s ease-out; }
 .rxcard .head button { margin-left: auto; }
 .pill { font-size: .78em; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
 
-canvas#burst-canvas { width: 100%; height: 110px; display: block; }
+/* Charts (charts.js): the canvas takes its size from here. */
+canvas.chart { width: 100%; height: 90px; display: block; touch-action: pan-y; }
+canvas#burst-canvas { height: 130px; }
+.kiosk canvas#burst-canvas { height: 150px; }
+canvas.small-chart { height: 64px; }
+.chart-label { font-size: .86em; margin: 8px 0 3px; color: var(--text); }
+.chart-label b { font-variant-numeric: tabular-nums; }
+.chart-tip { position: fixed; z-index: 20; pointer-events: none; white-space: pre; padding: 5px 8px; border-radius: 6px; font-size: .8em;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; }
+.card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.card-head h2 { margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; color: var(--dim); border: 0; border-radius: 0; padding: 4px 11px; font-weight: 500; font-size: .86em; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--panel2); color: var(--text); font-weight: 600; }
+.pi-charts > div:first-child .chart-label { margin-top: 0; }
+.top-heard td { padding: 5px 8px; }
 
 .form label { display: block; margin: 8px 0; }
 .form label > input:not([type=checkbox]):not([type=radio]), .form label > select { display: block; width: 100%; margin-top: 4px; }
