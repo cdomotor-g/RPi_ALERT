@@ -107,10 +107,8 @@ badly each one strands somebody:
   before installing, a *go back to the previous version* button beside the automatic two-minute
   rollback, and a channel or pinned version settable from MegaNet, so a fleet takes a release a few
   Pis at a time (`update.install` takes no version today).
-- **Sign the releases** — *needs a person.* `os/release-signing-key.pem` is still the placeholder, so
-  `rpi-alert-update` installs releases as root without verifying them. Make the key pair, set the
-  `RELEASE_SIGNING_KEY` repository secret and commit the public key, in the order
-  [release-signing.md](release-signing.md) gives.
+- ~~**Sign the releases**.~~ Done: the key is pinned from 0.10, and a Pi on 0.10 or later verifies
+  each release before installing it ([release-signing.md](release-signing.md)).
 - **Settings backup, and an identity that survives a new card.** Export the settings as an
   `rpi-alert.conf` (secrets left out, or asked for) and import one. The host id is derived from
   `/etc/machine-id` (`state.js`), so a replacement card gives every receiver a new MegaNet ingest

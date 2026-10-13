@@ -28,12 +28,21 @@ This is the fix for finding **M-1** of the 2026-10 security appraisal.
 Both halves use Node's `crypto`, so there is no dependency on `ssh-keygen`,
 `openssl`, `minisign` or any other tool being present.
 
-## Until you set it up: nothing changes
+## The pinned key
 
-The committed `os/release-signing-key.pem` is a **placeholder** — it contains no
-key. While that is so, the updater installs releases exactly as it always has,
-unverified, and prints a one-line note. So shipping the signing code changes no
-behaviour until you opt in by pinning a real key.
+A key has been pinned since 0.10.0. Its fingerprint (SHA-256 of the public key,
+as the key page and the command below show it) is:
+
+    SHA256:fOdKIOUguw9edBdaecgkcSoJhXprGHvbNr1ddEVXOXI
+
+```sh
+node -e 'const c=require("crypto"),k=c.createPublicKey(require("fs").readFileSync("os/release-signing-key.pem"));
+  console.log("SHA256:"+c.createHash("sha256").update(k.export({type:"spki",format:"der"})).digest("base64").replace(/=+$/,""))'
+```
+
+Before that the file was a placeholder, and the updater installed releases
+unverified, printing a one-line note. A Pi still on 0.9.0 or earlier does that
+once more, for the update that brings it the key.
 
 ## One-time setup
 
