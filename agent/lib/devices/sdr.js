@@ -17,6 +17,15 @@
 // is present: a stall (no samples for ten seconds) is killed; an exit is
 // restarted after a pause that grows from 2 s to 30 s.
 //
+// The bias tee is switched by rtl_biast, before rtl_sdr opens the stick:
+// rtl_sdr has no bias-tee option — neither Debian's (Trixie's 2.0.2) nor
+// rtl-sdr-blog's; given -T it prints its usage and exits — and librtlsdr leaves
+// GPIO 0 as rtl_biast set it. On, it is switched on at every launch (a stick
+// plugged back in has lost it); off, only if this agent turned it on. Never on
+// a guessed device number, which may be another stick's: once rtl_sdr is seen
+// to have opened this one (checkStick), it is opened again with the bias tee
+// on. If rtl_biast cannot do it, the stick receives without it, and says why.
+//
 // The SDR hears legacy ALERT (300-baud AFSK): ALERT Binary, Enhanced iFLOWS or
 // ALERT ASCII, one format per channel (alert-dsp.js explains why there is no
 // "both", and why a frequency is never listed twice, even in two formats).
@@ -48,6 +57,7 @@ const { TuneHelp } = require('./tune-help');
 const { mhz } = require('../../web/channels');
 
 const STALL_MS = 10000;
+const BIAST_MS = 5000;      // rtl_biast opens the stick, sets a pin and closes it: well under a second
 const FORMAT_SHORT = { BINARY: 'ABF', ENHANCED_IFLOWS: 'EIF', ASCII: 'ASCII' };
 const MAX_RETARGETS = 4;
 // Seconds of samples a decoder may fall behind before its input is dropped:
@@ -230,6 +240,10 @@ class SdrSession extends EventEmitter {
     this.reopen = null;         // why rtl_sdr is being closed to be opened again at once
     this.retargets = 0;
     this.tuned = '';            // the tuner settings rtl_sdr runs with
+    this.bias = null;           // the bias tee as rtl_biast last left it: true, false; null: never switched
+    this.biasing = null;        // the rtl_biast running
+    this.biasLater = false;     // to switch once this stick's device number is known
+    this.biasError = null;      // why it could not be switched
     this.syncChannels(this.cfg());
   }
 
@@ -378,23 +392,65 @@ class SdrSession extends EventEmitter {
     const a = ['-d', dev, '-f', String(c.centerHz), '-s', String(c.sampleRate)];
     if (c.gainDb != null) a.push('-g', String(c.gainDb));
     if (c.ppm) a.push('-p', String(Math.round(c.ppm)));
-    if (c.biasTee) a.push('-T');
     a.push('-b', String(c.sampleRate >= 900000 ? 65536 : 16384), '-');
     return a;
   }
 
-  // What rtl_sdr is told, but which stick: when it changes, rtl_sdr restarts.
-  tunerKey(c) { return this.args(c, '').join(' '); }
+  // What rtl_sdr is told, but which stick, and the bias tee (rtl_biast's,
+  // switched while nothing holds the stick): when it changes, rtl_sdr restarts.
+  tunerKey(c) { return this.args(c, '').join(' ') + (c.biasTee ? ' +bias' : ''); }
 
   launch() {
-    if (this.stopped || this.proc) return;
+    if (this.stopped || this.proc || this.biasing) return;
     const c = this.cfg();
     const rtl = this.agent.devices && this.agent.devices.rtl;
     this.sel = rtl ? rtl.choose(this.stick, this.avoid) : { arg: '0', index: 0, how: 'only' };
+    this.state = 'starting';
+    const want = !!c.biasTee;
+    const switching = want || this.bias === true;
+    this.biasLater = switching && this.sel.how === 'guess';
+    if (!switching) this.biasError = null;
+    if (!switching || this.biasLater) { this.open(c); return; }
+    this.switchBias(want, () => {
+      if (this.stopped || this.proc) return;
+      const now = this.cfg();
+      // Turned on or off while rtl_biast ran: once more, the other way.
+      if (!!now.biasTee !== want) { this.launch(); return; }
+      this.open(now);
+    });
+  }
+
+  // rtl_biast -d <the stick> -b 1|0, then `then` — whatever it answers.
+  switchBias(on, then) {
+    const say = (why) => {
+      const msg = 'the bias tee could not be switched ' + (on ? 'on' : 'off') + ' — ' + why;
+      if (msg !== this.biasError) this.log.error(msg + (on ? '; receiving without it' : ''));
+      this.biasError = msg;
+    };
+    let p, tail = '', timer = null;
+    const done = (code, why) => {
+      if (this.biasing !== p) return;
+      this.biasing = null;
+      clearTimeout(timer);
+      if (code === 0) {
+        if (this.bias !== on || this.biasError) this.log.info('bias tee ' + (on ? 'on' : 'off'));
+        this.bias = on; this.biasError = null;
+      } else say(why || 'rtl_biast exit ' + code + (tail.trim() ? ': ' + tail.trim().split(/\r?\n/).pop() : ''));
+      then();
+    };
+    try { p = spawn('rtl_biast', ['-d', this.sel.arg, '-b', on ? '1' : '0'], { stdio: ['ignore', 'ignore', 'pipe'] }); } catch (e) { say(e.message); then(); return; }
+    this.biasing = p;
+    p.stderr.on('data', (d) => { tail = (tail + d).slice(-500); });
+    p.on('error', (e) => done(-1, e.code === 'ENOENT' ? 'rtl_biast is not installed (apt install rtl-sdr)' : e.message));
+    p.on('close', (code, sig) => done(code, sig ? 'rtl_biast stopped (' + sig + ')' : null));
+    timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch (_) {} }, BIAST_MS);
+  }
+
+  // rtl_sdr, on the stick launch() chose.
+  open(c) {
     const args = this.args(c, this.sel.arg);
     this.tuned = this.tunerKey(c);
     this.bytesPerSec = c.sampleRate * 2;
-    this.state = 'starting';
     this.stderr = [];
     this.listing = null; this.usingIndex = null; this.openFailed = false; this.checked = null;
     this.startedAt = Date.now();
@@ -415,6 +471,7 @@ class SdrSession extends EventEmitter {
       ? heard.length + ' channels: ' + heard.map(ch => mhz(ch.freqHz) + ' ' + FORMAT_SHORT[ch.format]).join(', ') + ' MHz'
       : 'channel ' + (c.freqHz / 1e6).toFixed(4) + ' MHz, ' + c.format)
       + (c.tune.raised ? '; ' + c.sampleRate / 1000 + ' ksps to hold them all' : '')
+      + (c.biasTee ? '; bias tee ' + (this.bias ? 'on' : this.biasLater ? 'on once this stick is known' : 'NOT on') : '')
       + (this.sel.how === 'only' ? '' : '; the stick in USB port ' + this.stick.busPath) + ')');
     p.stdout.on('data', (buf) => this.onIq(buf));
     p.stderr.on('data', (d) => this.onStderr(String(d)));
@@ -446,12 +503,26 @@ class SdrSession extends EventEmitter {
     const index = this.usingIndex != null ? this.usingIndex : this.sel.index;
     const at = openedUsb(this.proc.pid);
     const st = at && mgr.sticks.find(s => s.busnum === at.busnum && s.devnum === at.devnum);
-    if (!st) { this.checked = false; return; }                 // cannot tell: trust the choice
+    // Not sure which stick it is: no volts on what may be another's antenna.
+    const unsure = () => {
+      if (!this.biasLater) return;
+      this.biasLater = false;
+      const msg = 'the bias tee could not be switched ' + (this.cfg().biasTee ? 'on' : 'off') + ' — which stick rtl_sdr device ' + index + ' is cannot be told. Give each stick its own serial: rtl_eeprom -d <n> -s <name>';
+      if (msg !== this.biasError) this.log.error(msg);
+      this.biasError = msg;
+    };
+    if (!st) { this.checked = false; unsure(); return; }       // cannot tell: trust the choice
     if (index != null) mgr.rtl.learn(index, st.busPath);
-    if (st.busPath === this.stick.busPath) { this.checked = true; this.retargets = 0; return; }
+    if (st.busPath === this.stick.busPath) {
+      this.checked = true; this.retargets = 0;
+      // Its bias tee waited for this: rtl_sdr closed, rtl_biast run on the number now known, rtl_sdr opened again.
+      if (this.biasLater) { this.biasLater = false; this.reopen = 'bias'; try { this.proc.kill('SIGTERM'); } catch (_) {} }
+      return;
+    }
     if (++this.retargets > MAX_RETARGETS) {
       this.checked = false;
       this.log.error('rtl_sdr keeps opening the stick in USB port ' + st.busPath + ' instead of this one (' + this.stick.busPath + '); using it. Give each stick its own serial: rtl_eeprom -d <n> -s <name>');
+      unsure();
       return;
     }
     this.log.warn('rtl_sdr device ' + index + ' is the stick in USB port ' + st.busPath + ', not this one (' + this.stick.busPath + ') — reopening');
@@ -614,6 +685,7 @@ class SdrSession extends EventEmitter {
       own: STICK_FIELDS.filter(f => own[f] !== undefined).concat(own.name ? ['name'] : []),
       tuner: this.tuner, model: this.model,
       freqHz: c.freqHz, sampleRate: c.sampleRate, centerHz: c.centerHz, gainDb: c.gainDb, squelchDb: c.squelchDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
+      biasOn: plugged && this.bias === true, error: plugged ? this.biasError : null,
       tune: { raised: c.tune.raised, dcHz: c.tune.dcHz, mirrorHz: c.tune.mirrorHz },
       channels: this.channels.map(ch => ch.status(plugged)),
       level: lv && plugged ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,

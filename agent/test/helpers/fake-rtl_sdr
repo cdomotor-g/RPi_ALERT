@@ -11,7 +11,13 @@
 // else a serial — exact, prefix, suffix), refuses a stick another rtl_sdr holds
 // ("usb_claim_interface error -6"), holds that stick's /dev/bus/usb/BBB/DDD
 // node open (under RPI_ALERT_DEV) as libusb does, and exits as on an unplug
-// when the stick's sysfs entry goes away. With no fake sysfs: one stick.
+// when the stick's sysfs entry goes away. With no fake sysfs: one stick. Its
+// options are the real one's, and nothing else: anything more (-T, which no
+// rtl_sdr has) is its usage and exit 1, as getopt "d:f:g:s:b:n:p:SD" answers.
+//
+// Linked as rtl_biast, it is that instead (getopt "d:b:g:h?"): it finds the
+// stick from -d as rtl_sdr would, opens it — refused while an rtl_sdr holds it
+// — and appends "<USB port> <-b>" to RPI_ALERT_FAKE_BIAST_LOG.
 //
 //   RPI_ALERT_FAKE_CHANNEL_HZ=151500000          where the bursts are (default 151.5 MHz)
 //   RPI_ALERT_FAKE_FRAMES="2088:143,2089:12"     what they carry
@@ -32,13 +38,35 @@ const D = require(path.join(__dirname, '..', '..', 'vendor', 'meganet', 'alert-d
 const { RTL_IDS } = require(path.join(__dirname, '..', '..', 'lib', 'serial', 'scan.js'));
 
 const a = process.argv.slice(2);
-const arg = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
-const rate = Number(arg('-s', 2048000));
-const center = Number(arg('-f', 100e6));
 const SYS = process.env.RPI_ALERT_SYSFS;
 const DEV = process.env.RPI_ALERT_DEV;
 const err = (s) => process.stderr.write(s);
 const read = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch (_) { return ''; } };
+const BIAST = path.basename(process.argv[1]) === 'rtl_biast';
+
+// getopt(argc, argv, spec): every option it is given, or its usage and exit 1.
+const USAGE = BIAST
+  ? 'rtl_biast, a tool for turning the RTL-SDR.com \nbias tee or any GPIO ON and OFF. Example to turn on the \nbias tee: rtl_biast -d 0 -b 1\n'
+    + 'Any GPIO: rtl_biast -d 0 -g 1 -b 1\n\nUsage:\n\t[-d device_index (default: 0)]\n\t[-b bias_on (default: 0)]\n\t[-g GPIO select (default: 0)]\n'
+  : 'rtl_sdr, an I/Q recorder for RTL2832 based DVB-T receivers\n\nUsage:\t -f frequency_to_tune_to [Hz]\n\t[-s samplerate (default: 2048000 Hz)]\n'
+    + '\t[-d device_index or serial (default: 0)]\n\t[-g gain (default: 0 for auto)]\n\t[-p ppm_error (default: 0)]\n\t[-b output_block_size (default: 16 * 16384)]\n'
+    + '\t[-n number of samples to read (default: 0, infinite)]\n\t[-S force sync output (default: async)]\n\t[-D enable direct sampling (default: off)]\n'
+    + '\tfilename (a \'-\' dumps samples to stdout)\n\n';
+function getopt(spec) {
+  const out = {};
+  for (let i = 0; i < a.length; i++) {
+    const m = /^-(.)$/.exec(a[i]);
+    if (!m) continue;                                   // the filename ("-" is one)
+    const k = spec.indexOf(m[1]);
+    if (k < 0 || m[1] === ':') { err(path.basename(process.argv[1]) + ': invalid option -- \'' + m[1] + '\'\n' + USAGE); process.exit(1); }
+    out[m[1]] = spec[k + 1] === ':' ? a[++i] : true;
+  }
+  return out;
+}
+const opts = getopt(BIAST ? 'd:b:g:h?' : 'd:f:g:s:b:n:p:SD');
+const arg = (k, d) => (opts[k.slice(1)] !== undefined ? opts[k.slice(1)] : d);
+const rate = Number(arg('-s', 2048000));
+const center = Number(arg('-f', 100e6));
 
 function sticks() {
   if (!SYS) return [{ busPath: null, manufacturer: 'RTLSDRBlog', product: 'Blog V4', serial: '00000001' }];
@@ -102,6 +130,10 @@ if (DEV && st.busPath) {
   process.on('exit', () => { try { if (Number(read(node + '.claimed')) === process.pid) fs.unlinkSync(node + '.claimed'); } catch (_) {} });
   fs.openSync(node, 'a+');                              // held open, as libusb holds the device node
   setInterval(() => { if (!fs.existsSync(st.dir)) { err('cb transfer status: 5, canceling...\nLibrary error -5, exiting...\n'); process.exit(1); } }, 300);
+}
+if (BIAST) {
+  if (process.env.RPI_ALERT_FAKE_BIAST_LOG) fs.appendFileSync(process.env.RPI_ALERT_FAKE_BIAST_LOG, (st.busPath || '-') + ' ' + arg('-b', '0') + '\n');
+  process.exit(0);
 }
 
 let per = {}, many = null;

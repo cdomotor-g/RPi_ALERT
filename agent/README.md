@@ -2,7 +2,7 @@
 
 One Node.js process (`bin/rpi-alert daemon`, run by `rpi-alert.service`) that finds the receivers
 plugged into the Pi, decodes what they hear with MegaNet's own decoders, and posts it to MegaNet.
-No npm dependencies — Node's standard library, `stty`, `rtl_sdr` and `aplay`.
+No npm dependencies — Node's standard library, `stty`, `rtl_sdr` (and `rtl_biast` for a bias tee) and `aplay`.
 
 ```
 bin/rpi-alert              daemon + CLI

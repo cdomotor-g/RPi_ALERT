@@ -52,6 +52,13 @@ listen to networks further apart than one stick hears. Changing one stick's chan
 bias tee restarts only that stick's `rtl_sdr` (and only if where it is tuned changes); a format or
 squelch change does not restart anything.
 
+**Bias tee.** It puts 4.5 V on the stick's antenna socket, for an LNA powered up the coax — on a
+stick that has one (RTL-SDR Blog V3 and V4; a generic stick has none). `rtl_sdr` has no bias-tee
+option, so the agent switches it with `rtl_biast` (part of the `rtl-sdr` package) just before
+`rtl_sdr` opens the stick, and switches it off again when it is turned off. With two sticks that
+share a serial it waits until it has seen which device number is which stick, so the volts never
+reach the other one. If it cannot be switched, the stick receives without it and its card says why.
+
 **Tuning help.** Each stick's card on the **Receivers** page suggests the ppm and gain to set, from
 what it has heard since the agent started, with a button that sets it for that stick only:
 

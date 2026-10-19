@@ -788,7 +788,7 @@ function rxBodyHtml(d) {
     rows.push(['Stick', esc([d.model, d.tuner, d.device.serial && 'SN ' + d.device.serial, 'USB ' + d.device.usb].filter(Boolean).join(' · '))]);
     rows.push(['USB port', esc(d.device.port || '?') + (d.opened ? ' <span class="dim">· ' + esc(openedText(d.opened)) + '</span>' : '')]);
     if (d.state === 'unplugged') rows.push(['Last seen', d.lastSeen ? esc(ago(Date.now() - d.lastSeen) + ' (' + new Date(d.lastSeen).toLocaleString() + ')') : '—']);
-    const tuner = ', gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? ', bias tee ON' : '');
+    const tuner = ', gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + (d.ppm ? ', ' + d.ppm + ' ppm' : '') + (d.biasTee ? (d.biasOn ? ', bias tee ON' : ', bias tee not on') : d.biasOn ? ', bias tee still ON' : '');
     if (multi) {
       const t = d.tune || {};
       rows.push(['Tuned', esc((d.centerHz / 1e6).toFixed(4) + ' MHz centre, ' + d.sampleRate / 1000 + ' ksps' + (t.raised ? ' (raised to hold every channel)' : '') + tuner)
