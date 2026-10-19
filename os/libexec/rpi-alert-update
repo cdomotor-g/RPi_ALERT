@@ -39,7 +39,21 @@ newer() {
   [ "$current" = unknown ] && return 0
   [ "$1" != "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$1" | sort -V | tail -1)" = "$1" ]
 }
-latest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)
+# The latest release's version: GitHub's API, tried again on a timeout or a
+# 5xx, and if it still does not answer (it also allows only 60 calls an hour
+# from one address) the releases page's redirect to the latest tag. One failed
+# request used to leave a Pi on its old version until the next night.
+latest_release() {
+  local v
+  v=$(curl -fsSL --max-time 20 --retry 2 --retry-delay 3 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)
+  if [ -z "$v" ]; then
+    v=$(curl -fsS -o /dev/null --max-time 20 --retry 2 --retry-delay 3 -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null \
+      | sed -n 's#.*/releases/tag/v\{0,1\}\([^/?#]*\).*#\1#p' || true)
+  fi
+  printf '%s' "$v"
+}
+latest=$(latest_release)
 
 if [ "$CHECK" = 1 ]; then
   echo "This Pi runs RPi ALERT $current."
