@@ -123,7 +123,8 @@ it does not — there is no guessing. Several frames in one burst (back-to-back 
 read. Then `alert2-readings.js`: each record a reception (with its source and repeater path), and
 a reading once — a network relays a PDU along several paths, so the same record comes two, three,
 four times. Timed by its PDU's stamp, seconds since 00:00 or 12:00 UTC, less the seconds the record
-says it was before it. It takes 0.1–0.2 s a burst on a PC, a few times that on a Pi 4. A frame
+says it was before it — a PDU delivered late included, once the network's fresh PDUs have shown
+which clock it keeps. It takes 0.1–0.2 s a burst on a PC, a few times that on a Pi 4. A frame
 longer than the burst gate's 3 s is cut off and not read.
 
 ## A reading's life

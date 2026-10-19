@@ -12,7 +12,7 @@ const { State } = require('../lib/state');
 const { Config } = require('../lib/config');
 const { rtlOrder, pathCompare } = require('../lib/serial/scan');
 const { RtlIndex, serialSelects, openedUsb } = require('../lib/devices/rtl-index');
-const { SdrSession } = require('../lib/devices/sdr');
+const { SdrSession, SdrChannel, backlogLimit } = require('../lib/devices/sdr');
 
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const blogV4 = (busPath, devnum, serial) => ({ busPath, vid: '0bda', pid: '2838', manufacturer: 'RTLSDRBlog', product: 'Blog V4', serial: serial || '00000001', busnum: 1, devnum: devnum || 4 });
@@ -137,6 +137,18 @@ test('settings: each stick\'s own are checked one by one, and a bad one costs on
   const d = new Config(c.file).load();
   assert.deepEqual(d.get().receivers.sdrDevices, [{ key: 'good', freqHz: 151525000 }]);
   assert.ok(d.loadError);
+});
+
+test('a decoder may fall twenty seconds behind, within 2 % of the Pi\'s memory, never under five; what it reads late is timed as heard', () => {
+  const MB = 1048576;
+  assert.equal(backlogLimit(2.4e6, 3796) / 2.4e6, 20, 'a Pi 4 with 4 GB, 1.2 Msps: twenty seconds');
+  assert.equal(backlogLimit(3.84e6, 1024), 1024 * MB * 0.02, '1 GB at 1.92 Msps: 2 % of it (5.6 s)');
+  assert.equal(backlogLimit(3.84e6, 512) / 3.84e6, 5, 'never under five seconds');
+  const ch = Object.create(SdrChannel.prototype);
+  Object.assign(ch, { stick: { bytesPerSec: 2.4e6 }, backlog: 24e6, agent: { clock: { trusted: () => true, now: () => 1e12 } } });
+  assert.equal(ch.heardAt(), 1e12 - 10000, 'ten seconds of samples still to read: heard ten seconds ago');
+  ch.agent.clock.trusted = () => false;
+  assert.equal(ch.heardAt(), null, 'the agent times it once the clock is known');
 });
 
 test('a stick\'s settings: its own over the shared ones; only tuner changes restart rtl_sdr', () => {

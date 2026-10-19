@@ -51,7 +51,7 @@ test('a record relayed by several paths is one reading and a reception for each;
   assert.equal(b.receptions[0].detail.duplicate, true);
   // A new value from the same sensor is a new reading.
   assert.equal(rd.take(res([pdu(33300, [10019], 8001, [[1909, 39, 2]])]), T0 + 60000, true).readings.length, 1);
-  assert.deepEqual(rd.status().counts, { frames: 3, bad: 0, pdus: 6, records: 8, readings: 4, duplicates: 3 });
+  assert.deepEqual(rd.status().counts, { frames: 3, bad: 0, pdus: 6, records: 8, readings: 4, duplicates: 3, late: 0 });
 });
 
 test('a frame that would not decode is a reception with its error; an untrusted clock leaves the time to the agent', () => {
@@ -62,6 +62,38 @@ test('a frame that would not decode is a reception with its error; an untrusted 
   assert.match(bad.receptions[0].detail.error, /block 2 of 3/);
   const early = rd.take(res([pdu(33300, [10019], 7941, [[1909, 38, 52]])]), T0, false);
   assert.equal(early.readings[0].ts, null);
+});
+
+test('a PDU delivered late keeps its stamp once the network\'s clock is known; before that, or from the future, arrival', () => {
+  const rd = new Alert2Reader();
+  const late = (path) => pdu(10100, path, 7982 - 2092, [[6709, 34, 54]]);      // stamped 35 min before it came
+  const a = rd.take(res([late([10057, 10115, 11056, 33300])]), T0, true);
+  assert.equal(a.receptions[0].detail.clock, 'arrival', 'the clock not known yet');
+  assert.equal(a.readings[0].ts, T0 - 54000);
+  const rd2 = new Alert2Reader();
+  rd2.take(res([pdu(33300, [10019], 7941, [[1909, 38, 52]]), pdu(11762, [10019], 7950, [[7182, 18, 1]]), pdu(10019, [], 7975, [[100, 1, 0]])]), T0, true);
+  assert.equal(rd2.status().clock, 'utc', 'three fresh PDUs say the network keeps UTC');
+  const b = rd2.take(res([late([10057, 10115, 11056, 33300]), late([10057, 10115, 11056, 10019])]), T0 + 9000, true);
+  assert.deepEqual(b.readings.map(r => new Date(r.ts).toISOString()), ['2026-10-19T01:37:16.000Z'], 'by its stamp, once for both paths');
+  assert.deepEqual([b.receptions[0].detail.clock, b.receptions[0].detail.late], ['utc', true]);
+  assert.equal(rd2.status().counts.late, 2);
+  const c = rd2.take(res([pdu(10100, [10019], 7982 + 1800, [[6709, 35, 0]])]), T0, true);
+  assert.equal(c.readings[0].ts, T0, 'half an hour from the future: arrival');
+  assert.match(c.notes[0], /from the future/);
+});
+
+test('a network on local time (Brisbane) is read in local time, late PDUs too', () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'Australia/Brisbane';
+  try {
+    const rd = new Alert2Reader();
+    // 02:13:02 UTC is 12:13:02 in Brisbane: 782 s into its half day.
+    const a = rd.take(res([pdu(1, [], 740, [[1, 1, 0]]), pdu(2, [], 750, [[2, 1, 0]]), pdu(3, [], 760, [[3, 1, 0]])]), T0, true);
+    assert.deepEqual(a.readings.map(r => new Date(r.ts).toISOString()), ['2026-10-19T02:12:20.000Z', '2026-10-19T02:12:30.000Z', '2026-10-19T02:12:40.000Z']);
+    assert.equal(rd.status().clock, 'local');
+    const b = rd.take(res([pdu(4, [], 43200 - 1200, [[4, 1, 10]])]), T0, true);    // 11:40:00 local, the half day before
+    assert.equal(new Date(b.readings[0].ts).toISOString(), '2026-10-19T01:39:50.000Z');
+  } finally { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; }
 });
 
 test('a network clock far from the Pi\'s: timed by arrival, and said once', () => {

@@ -10,14 +10,21 @@
 // one frame. A test PDU's records are receptions only.
 //
 // Time: a PDU's stamp is seconds since 00:00 or 12:00 UTC, and each record is
-// that many seconds before it. The stamp goes on the half day nearest its
-// arrival; a network whose clock runs on local time instead (more than ten
-// minutes out in UTC, within ten in local) is read in local time; neither,
-// and the record is timed by its arrival. A Pi whose own clock is not yet
-// trusted leaves the time to the agent (lib/agent.js deviceReading).
+// that many seconds before it. Most PDUs come within a minute or two of their
+// stamp, and they say which clock the network keeps: on the half day nearest
+// their arrival, within ten minutes, in UTC (or in local time, for a network
+// that runs on it). Some come late — a repeater's store and forward, half an
+// hour behind — and once the network's clock is known those keep their stamp
+// too: the last time it could be, up to six hours before arrival. A stamp that
+// fits neither, and any before the clock is known, is timed by arrival. A Pi
+// whose own clock is not yet trusted leaves the time to the agent
+// (lib/agent.js deviceReading).
 
 const HALF_DAY_MS = 12 * 3600 * 1000;
 const SKEW_MS = 10 * 60 * 1000;
+const LATE_MS = 6 * 3600 * 1000;
+const CLOCK_EVIDENCE = 3;           // fresh PDUs on one clock (and four times those on the other) to know it
+const NOTE_MS = 3600 * 1000;
 const DUP_MS = 15 * 60 * 1000;      // a relayed copy comes within seconds; this is ample
 const DUP_SLACK_S = 2;
 
@@ -29,7 +36,7 @@ function onHalfDay(stamp, refMs, offsetMs) {
   return [base - HALF_DAY_MS, base, base + HALF_DAY_MS].reduce((a, b) => (Math.abs(b - refMs) < Math.abs(a - refMs) ? b : a));
 }
 
-// → { t, clock: 'utc' | 'local' } or null.
+// A stamp within ten minutes of refMs, in UTC or else local time → { t, clock: 'utc' | 'local' } or null.
 function stampTime(stamp, refMs) {
   if (stamp == null || stamp >= 43200) return null;
   const utc = onHalfDay(stamp, refMs, 0);
@@ -42,12 +49,52 @@ function stampTime(stamp, refMs) {
   return null;
 }
 
+// The latest the stamp can be that is not after refMs (by more than the skew): a PDU held up on its way.
+function lastHalfDay(stamp, refMs, offsetMs) {
+  const t = onHalfDay(stamp, refMs, offsetMs);
+  return t > refMs + SKEW_MS ? t - HALF_DAY_MS : t;
+}
+
 class Alert2Reader {
   constructor() {
     this.seen = new Map();          // "id:value:second" → when it was last heard
-    this.counts = { frames: 0, bad: 0, pdus: 0, records: 0, readings: 0, duplicates: 0 };
+    this.counts = { frames: 0, bad: 0, pdus: 0, records: 0, readings: 0, duplicates: 0, late: 0 };
     this.sources = new Set();
+    this.clocks = { utc: 0, local: 0 };   // fresh PDUs that fit each clock and not the other
     this.note = '';
+    this.noteAt = 0;
+  }
+
+  // The clock the network keeps, once its fresh PDUs have said: 'utc', 'local' or null.
+  clock() {
+    const { utc, local } = this.clocks;
+    if (utc >= CLOCK_EVIDENCE && utc >= 4 * local) return 'utc';
+    if (local >= CLOCK_EVIDENCE && local >= 4 * utc) return 'local';
+    return null;
+  }
+
+  // A PDU's stamp, heard at `now` → { t, clock, late } or null (timed by arrival).
+  place(stamp, now) {
+    if (stamp == null || stamp >= 43200) return null;
+    const off = -new Date(now).getTimezoneOffset() * 60000;
+    const utc = onHalfDay(stamp, now, 0), loc = off ? onHalfDay(stamp, now, off) : null;
+    const near = (t) => t != null && Math.abs(t - now) <= SKEW_MS;
+    if (near(utc) && !near(loc)) this.clocks.utc++;
+    else if (near(loc) && !near(utc)) this.clocks.local++;
+    if (this.clocks.utc + this.clocks.local > 1000) { this.clocks.utc >>= 1; this.clocks.local >>= 1; }
+    const known = this.clock();
+    const clock = known || (near(utc) ? 'utc' : near(loc) ? 'local' : null);
+    if (!clock) return null;
+    if (near(clock === 'utc' ? utc : loc)) return { t: clock === 'utc' ? utc : loc, clock };
+    if (!known) return null;
+    const t = lastHalfDay(stamp, now, clock === 'utc' ? 0 : off);
+    return now - t <= LATE_MS ? { t, clock, late: true } : null;
+  }
+
+  say(out, now, note) {
+    if (note === this.note && now - this.noteAt < NOTE_MS) return;
+    this.note = note; this.noteAt = now;
+    out.notes.push(note);
   }
 
   // A worker's alert2 result for one burst, heard at `now` (ms) → { readings, receptions, notes }.
@@ -68,18 +115,19 @@ class Alert2Reader {
         if (this.sources.size > 32) this.sources.delete(this.sources.values().next().value);
         const app = p.app;
         if (p.error || !app || p.port !== 1) continue;      // ALERT concentration only: the rest carry no readings
-        const placed = stampTime(app.stamp, now);
+        const placed = this.place(app.stamp, now);
+        if (placed && placed.late) this.counts.late++;
         if (app.stamp != null && !placed) {
-          const note = 'ALERT2 time stamps fit neither UTC nor local time within ten minutes of this Pi\'s clock, so readings are timed by arrival (check the clock)';
-          if (note !== this.note) { this.note = note; out.notes.push(note); }
-        } else if (placed) this.note = '';
+          this.say(out, now, this.clock() ? 'ALERT2 time stamps from the future, or more than six hours old, are timed by arrival (check the network\'s clock and this Pi\'s)'
+            : 'ALERT2 time stamps fit neither UTC nor local time within ten minutes of this Pi\'s clock, so readings are timed by arrival (check the clock)');
+        }
         for (const r of app.records) {
           this.counts.records++;
           const ts = (placed ? placed.t : now) - r.before * 1000;
           const dup = this.repeat(r.id, r.value, ts, now);
           if (dup) this.counts.duplicates++;
           const detail = Object.assign({ source: p.source, path: p.path, hop_limit: p.hopLimit, stamp: app.stamp, before_s: r.before,
-            clock: placed ? placed.clock : 'arrival', duplicate: dup }, fd);
+            clock: placed ? placed.clock : 'arrival', late: !!(placed && placed.late), duplicate: dup }, fd);
           // Heard now (the agent times it), as every SDR reception is; when it was read is in the stamp.
           out.receptions.push({ alert_id: r.id, value_raw: r.value, payload_hex: r.hex, ok: !app.test, fault: app.test ? 'test' : null, detail });
           if (app.test || dup) continue;
@@ -100,7 +148,7 @@ class Alert2Reader {
     return dup;
   }
 
-  status() { return { counts: this.counts, sources: [...this.sources], note: this.note || null }; }
+  status() { return { counts: this.counts, sources: [...this.sources], clock: this.clock(), note: this.note || null }; }
 }
 
 module.exports = { Alert2Reader, stampTime, onHalfDay };

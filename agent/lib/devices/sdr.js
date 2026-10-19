@@ -68,8 +68,17 @@ const BIAST_MS = 5000;      // rtl_biast opens the stick, sets a pin and closes 
 const FORMAT_SHORT = { BINARY: 'ABF', ENHANCED_IFLOWS: 'EIF', ASCII: 'ASCII' };
 const MAX_RETARGETS = 4;
 // Seconds of samples a decoder may fall behind before its input is dropped:
-// what one channel always had, shared out among several, never under five.
-const BACKLOG_S = 20, BACKLOG_MIN_S = 5;
+// twenty, each channel — a burst decode on a busy Pi holds its decoder up for
+// seconds at a time (a long ALERT2 frame gets the legacy decoder's 45 tries
+// first), and the queue rides that out — but within 2 % of the Pi's memory
+// each, and never under five. What a decoder reads that late is timed as it
+// was heard, not as it was read (SdrChannel.heardAt).
+const BACKLOG_S = 20, BACKLOG_MIN_S = 5, BACKLOG_MEM = 0.02;
+
+function backlogLimit(bytesPerSec, memMb) {
+  const mem = (memMb || 1024) * 1048576 * BACKLOG_MEM;
+  return Math.max(BACKLOG_MIN_S * bytesPerSec, Math.min(BACKLOG_S * bytesPerSec, mem));
+}
 
 // One channel the stick listens on: a receiver of its own. id: '' for the
 // stick's own channel, else its frequency in MHz ('151.525', '151.525-2').
@@ -157,8 +166,18 @@ class SdrChannel {
     this.worker.postMessage({ type: 'iq', buf: ab }, [ab]);
   }
 
+  // When what its decoder has just read was heard: now, less the samples it
+  // has been sent and not yet read. null while the clock is not trusted (the
+  // agent times it then, lib/agent.js).
+  heardAt() {
+    const clock = this.agent.clock, bps = this.stick.bytesPerSec;
+    if (!clock.trusted()) return null;
+    return clock.now() - (bps ? Math.round(this.backlog / bps * 1000) : 0);
+  }
+
   onDecode(m) {
     const fmt = FORMAT_SHORT[m.format] || m.format;
+    const ts = this.heardAt();
     const freq = +(this.spec.freqHz / 1e6).toFixed(4);
     const level = m.burst ? Math.round(m.burst.peakDb * 10) / 10 : null;
     const nf = m.burst ? Math.round(m.burst.nfDb * 10) / 10 : null;
@@ -169,23 +188,23 @@ class SdrChannel {
     for (const r of m.readings) {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
-      this.agent.deviceReading(this, { alert_id: r.sensorId, value_raw: r.value, protocol: 'alert', fmt, votes: r.votes,
+      this.agent.deviceReading(this, { alert_id: r.sensorId, value_raw: r.value, protocol: 'alert', fmt, votes: r.votes, ts,
         freq_mhz: freq, level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, '') + ',mhz=' + freq,
         burstKey: 's' + (m.burst ? m.burst.t : Date.now()) });
-      this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''),
+      this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''), ts,
         ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: { fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq } });
     }
     for (const s of m.shadows || []) {
       this.counts.shadows++;
-      this.agent.deviceReception(this, { protocol: 'alert', alert_id: s.sensorId, value_raw: s.value, ok: false, fault: 'shadow', votes: s.votes,
+      this.agent.deviceReception(this, { protocol: 'alert', alert_id: s.sensorId, value_raw: s.value, ok: false, fault: 'shadow', votes: s.votes, ts,
         level_dbfs: level, detail: { fmt, shadow_of: s.of, freq_mhz: freq } });
     }
-    const a2 = m.alert2 ? this.onAlert2(m, { level, nf, snr, freq }) : 0;
+    const a2 = m.alert2 ? this.onAlert2(m, { level, nf, snr, freq, ts }) : 0;
     // `all` counts readings before the pipeline drops repeats from overlapping
     // windows: a burst whose readings were all repeats was still decoded.
     if (m.burst && !m.all && !(m.shadows || []).length && !a2) {
       this.counts.undecoded++;
-      this.agent.deviceReception(this, { protocol: 'alert', alert_id: null, ok: false, fault: 'undecoded', level_dbfs: level,
+      this.agent.deviceReception(this, { protocol: 'alert', alert_id: null, ok: false, fault: 'undecoded', level_dbfs: level, ts,
         detail: { fmt, burst_ms: m.burst.ms, nf_dbfs: nf, freq_mhz: freq } });
     }
   }
@@ -197,7 +216,7 @@ class SdrChannel {
     const res = m.alert2;
     if (res.error && !this.alert2Error) { this.alert2Error = true; this.log.error('ALERT2 decoder: ' + res.error); }
     if (!res.frames.length) return 0;
-    const out = this.alert2.take(res, this.agent.clock.now(), this.agent.clock.trusted());
+    const out = this.alert2.take(res, at.ts != null ? at.ts : this.agent.clock.now(), this.agent.clock.trusted());
     for (const n of out.notes) this.log.warn(n);
     this.counts.alert2 = this.alert2.counts.frames;
     this.counts.alert2Bad = this.alert2.counts.bad;
@@ -211,7 +230,7 @@ class SdrChannel {
           + (r.stamp != null ? ',stamp=' + r.stamp : '') + ',before=' + r.before + ',mhz=' + at.freq });
     }
     for (const rx of out.receptions) {
-      this.agent.deviceReception(this, Object.assign({ protocol: 'alert2', level_dbfs: at.level }, rx,
+      this.agent.deviceReception(this, Object.assign({ protocol: 'alert2', level_dbfs: at.level, ts: at.ts }, rx,
         { detail: Object.assign({ fmt: 'ALERT2', nf_dbfs: at.nf, snr_db: at.snr, freq_mhz: at.freq }, rx.detail) }));
     }
     return res.frames.length;
@@ -536,7 +555,7 @@ class SdrSession extends EventEmitter {
       this.emit('change');
     }
     const live = this.channels.filter(ch => ch.worker);
-    const limit = this.bytesPerSec * Math.max(BACKLOG_MIN_S, BACKLOG_S / Math.max(1, live.length));
+    const limit = backlogLimit(this.bytesPerSec, this.agent.board && this.agent.board.memMb);
     for (const ch of live) ch.feed(buf, limit);
   }
 
@@ -746,4 +765,4 @@ class SdrSession extends EventEmitter {
 
 function round(v, d) { if (v == null || !Number.isFinite(v)) return null; const k = Math.pow(10, d == null ? 1 : d); return Math.round(v * k) / k; }
 
-module.exports = { SdrSession, SdrChannel };
+module.exports = { SdrSession, SdrChannel, backlogLimit };

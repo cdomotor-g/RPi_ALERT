@@ -65,7 +65,9 @@ station listens on all four of the channels MegaNet's stations use; change them 
   channel's work goes with its stick's rate. On a Pi 4, roughly 20% of a core per channel at
   960 ksps and 40–50% at 1.92 Msps, plus a second or so per burst decoded (from a PC, scaled;
   [bench-test.md](bench-test.md) measures it). Four channels at 1.92 Msps take about half a Pi 4,
-  and can drop samples for a moment at start-up; eight at 1.92 Msps — two sticks of four — are
+  and can drop samples for a moment at start-up (a decoder may fall up to 20 s behind — a burst
+  decode holds it up for seconds — before its samples are dropped; what it reads late is timed
+  as it was heard); eight at 1.92 Msps — two sticks of four — are
   more than it has (a base station did that: load 9, every channel dropping samples, most bursts
   lost). Keep each stick's channels close together instead: within about 0.74 MHz of each other
   they take 960 ksps, half the work. The same eight split low and high over two sticks

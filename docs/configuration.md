@@ -62,9 +62,10 @@ reach the other one. If it cannot be switched, the stick receives without it and
 <a id="alert2-off-the-air"></a>**ALERT2 off the air.** Every SDR channel hears ALERT2 as well as its
 legacy format: a burst none of the legacy formats reads is tried as an ALERT2 AirLink frame, and
 each ALERT concentration record in it is a reading with protocol `alert2`, format ALERT2, timed by
-its own stamp (seconds since 00:00 or 12:00 UTC; a network on local time is read in local time;
-neither within ten minutes of the Pi's clock and it is timed by arrival, and the Receivers page
-says why). A record relayed by several repeaters is one reading and a reception for each path, so
+its own stamp (seconds since 00:00 or 12:00 UTC; a network on local time is read in local time).
+The network's fresh PDUs say which clock it keeps, and then one delivered late — a repeater's
+store and forward, half an hour behind — keeps its stamp too, up to six hours old; a stamp that
+fits neither, or comes from the future, is timed by arrival, and the Receivers page says why. A record relayed by several repeaters is one reading and a reception for each path, so
 the Reception Map shows the paths. A channel's row on the Receivers page counts its ALERT2 frames
 (and those whose sync was heard but would not decode). Nothing to set — the channel's format
 stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
