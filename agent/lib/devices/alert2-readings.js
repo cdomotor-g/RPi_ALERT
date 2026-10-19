@@ -7,7 +7,10 @@
 // repeaters it took, which is what finding a bad repeater is made of. A record
 // is a reading once: a network relays each PDU along several paths, so one
 // reading comes in two, three, four times, a few seconds apart, often within
-// one frame. A test PDU's records are receptions only.
+// one frame. A test PDU's records are receptions only. A PDU on any other
+// port — a station reporting its own sensors (self-reporting), or the
+// network's own business — is a reception, with what it says: those carry no
+// ALERT id, so they are not readings.
 //
 // Time: a PDU's stamp is seconds since 00:00 or 12:00 UTC, and each record is
 // that many seconds before it. Most PDUs come within a minute or two of their
@@ -49,6 +52,17 @@ function stampTime(stamp, refMs) {
   return null;
 }
 
+// A PDU that is not ALERT concentration → its reception: heard, and what it says.
+function otherPdu(p, fd) {
+  const app = p.app, detail = Object.assign({ source: p.source, port: p.port, path: p.path, hop_limit: p.hopLimit, stamp: app.stamp, apdu: app.apdu }, fd);
+  const sensors = [].concat(...(app.elements || []).filter(e => e.sensors).map(e => e.sensors));
+  if (sensors.length) detail.sensors = sensors.slice(0, 40).map(s => (s.hex ? [s.sensor, s.hex] : [s.sensor, s.value]));
+  const others = (app.elements || []).filter(e => !e.sensors).map(e => e.type);
+  if (others.length) detail.elements = others.slice(0, 20);
+  return { alert_id: null, ok: !app.test, fault: app.test ? 'test' : null, payload_hex: app.hex ? app.hex.slice(0, 64) : null,
+    detail: Object.assign(detail, { kind: sensors.length ? 'self-report' : 'other' }) };
+}
+
 // The latest the stamp can be that is not after refMs (by more than the skew): a PDU held up on its way.
 function lastHalfDay(stamp, refMs, offsetMs) {
   const t = onHalfDay(stamp, refMs, offsetMs);
@@ -58,7 +72,7 @@ function lastHalfDay(stamp, refMs, offsetMs) {
 class Alert2Reader {
   constructor() {
     this.seen = new Map();          // "id:value:second" → when it was last heard
-    this.counts = { frames: 0, bad: 0, pdus: 0, records: 0, readings: 0, duplicates: 0, late: 0 };
+    this.counts = { frames: 0, bad: 0, pdus: 0, records: 0, readings: 0, duplicates: 0, late: 0, other: 0 };
     this.sources = new Set();
     this.clocks = { utc: 0, local: 0 };   // fresh PDUs that fit each clock and not the other
     this.note = '';
@@ -114,7 +128,8 @@ class Alert2Reader {
         this.sources.add(p.source);
         if (this.sources.size > 32) this.sources.delete(this.sources.values().next().value);
         const app = p.app;
-        if (p.error || !app || p.port !== 1) continue;      // ALERT concentration only: the rest carry no readings
+        if (p.error || !app) continue;
+        if (p.port !== 1) { this.counts.other++; out.receptions.push(otherPdu(p, fd)); continue; }
         const placed = this.place(app.stamp, now);
         if (placed && placed.late) this.counts.late++;
         if (app.stamp != null && !placed) {

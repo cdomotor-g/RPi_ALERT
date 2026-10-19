@@ -357,7 +357,11 @@ function mantPdus(b) {
 
 // An application payload (ALERT2 Application Layer): its control byte, the
 // time stamp it may carry (seconds since 00:00 or 12:00 UTC), then — on port
-// 1, ALERT concentration — 4-byte records.
+// 1, ALERT concentration — 4-byte records; on any other port, elements of a
+// type byte and a length. Type 1 is a station's own sensors (self-reporting:
+// at 18 Bateson, stations 62721 and 62725 on 151.500): each a sensor number,
+// a format byte — its high nibble 1 for unsigned, 2 for signed, its low
+// nibble how many bytes — and the value, big-endian.
 function appPayload(port, b) {
   if (!b.length) return null;
   const c = b[0];
@@ -370,8 +374,33 @@ function appPayload(port, b) {
         bytes: b.subarray(p, p + 4) });
     }
     if (p !== b.length) app.leftover = b.length - p;
+  } else {
+    app.elements = [];
+    while (p + 2 <= b.length) {
+      const type = b[p], len = b[p + 1], v = b.subarray(p + 2, p + 2 + len);
+      if (v.length < len) break;
+      app.elements.push(type === 1 ? { type, sensors: sensorsOf(v) } : { type, bytes: v });
+      p += 2 + len;
+    }
+    if (p !== b.length) app.leftover = b.length - p;
   }
+  app.bytes = b;
   return app;
+}
+
+// A self-report's sensors → [{ sensor, value }] (bytes, for a format not known).
+function sensorsOf(v) {
+  const out = [];
+  for (let p = 0; p + 2 <= v.length;) {
+    const sensor = v[p], fmt = v[p + 1], n = fmt & 15, kind = fmt >> 4, val = v.subarray(p + 2, p + 2 + n);
+    if (val.length < n) break;
+    let x = 0;
+    for (const byte of val) x = x * 256 + byte;
+    if (kind === 2 && n && val[0] & 0x80) x -= Math.pow(256, n);
+    out.push(kind === 1 || kind === 2 ? { sensor, value: x } : { sensor, fmt, bytes: val });
+    p += 2 + n;
+  }
+  return out;
 }
 
 // ── a window ───────────────────────────────────────────────────────────────
@@ -459,8 +488,10 @@ function plain(res) {
       pdus: (f.pdus || []).map(p => ({
         source: p.source, port: p.port, path: p.path || [], hopLimit: p.hopLimit, dest: p.dest, pduId: p.pduId, error: p.error || null,
         hex: p.bytes ? hex(p.bytes) : null,
-        app: p.app ? { stamp: p.app.stamp, test: p.app.test, apdu: p.app.apdu, leftover: p.app.leftover || 0,
-          records: p.app.records.map(r => ({ id: r.alertId, value: r.value, before: r.before, hex: hex(r.bytes) })) } : null,
+        app: p.app ? { stamp: p.app.stamp, test: p.app.test, apdu: p.app.apdu, leftover: p.app.leftover || 0, hex: hex(p.app.bytes),
+          records: p.app.records.map(r => ({ id: r.alertId, value: r.value, before: r.before, hex: hex(r.bytes) })),
+          elements: (p.app.elements || []).map(e => (e.sensors ? { type: e.type, sensors: e.sensors.map(s => (s.bytes ? { sensor: s.sensor, fmt: s.fmt, hex: hex(s.bytes) } : s)) }
+            : { type: e.type, hex: hex(e.bytes) })) } : null,
       })),
     })),
   };

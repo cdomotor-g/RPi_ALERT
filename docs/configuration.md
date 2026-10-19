@@ -66,7 +66,9 @@ its own stamp (seconds since 00:00 or 12:00 UTC; a network on local time is read
 The network's fresh PDUs say which clock it keeps, and then one delivered late — a repeater's
 store and forward, half an hour behind — keeps its stamp too, up to six hours old; a stamp that
 fits neither, or comes from the future, is timed by arrival, and the Receivers page says why. A record relayed by several repeaters is one reading and a reception for each path, so
-the Reception Map shows the paths. A channel's row on the Receivers page counts its ALERT2 frames
+the Reception Map shows the paths. A station reporting its own sensors (self-reporting, not
+concentrated ALERT) is a reception with each sensor's number and value — it has no ALERT id to be a
+reading by. A channel's row on the Receivers page counts its ALERT2 frames
 (and those whose sync was heard but would not decode). Nothing to set — the channel's format
 stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
 costs a few tenths of a second on a Pi 4, and only bursts nothing else decoded are tried.

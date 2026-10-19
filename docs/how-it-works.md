@@ -124,7 +124,10 @@ read. Then `alert2-readings.js`: each record a reception (with its source and re
 a reading once — a network relays a PDU along several paths, so the same record comes two, three,
 four times. Timed by its PDU's stamp, seconds since 00:00 or 12:00 UTC, less the seconds the record
 says it was before it — a PDU delivered late included, once the network's fresh PDUs have shown
-which clock it keeps. It takes 0.1–0.2 s a burst on a PC, a few times that on a Pi 4. A frame
+which clock it keeps. A PDU on another port is a reception only, with what it says: a station
+reporting its own sensors (self-reporting — a sensor number, a format byte and a value each, as
+stations 62721 and 62725 do on 151.500 at 18 Bateson) names no ALERT id, so it cannot be a reading
+until MegaNet's register says which sensor is which. It takes 0.1–0.2 s a burst on a PC, a few times that on a Pi 4. A frame
 longer than the burst gate's 3 s is cut off and not read.
 
 ## A reading's life

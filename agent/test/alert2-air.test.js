@@ -57,6 +57,20 @@ test('a real frame: a short one, with a PDU on another port', () => {
     { source: 10019, port: 0, path: [], hopLimit: 1, stamp: 7976, records: [] },
   ]);
   assert.equal(f[0].pdus[1].app.apdu, 6);
+  assert.deepEqual(f[0].pdus[1].app.elements, [{ type: 1, sensors: [{ sensor: 201, value: 0 }] }], 'the repeater reporting a sensor of its own');
+});
+
+test('a station reporting its own sensors (self-reporting): the two heard on 151.500, as their frames carried them', () => {
+  const pdu = (h) => Air.plain({ frames: [{ ok: true, blocks: [], pdus: Air.mantPdus(Uint8Array.from(Buffer.from(h, 'hex'))) }] }).frames[0].pdus[0];
+  const a = pdu('00000016f50174597101110c1200000b2200150a21a7091100081187');
+  assert.deepEqual([a.source, a.port, a.app.stamp, a.app.records], [62721, 0, 22897, []]);
+  assert.deepEqual(a.app.elements, [{ type: 1, sensors: [{ sensor: 12, value: 0 }, { sensor: 11, value: 21 }, { sensor: 10, value: -89 }, { sensor: 9, value: 0 }, { sensor: 8, value: 135 }] }]);
+  const b = pdu('00000020f5057455be011b0c11000b2200150a210009110008118607230001c0001400000f09');
+  assert.deepEqual(b.app.elements[0].sensors.map(s => [s.sensor, s.value]), [[12, 0], [11, 21], [10, 0], [9, 0], [8, 134], [7, 448], [0, 3849]]);
+  assert.equal(b.app.hex, '7455BE011B0C11000B2200150A210009110008118607230001C0001400000F09');
+  // A format not known (high nibble 3) keeps its bytes; so does an element of another type.
+  const c = pdu('0000000b' + 'f501' + '745971' + '01030a3101' + '0201ff');
+  assert.deepEqual(c.app.elements, [{ type: 1, sensors: [{ sensor: 10, fmt: 0x31, hex: '01' }] }, { type: 2, hex: 'FF' }]);
 });
 
 const PDUS = [

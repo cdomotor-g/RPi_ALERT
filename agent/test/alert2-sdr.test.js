@@ -51,7 +51,23 @@ test('a record relayed by several paths is one reading and a reception for each;
   assert.equal(b.receptions[0].detail.duplicate, true);
   // A new value from the same sensor is a new reading.
   assert.equal(rd.take(res([pdu(33300, [10019], 8001, [[1909, 39, 2]])]), T0 + 60000, true).readings.length, 1);
-  assert.deepEqual(rd.status().counts, { frames: 3, bad: 0, pdus: 6, records: 8, readings: 4, duplicates: 3, late: 0 });
+  assert.deepEqual(rd.status().counts, { frames: 3, bad: 0, pdus: 6, records: 8, readings: 4, duplicates: 3, late: 0, other: 0 });
+});
+
+test('a station reporting its own sensors is a reception saying what they read — not a reading, having no ALERT id', () => {
+  const rd = new Alert2Reader();
+  const self = { source: 62721, port: 0, path: [], hopLimit: 0, error: null, app: { stamp: 7980, test: false, apdu: 7, hex: '74597101110C1200000B2200150A21A7091100081187', records: [],
+    elements: [{ type: 1, sensors: [{ sensor: 12, value: 0 }, { sensor: 11, value: 21 }, { sensor: 10, value: -89 }, { sensor: 9, value: 0 }, { sensor: 8, value: 135 }] }] } };
+  const a = rd.take(res([self]), T0, true);
+  assert.deepEqual(a.readings, []);
+  assert.equal(a.receptions.length, 1);
+  const r = a.receptions[0];
+  assert.deepEqual([r.alert_id, r.ok, r.fault, r.payload_hex], [null, true, null, '74597101110C1200000B2200150A21A7091100081187']);
+  assert.deepEqual([r.detail.kind, r.detail.source, r.detail.port, r.detail.sensors], ['self-report', 62721, 0, [[12, 0], [11, 21], [10, -89], [9, 0], [8, 135]]]);
+  assert.equal(rd.status().counts.other, 1);
+  const long = rd.take(res([Object.assign({}, self, { app: Object.assign({}, self.app, { hex: 'AB'.repeat(40), elements: [] }) })]), T0, true).receptions[0];
+  assert.equal(long.payload_hex.length, 64, 'MegaNet keeps 32 bytes of it');
+  assert.equal(long.detail.kind, 'other');
 });
 
 test('a frame that would not decode is a reception with its error; an untrusted clock leaves the time to the agent', () => {

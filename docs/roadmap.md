@@ -69,7 +69,9 @@ badly each one strands somebody:
   `alert2-fec.js`) and would sit beside `alert-dsp.js`; (2) a channel that only ever carries ALERT2
   still pays for the legacy decode first (45 tries a burst) — learning that, per channel, would
   halve its CPU; (3) frames longer than the burst gate's 3 s are cut off (none seen yet: the
-  longest heard is 349 bytes, 1.9 s).
+  longest heard is 349 bytes, 1.9 s); (4) self-reporting stations — 62721 and 62725 send their own
+  sensors on 151.500, each report twice 2 s apart — are receptions only: their sensors become
+  readings once MegaNet's register maps (station, sensor number) to an ALERT id.
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
