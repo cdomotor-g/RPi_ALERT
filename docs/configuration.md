@@ -63,9 +63,10 @@ reach the other one. If it cannot be switched, the stick receives without it and
 burst heard on them — to see what is on a channel nothing here decodes yet (ALERT2, another
 format), and to build the decoder that will. Each burst is two files in
 `/var/lib/rpi-alert/recordings`: an `.iq8`, the channel's own 240 ksps as u8 I then Q, centred on
-it — the burst and 0.4 s either side, exactly what the decoder read, and the format MegaNet's SDR
-card captures and its tests decode — and a `.json` saying what it was (frequency, stick and
-tuning, the burst's level and length, what it decoded as). The newest are kept, up to the size set
+it — the burst and 0.4 s either side, the decoder's own samples scaled so the loudest fills most of
+a byte (a channel heard at −60 dBFS would otherwise be nothing but 127s and 128s), in the format
+MegaNet's SDR card captures and its tests decode — and a `.json` saying what it was (frequency,
+stick and tuning, the burst's level and length, the scale, what it decoded as). The newest are kept, up to the size set
 (256 MB by default; about 1 MB a second of burst), and none is written with under 512 MB of the
 card free. The same card lists them, newest first, each a download; `rpi-alert record` does it
 from the command line, and MegaNet can fetch one a piece at a time

@@ -8,19 +8,20 @@
 //
 // Recording (lib/recorder.js): with `record` on, every burst the squelch
 // opens on goes out as well, as the pipeline holds it once its decode is done
-// — the channel's own 240 ksps u8 IQ, centred on it, over the window the
-// decoder read (the burst and 0.4 s either side).
+// — the channel's own 240 ksps IQ, centred on it, over the window the decoder
+// read (the burst and 0.4 s either side), from the pipeline's float ring and
+// scaled to fill a byte (its own u8 capture is too quiet for a weak channel).
 
 const { parentPort, workerData } = require('node:worker_threads');
 const { AlertDsp } = require('../meganet-codecs');
 const { CarrierMeter } = require('./carrier');
+const { toU8 } = require('../recorder');
 
 const PREROLL_S = 0.15, HANG_S = 0.25, MAX_CLIP_S = 4;
 const SPEC_BINS = 256;
 
 let audioOn = !!(workerData && workerData.audio);
 let recordOn = !!(workerData && workerData.cfg && workerData.cfg.record);
-let captured = null;        // what pipe.capture() just handed back
 let levels = 0;
 let clip = null;            // gated audio being collected: { parts: [], n }
 let preroll = [];           // the last PREROLL_S of audio, for the start of a burst
@@ -35,19 +36,13 @@ const pipe = new AlertDsp.Pipeline((m) => {
         ms: m.ms, combos: m.combos, seconds: m.seconds, format: m.format, carrier: m.trace ? m.trace.carrierHz : null,
         cfoHz: meter.take(m.burst && m.burst.t) });
       // The window just decoded ends where the samples do (within a chunk):
-      // the capture ring's last `seconds` are that burst, as the decoder read it.
+      // the ring's last `seconds` are that burst, as the decoder read it.
       if (recordOn && m.burst) {
-        captured = null;
-        pipe.capture(m.seconds + 0.05);
-        if (captured) {
-          parentPort.postMessage({ type: 'recording', buf: captured.buf, rate: captured.rate, seconds: captured.seconds, burst: m.burst,
-            format: m.format, readings: m.readings.map(r => ({ id: r.sensorId, value: r.value })), all: m.all, shadows: (m.shadows || []).length }, [captured.buf]);
-          captured = null;
-        }
+        const n = Math.min(pipe.ringR.length, pipe.total, Math.round((m.seconds + 0.05) * AlertDsp.FS_IN));
+        const rec = toU8(pipe.ringR, pipe.ringI, pipe.total, n);
+        parentPort.postMessage({ type: 'recording', buf: rec.buf, scale: rec.scale, rate: AlertDsp.FS_IN, seconds: n / AlertDsp.FS_IN, burst: m.burst,
+          format: m.format, readings: m.readings.map(r => ({ id: r.sensorId, value: r.value })), all: m.all, shadows: (m.shadows || []).length }, [rec.buf]);
       }
-      break;
-    case 'capture':
-      captured = m;
       break;
     case 'burst':
       parentPort.postMessage({ type: 'burst', ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });

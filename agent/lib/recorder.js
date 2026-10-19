@@ -13,7 +13,10 @@
 //                                            burst's level and length, what (if anything) it decoded as
 //
 // An .iq8 is what MegaNet's SDR card captures and agent/test/fixtures holds, so
-// the website and the tests read one as it is. The newest are kept, maxMb of
+// the website and the tests read one as it is. It is the decoder's own samples
+// (floats) scaled so the loudest fills most of a byte — `scale` in the .json:
+// the pipeline's own u8 capture is not scaled, and a channel heard at -60 dBFS
+// is a tenth of a step there, every byte 127 or 128. The newest are kept, maxMb of
 // them in all; with under 512 MB of the card free none is written. The web
 // page lists and downloads them (/api/recordings), and MegaNet's Base Stations
 // tab can fetch them a piece at a time (lib/remote.js: recordings, recording.get).
@@ -79,8 +82,9 @@ class Recorder {
     const st = ch.stick, c = st.cfg();
     const meta = {
       file: name + '.iq8',
-      what: 'u8 IQ, I then Q, ' + m.rate + ' samples a second, centred on the channel (127.5 is zero): the burst and 0.4 s either side, as the decoder read it',
-      rate: m.rate, samples: m.buf.byteLength >> 1, seconds: Math.round(m.seconds * 1000) / 1000,
+      what: 'u8 IQ, I then Q, ' + m.rate + ' samples a second, centred on the channel (127.5 is zero): the burst and 0.4 s either side, as the decoder read it,'
+        + ' times scale (u8 = sample × scale + 127.5, a sample being in steps of the stick\'s own 8 bits)',
+      rate: m.rate, samples: m.buf.byteLength >> 1, seconds: Math.round(m.seconds * 1000) / 1000, scale: m.scale != null ? Math.round(m.scale * 1000) / 1000 : 1,
       burstAt: new Date(t).toISOString(),
       freqHz: ch.spec.freqHz,
       burst: m.burst ? { ms: m.burst.ms, peakDb: r1(m.burst.peakDb), nfDb: r1(m.burst.nfDb) } : null,
@@ -189,6 +193,29 @@ function brief(meta) {
     ms: meta.burst && meta.burst.ms, peakDb: meta.burst && meta.burst.peakDb, seconds: meta.seconds, decoded: (d.readings || []).length };
 }
 
+// The last n samples of a ring of complex floats (the pipeline's ringR/ringI,
+// `total` written so far) as u8 IQ, scaled so the loudest sample is PEAK from
+// the middle — up for a weak channel, down for one that would clip: { buf, scale }.
+const PEAK = 120;
+function toU8(re, im, total, n) {
+  const CAP = re.length, start = total - n;
+  let peak = 0;
+  for (let k = 0; k < n; k++) {
+    const p = (start + k) % CAP;
+    const a = Math.abs(re[p]), b = Math.abs(im[p]);
+    if (a > peak) peak = a;
+    if (b > peak) peak = b;
+  }
+  const scale = peak > 0 ? PEAK / peak : 1;
+  const out = new Uint8Array(n * 2);
+  for (let k = 0; k < n; k++) {
+    const p = (start + k) % CAP;
+    out[2 * k] = Math.max(0, Math.min(255, Math.round(re[p] * scale + 127.5)));
+    out[2 * k + 1] = Math.max(0, Math.min(255, Math.round(im[p] * scale + 127.5)));
+  }
+  return { buf: out.buffer, scale };
+}
+
 function stamp(t) {
   const s = new Date(t).toISOString();             // 2026-10-19T00:46:44.082Z
   return s.slice(0, 10).replace(/-/g, '') + '-' + s.slice(11, 19).replace(/:/g, '') + '-' + s.slice(20, 23);
@@ -200,4 +227,4 @@ function freeMb(dir) {
 
 function r1(v) { return v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10; }
 
-module.exports = { Recorder, stamp, NAME, FILE, MAX_CHUNK };
+module.exports = { Recorder, toU8, stamp, NAME, FILE, MAX_CHUNK };

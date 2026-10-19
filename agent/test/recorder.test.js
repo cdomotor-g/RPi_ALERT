@@ -13,7 +13,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const stub = require('./helpers/meganet-stub');
 const { AlertDsp } = require('../lib/meganet-codecs');
-const { Recorder, MAX_CHUNK } = require('../lib/recorder');
+const { Recorder, toU8, MAX_CHUNK } = require('../lib/recorder');
 const { VERBS } = require('../lib/remote');
 const { Config } = require('../lib/config');
 
@@ -59,6 +59,7 @@ test('recording a channel: each burst kept as its own 240 ksps IQ, which decodes
 
   const meta = await (await get('/api/recordings/' + f.name + '.json')).json();
   assert.equal(meta.rate, 240000);
+  assert.ok(meta.scale > 0, 'how much it was scaled by: ' + meta.scale);
   assert.equal(meta.stick.sampleRate, 960000);
   assert.ok(meta.decodedAs.readings.some(r => r.id === 2088 && r.value === 143), JSON.stringify(meta.decodedAs));
   const res = await get('/api/recordings/' + f.name + '.iq8');
@@ -82,6 +83,35 @@ test('recording a channel: each burst kept as its own 240 ksps IQ, which decodes
   const n = (await list()).files.length;
   await wait(8000);                                   // more than one of the fake's burst loops
   assert.equal((await list()).files.length, n, 'none kept once it is off');
+});
+
+test('a weak channel is recorded scaled to fill a byte: the burst stands out of the noise, where the pipeline\'s own u8 capture is all 127s and 128s', () => {
+  // A burst as the decoder holds it (floats, in steps of the stick's 8 bits), heard ~60 dB down.
+  const iq = AlertDsp.synthIq({ fs: 240000, seconds: 3, snrDb: 28, seed: 3, bursts: [{ startSec: 1, frames: [AlertDsp.encodeFrame(AlertDsp.BINARY, 2088, 143)], cfoHz: 0, amp: 40, polarity: 'NEG' }] });
+  const n = iq.length >> 1, CAP = 240000 * 8;
+  const re = new Float32Array(CAP), im = new Float32Array(CAP);
+  for (let k = 0; k < n; k++) { re[k] = (iq[2 * k] - 127.5) * 0.002; im[k] = (iq[2 * k + 1] - 127.5) * 0.002; }
+  // Power in dB over [a, b) seconds of u8 IQ.
+  const pwr = (u8, a, b) => { let s = 0; const i0 = Math.round(a * 240000), i1 = Math.round(b * 240000); for (let k = i0; k < i1; k++) s += (u8[2 * k] - 127.5) ** 2 + (u8[2 * k + 1] - 127.5) ** 2; return 10 * Math.log10(s / (i1 - i0)); };
+  // Unscaled, as the pipeline's capture rounds them: only each sample's sign is
+  // left — the burst no louder than the noise either side of it.
+  const raw = new Uint8Array(n * 2);
+  for (let k = 0; k < n; k++) { raw[2 * k] = Math.round(re[k] + 127.5); raw[2 * k + 1] = Math.round(im[k] + 127.5); }
+  assert.ok(raw.every(b => b === 127 || b === 128));
+  assert.ok(Math.abs(pwr(raw, 1.05, 1.2) - pwr(raw, 0, 0.8)) < 0.1, 'no amplitude in it');
+  const rec = toU8(re, im, n, n);
+  assert.ok(rec.scale > 100, 'scaled up: ' + rec.scale);
+  const u8 = new Uint8Array(rec.buf);
+  assert.ok(pwr(u8, 1.05, 1.2) - pwr(u8, 0, 0.8) > 10, 'the burst well out of the noise (over the whole 240 kHz): ' + (pwr(u8, 1.05, 1.2) - pwr(u8, 0, 0.8)).toFixed(1) + ' dB');
+  let lo = 255, hi = 0;
+  for (const b of u8) { if (b < lo) lo = b; if (b > hi) hi = b; }
+  assert.ok(hi <= 248 && lo >= 7 && hi - lo > 200, 'the loudest fills most of a byte, never clipped: ' + lo + '–' + hi);
+  assert.ok(AlertDsp.decodeU8(u8, { format: AlertDsp.BINARY }).readings.some(r => r.sensorId === 2088 && r.value === 143), 'and it decodes');
+  // A loud one is scaled down, not clipped; from anywhere in the ring.
+  for (let k = 0; k < n; k++) { re[(k + CAP - 1000) % CAP] = (iq[2 * k] - 127.5) * 9; im[(k + CAP - 1000) % CAP] = (iq[2 * k + 1] - 127.5) * 9; }
+  const loud = toU8(re, im, CAP - 1000 + n, n);
+  assert.ok(loud.scale < 1);
+  assert.ok(AlertDsp.decodeU8(new Uint8Array(loud.buf), { format: AlertDsp.BINARY }).readings.some(r => r.sensorId === 2088));
 });
 
 test('recordings: MegaNet fetches one a piece at a time, each piece fits a check-in, and the newest are kept within maxMb', async () => {
