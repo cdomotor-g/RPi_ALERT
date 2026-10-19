@@ -366,6 +366,9 @@ class Remote extends EventEmitter {
     const sys = await system.info();
     const devs = this.devices();
     p.beat = this.beat(sys, devs);
+    // Each stick's spectrum since the last check-in, a row each (MegaNet 0068's waterfall).
+    const spectra = this.agent.devices.all().filter(s => s.kind === 'sdr' && s.takeSpectrum).map(s => s.takeSpectrum()).filter(Boolean).slice(0, 8);
+    if (spectra.length) p.spectra = spectra;
     if (this.results.length) p.results = this.results.slice(0, MAX_RESULTS);
     const st = fit(this.status(sys, devs));
     const sig = JSON.stringify(st);

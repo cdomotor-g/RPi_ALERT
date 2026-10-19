@@ -151,6 +151,27 @@ test('a decoder may fall twenty seconds behind, within 2 % of the Pi\'s memory, 
   assert.equal(ch.heardAt(), null, 'the agent times it once the clock is known');
 });
 
+test('a stick\'s spectrum held at its strongest between check-ins: a row of bytes, half a dB a step over its floor', () => {
+  const dir = tmp('rpa-hold-');
+  const config = new Config(path.join(dir, 'config.json')).load();
+  const state = new State(dir).load();
+  const log = { debug() {}, info() {}, warn() {}, error() {}, child() { return log; } };
+  const agent = { config, state, log, board: { cores: 4, memMb: 4000 }, devices: null, audio: null };
+  const st = blogV4('1-1.3', 4);
+  const s = new SdrSession(agent, Object.assign(st, { key: state.assignSdrs([st]).get(st) }));
+  assert.equal(s.takeSpectrum(), null, 'nothing held yet');
+  s.state = 'running';
+  const row = (peak) => Array.from({ length: 10 }, (_, i) => (i === 7 ? peak : -50 + (i % 3)));
+  s.holdSpectrum({ db: row(-40), rate: 960000 });
+  s.holdSpectrum({ db: row(-20), rate: 960000 });
+  s.holdSpectrum({ db: row(-30), rate: 960000 });
+  const r = s.takeSpectrum();
+  assert.deepEqual([r.key, r.rate, r.floor_db, r.center_hz], [s.key, 960000, -50, s.cfg().centerHz]);
+  assert.deepEqual(Array.from(Buffer.from(r.bins, 'base64')), [0, 2, 4, 0, 2, 4, 0, 60, 4, 0], 'the strongest each bin was, over the floor');
+  assert.ok(r.span_s >= 1);
+  assert.equal(s.takeSpectrum(), null, 'taken: held afresh from the next');
+});
+
 test('a stick\'s settings: its own over the shared ones; only tuner changes restart rtl_sdr', () => {
   const dir = tmp('rpa-sess-');
   const config = new Config(path.join(dir, 'config.json')).load();

@@ -28,6 +28,12 @@ POST <endpoint>/rpc/base_station_checkin    apikey · X-Ingest-Token · Content-
 - The **heartbeat** goes every time — a few hundred bytes: uptime, temperature, load, free memory
   and disk, under-voltage, the clock, what is queued for MegaNet, and each receiver's state, what it
   has decoded and when it last sent anything.
+- A **spectrum row** per SDR stick goes with it too — 256 bytes: the strongest each slice of the
+  stick's band was since the last check-in, in half-dB steps over the stick's noise floor. It is the
+  spectrum the decoders already work out once a second, so it costs the Pi nothing, and MegaNet
+  stacks the rows into a waterfall on the Base Stations tab: a minute a row normally, five seconds
+  while an administrator has the base station open. The spectrum is a few short looks a second, so
+  a burst between them can be missed by it; MegaNet marks the bursts the Pi decoded on top.
 - The **whole status** goes when something in it changed, every quarter of an hour, and when an
   administrator opens the base station: the receivers and their settings, the uplink, the clock,
   where it is, the software and its update state, who may log in over SSH (fingerprints and

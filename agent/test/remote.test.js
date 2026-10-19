@@ -41,7 +41,9 @@ function rig(m, over) {
     wallOf(x) { return x; }, status: () => ({ trusted: true, source: 'ntp', timezone: 'UTC' }) });
   const uplink = new Uplink({ config: cfg, clock, log: quiet, dataDir: dir });
   const done = { restarted: [], scanned: 0, sent: 0 };
+  let held = { key: 'sdr-port:1-1.3', center_hz: 151850000, rate: 960000, span_s: 60, floor_db: -45.5, bins: Buffer.from([0, 10, 60]).toString('base64') };
   const sdr = { key: 'sdr-port:1-1.3', kind: 'sdr', state: 'running', name: () => 'RTL-SDR', restart: async () => { done.restarted.push('sdr-port:1-1.3'); },
+    takeSpectrum: () => { const r = held; held = null; return r; },
     status: () => ({ key: 'sdr-port:1-1.3', kind: 'sdr', name: 'RTL-SDR', state: 'running', protocol: 'alert', pointId: 'rpi-abc-sdr1', enabled: true,
       freqHz: cfg.get().receivers.sdr.freqHz, format: 'BINARY', gainDb: 29.7, ppm: 0, squelchDb: 8, biasTee: false, sampleRate: 960000, model: 'RTL-SDR Blog V4',
       device: { serial: '00000001', port: '1-1.3' }, own: [], counts: { bursts: 5, decodes: 4, dropped: 12345678 }, rateKsps: 960, lastSeen: null, spectrum: { db: new Array(512).fill(-90) },
@@ -75,6 +77,9 @@ test('remote: a heartbeat every check-in, the whole status when it changed — a
   // only the heartbeat.
   const later = m.station.payloads.slice(2, 5);
   assert.ok(later.every(p => !p.status), 'with nothing changed, only the heartbeat');
+  // Each stick's spectrum since the last check-in, once: a row of MegaNet's waterfall.
+  assert.deepEqual(first.spectra, [{ key: 'sdr-port:1-1.3', center_hz: 151850000, rate: 960000, span_s: 60, floor_db: -45.5, bins: 'AAo8' }]);
+  assert.ok(m.station.payloads.slice(1).every(p => !p.spectra), 'and not again until there is another');
   assert.ok(later.every(p => p.beat && typeof p.beat.up === 'number' && Array.isArray(p.beat.rx)));
   const st = first.status;
   assert.equal(st.name, 'Bench Pi');

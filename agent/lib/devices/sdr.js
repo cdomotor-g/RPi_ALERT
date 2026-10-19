@@ -664,7 +664,7 @@ class SdrSession extends EventEmitter {
     if (m.type === 'fed') { ch.backlog = Math.max(0, ch.backlog - m.bytes); return; }
     if (m.type === 'level') { ch.level = m.level; return; }
     // The whole slice is the same for every channel: drawn from the first.
-    if (m.type === 'spectrum') { if (ch === this.channels.find(x => x.worker)) this.spectrum = m; return; }
+    if (m.type === 'spectrum') { if (ch === this.channels.find(x => x.worker)) { this.spectrum = m; this.holdSpectrum(m); } return; }
     if (m.type === 'audio') { this.agent.audio && this.agent.audio.live(m.pcm, m.rate); return; }
     if (m.type === 'error') { ch.log.error('decoder: ' + m.message); return; }
     if (m.type === 'recording') { if (this.agent.recorder) this.agent.recorder.save(ch, m); return; }
@@ -677,6 +677,30 @@ class SdrSession extends EventEmitter {
       return;
     }
     if (m.type === 'decode') ch.onDecode(m);
+  }
+
+  // The slice's spectrum, the strongest each bin has been since MegaNet last
+  // took it (lib/remote.js, at each check-in) — so MegaNet can draw a waterfall
+  // of what the stick hears without the Pi sending more than a row a check-in.
+  holdSpectrum(m) {
+    const c = this.cfg(), sig = c.centerHz + ':' + m.rate + ':' + m.db.length;
+    if (!this.hold || this.hold.sig !== sig) { this.hold = { sig, db: Float32Array.from(m.db), from: Date.now(), centerHz: c.centerHz, rate: m.rate }; return; }
+    const h = this.hold.db;
+    for (let i = 0; i < h.length; i++) if (m.db[i] > h[i]) h[i] = m.db[i];
+  }
+
+  // That row, and a fresh start: { key, center_hz, rate, span_s, floor_db,
+  // bins } — bins base64, a byte a bin, half-dB steps over the row's floor (its
+  // quietest fifth), 0 to 127.5 dB. null with nothing held.
+  takeSpectrum() {
+    const h = this.hold;
+    if (!h || this.state !== 'running') { this.hold = null; return null; }
+    this.hold = null;
+    const sorted = Array.from(h.db).sort((a, b) => a - b), floor = sorted[Math.floor(sorted.length / 5)];
+    const bins = Buffer.alloc(h.db.length);
+    for (let i = 0; i < h.db.length; i++) bins[i] = Math.max(0, Math.min(255, Math.round((h.db[i] - floor) * 2)));
+    return { key: String(this.key).slice(-80), center_hz: h.centerHz, rate: h.rate, span_s: Math.max(1, Math.round((Date.now() - h.from) / 1000)),
+      floor_db: Math.round(floor * 10) / 10, bins: bins.toString('base64') };
   }
 
   // Settings changed. Format and squelch go to the decoders as they are, and
