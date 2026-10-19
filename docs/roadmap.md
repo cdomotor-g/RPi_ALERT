@@ -75,8 +75,11 @@ badly each one strands somebody:
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
 - **A channeliser shared by a stick's channels** — each channel's decoder thread converts and
   filters the stick's whole stream on its own (one stick, several channels, is done: see
-  [hardware.md](hardware.md#several-channels-on-one-stick)). If the bench Pi shows CPU is what limits
-  the channels a Pi can take, one thread per stick could convert the samples and cut out every
+  [hardware.md](hardware.md#several-channels-on-one-stick)). CPU is what limits it: at 18 Bateson
+  (a Pi 4 with its kiosk on), a fifth channel on a 1.92 Msps stick put every decoder on the Pi into
+  dropping samples — and the stick with the better aerial was the one that needed it (it heard
+  ALERT2 on 151.5375 5–15 dB better, and decoded half as many frames again), so a channel had to go
+  to the other stick instead. One thread per stick could convert the samples and cut out every
   channel once (a polyphase filter bank), handing each decoder its own 240 ksps stream — a change to
   MegaNet's `alert-dsp.js` first, so the website gains it too.
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
