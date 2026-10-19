@@ -203,6 +203,23 @@ class WebServer {
     if (p === '/api/config' && req.method === 'GET') return this.json(res, 200, { config: a.config.redacted(), board: a.board });
     if (p === '/api/config' && (req.method === 'PUT' || req.method === 'POST')) return this.saveConfig(req, res, body);
     if (p === '/api/log') return this.json(res, 200, { lines: logm.recent(Number(url.searchParams.get('n')) || 200) });
+    // Bursts kept as IQ (lib/recorder.js): the list, one file to download, and deleting them.
+    if (p === '/api/recordings' && req.method === 'GET') return this.json(res, 200, { recordings: a.recorder.status(), files: a.recorder.list(500) });
+    if (p === '/api/recordings/delete' && req.method === 'POST') {
+      const n = body.all === true ? a.recorder.clear() : a.recorder.remove(Array.isArray(body.names) ? body.names.slice(0, 1000) : []);
+      return this.json(res, 200, { ok: true, removed: n });
+    }
+    if (p.startsWith('/api/recordings/') && req.method === 'GET') {
+      const name = p.slice('/api/recordings/'.length);
+      const f = a.recorder.file(name);
+      if (!f) return this.json(res, 404, { error: 'no such recording' });
+      return fs.stat(f.path, (err, st) => {
+        if (err) return this.json(res, 404, { error: 'no such recording' });
+        res.writeHead(200, { 'Content-Type': f.type, 'Content-Length': st.size, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': 'attachment; filename="' + name + '"' });
+        fs.createReadStream(f.path).pipe(res);
+      });
+    }
     if (p === '/api/password' && req.method === 'POST') return this.setPassword(req, res, body);
     if (p === '/api/token/test' && req.method === 'POST') {
       const token = String(body.token || a.config.get().meganet.token || '').trim();

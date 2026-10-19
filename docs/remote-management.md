@@ -53,8 +53,9 @@ done — and each written in the Pi's log and on its web page:
 | `agent.restart`, `reboot` | done once the answer has reached MegaNet (or after a minute, if it cannot) |
 | `update.check`, `update.install`, `update.auto` | check for, install, and schedule updates — the same installer as the web page, which puts the old version back if the new one does not start |
 | `access.sync` | fetch the SSH key lists again |
+| `recordings`, `recording.get` | the bursts kept as IQ ([configuration.md](configuration.md#recordings)): the newest 100, and one file a piece at a time — `{ file, offset }` answers `{ size, offset, length, b64 }`, at most 43,000 bytes, so each piece fits one check-in's answer. Read-only, and only those files. (MegaNet's administrator request function, `base_station_verb_check()`, does not offer these two yet: they are asked for through the request queue directly) |
 
-Nothing else: no shell, no files, no SSH keys, and nothing secret in either direction. A request
+Nothing else: no shell, no files but its own recordings, no SSH keys, and nothing secret in either direction. A request
 for anything else is answered *"this base station cannot …"*. Not a power-off: a Pi on a hill that
 was told to shut down needs someone to drive there.
 

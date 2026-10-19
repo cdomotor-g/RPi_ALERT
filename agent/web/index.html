@@ -200,6 +200,17 @@
       <div class="row-actions"><button>Save</button><span class="status small"></span></div>
     </form>
 
+    <form id="f-record" class="card form">
+      <h2>Recordings</h2>
+      <p class="hint">Keep the IQ of every burst heard on these channels — to see what is on one that nothing here decodes yet (ALERT2, another format), and to build the decoder that will. Each is the channel's own 240 ksps, as <code>.iq8</code> with a <code>.json</code> beside it saying what it was; MegaNet's SDR card and its tests read them as they are. The newest are kept, up to the size below.</p>
+      <div class="cols">
+        <label>Record every burst on, MHz <input name="freqs" autocomplete="off" spellcheck="false" placeholder="none — e.g. 151.5375"></label>
+        <label>Keep at most, MB <input name="maxMb" type="number" step="1" min="16" max="8192"></label>
+      </div>
+      <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="rec-refresh">Refresh the list</button><button type="button" class="ghost" id="rec-clear">Delete them all</button><span class="status small"></span></div>
+      <div id="rec-list" class="small"></div>
+    </form>
+
     <form id="f-ports" class="card form">
       <h2>Serial devices</h2>
       <p class="hint">Quansheng radios, ERT-A2 receivers and GPS units are recognised from what they send. Set a port's type here only if it is not.</p>

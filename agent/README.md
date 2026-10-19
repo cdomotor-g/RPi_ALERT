@@ -26,6 +26,7 @@ lib/access.js              SSH access: the alert account's keys (SD card, GitHub
 lib/clock.js               is the time trustworthy (NTP, GPS); monotonic holding
 lib/state.js               receiver ids, what each port was, and every RTL-SDR stick seen (by model, serial and USB port)
 lib/stations.js            MegaNet's register, for names
+lib/recorder.js            recordings: every burst on chosen channels kept as 240 ksps IQ (.iq8 + .json), newest first
 lib/audio.js               live SDR audio, re-synthesised bursts, beeps — via aplay
 lib/bootconf.js            /boot/firmware/rpi-alert.conf
 lib/web/server.js, web/    the dashboard, API and SSE; web/qr.js draws QR codes (page and CLI); web/channels.js reads

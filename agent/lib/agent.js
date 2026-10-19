@@ -27,6 +27,7 @@ const { Remote } = require('./remote');
 const { Survey } = require('./survey');
 const { Hotspot } = require('./hotspot');
 const { History } = require('./history');
+const { Recorder } = require('./recorder');
 const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
@@ -61,6 +62,8 @@ class Agent extends EventEmitter {
       describe: () => this.tokenRequestPayload() }).load();
     this.stations = new Stations({ dataDir: this.dataDir, log: this.log.child('stations'), getUrls: () => this.config.get().meganet.stationsUrls }).load();
     this.audio = new Audio({ log: this.log.child('audio'), getCfg: () => this.config.get().audio });
+    // Bursts on chosen channels kept as IQ (receivers.record).
+    this.recorder = new Recorder(this).load();
     this.devices = new DeviceManager(this);
     // Checks in with MegaNet's Base Stations tab (remote.mode), through the
     // uplink's own door and token.
@@ -339,7 +342,7 @@ class Agent extends EventEmitter {
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
       remote: this.remote.statusForPage(),
-      survey: this.surveyBrief(), hotspot: this.hotspot.status(false),
+      survey: this.surveyBrief(), hotspot: this.hotspot.status(false), recordings: this.recorder.status(),
     };
   }
 

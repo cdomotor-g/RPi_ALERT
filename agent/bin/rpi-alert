@@ -44,6 +44,10 @@
 //                                    start one now (or when next switched on); --hours 0 runs
 //                                    until ended; --readings sends readings too (docs/survey.md)
 //   rpi-alert survey end             end it (what it heard is kept, and still goes to MegaNet)
+//   rpi-alert record [MHz …|off|clear]
+//                                    keep the IQ of every burst on these channels (lib/recorder.js):
+//                                    with none, what is kept and the newest; off stops; clear
+//                                    deletes them all
 //   rpi-alert readings [n]           the last n readings
 //   rpi-alert log [n]                the agent's recent log (journalctl -u rpi-alert for all of it)
 //   rpi-alert test-audio [alert|alert2|beep]
@@ -78,6 +82,7 @@ async function main() {
     case 'survey': return survey(argv.slice(1));
     case 'hotspot': return hotspot(argv[1]);
     case 'access': return access(argv.slice(1));
+    case 'record': case 'recordings': return record(argv.slice(1));
     case 'readings': return readings(Number(argv[1]) || 20);
     case 'log': case 'logs': return showLog(Number(argv[1]) || 60);
     case 'test-audio': return post('/api/audio/test', { kind: argv[1] || 'alert' }).then(() => console.log('Playing a test chirp.'));
@@ -670,6 +675,29 @@ function hidden(prompt) {
     };
     stdin.on('data', onData);
   });
+}
+
+async function record(args) {
+  const Channels = require(path.join(__dirname, '..', 'web', 'channels'));
+  const words = args.join(' ').trim();
+  if (/^clear$/i.test(words)) {
+    const r = await post('/api/recordings/delete', { all: true });
+    console.log(r.removed + ' recordings deleted.');
+    return;
+  }
+  if (words) {
+    const p = /^off$/i.test(words) ? { channels: [] } : Channels.parse(words);
+    if (p.error) throw new Error(p.error);
+    const r = await post('/api/config', { config: { receivers: { record: { freqHz: [...new Set(p.channels.map(ch => ch.freqHz))] } } } });
+    console.log(r.changed.length ? (p.channels.length ? 'Recording every burst on ' + p.channels.map(ch => Channels.mhz(ch.freqHz)).join(', ') + ' MHz.' : 'Not recording.') : 'Unchanged.');
+    return;
+  }
+  const r = await api('/api/recordings');
+  const s = r.recordings;
+  console.log((s.freqHz.length ? 'Recording every burst on ' + s.freqHz.map(f => Channels.mhz(f)).join(', ') + ' MHz' : 'Not recording') + ' — ' + s.files + ' kept, ' + s.mb + ' MB of ' + s.maxMb + ', in ' + s.dir);
+  for (const f of r.files.slice(0, 20)) {
+    console.log('  ' + f.name + '  ' + (f.ms != null ? f.ms + ' ms' : '') + (f.peakDb != null ? ', ' + f.peakDb + ' dBFS' : '') + (f.decoded ? ', ' + f.decoded + ' decoded' : ', none decoded'));
+  }
 }
 
 async function readings(n) {

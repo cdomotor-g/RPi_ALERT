@@ -5,6 +5,11 @@
 //
 // A burst decode tries 45 carrier/timing combinations and takes a second or
 // two on a Pi; here it cannot hold up the serial ports or the web page.
+//
+// Recording (lib/recorder.js): with `record` on, every burst the squelch
+// opens on goes out as well, as the pipeline holds it once its decode is done
+// — the channel's own 240 ksps u8 IQ, centred on it, over the window the
+// decoder read (the burst and 0.4 s either side).
 
 const { parentPort, workerData } = require('node:worker_threads');
 const { AlertDsp } = require('../meganet-codecs');
@@ -14,6 +19,8 @@ const PREROLL_S = 0.15, HANG_S = 0.25, MAX_CLIP_S = 4;
 const SPEC_BINS = 256;
 
 let audioOn = !!(workerData && workerData.audio);
+let recordOn = !!(workerData && workerData.cfg && workerData.cfg.record);
+let captured = null;        // what pipe.capture() just handed back
 let levels = 0;
 let clip = null;            // gated audio being collected: { parts: [], n }
 let preroll = [];           // the last PREROLL_S of audio, for the start of a burst
@@ -27,6 +34,20 @@ const pipe = new AlertDsp.Pipeline((m) => {
       parentPort.postMessage({ type: 'decode', readings: m.readings, shadows: m.shadows, burst: m.burst, all: m.all,
         ms: m.ms, combos: m.combos, seconds: m.seconds, format: m.format, carrier: m.trace ? m.trace.carrierHz : null,
         cfoHz: meter.take(m.burst && m.burst.t) });
+      // The window just decoded ends where the samples do (within a chunk):
+      // the capture ring's last `seconds` are that burst, as the decoder read it.
+      if (recordOn && m.burst) {
+        captured = null;
+        pipe.capture(m.seconds + 0.05);
+        if (captured) {
+          parentPort.postMessage({ type: 'recording', buf: captured.buf, rate: captured.rate, seconds: captured.seconds, burst: m.burst,
+            format: m.format, readings: m.readings.map(r => ({ id: r.sensorId, value: r.value })), all: m.all, shadows: (m.shadows || []).length }, [captured.buf]);
+          captured = null;
+        }
+      }
+      break;
+    case 'capture':
+      captured = m;
       break;
     case 'burst':
       parentPort.postMessage({ type: 'burst', ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });
@@ -86,6 +107,7 @@ parentPort.on('message', (m) => {
       parentPort.postMessage({ type: 'fed', bytes: u8.length });
     } else if (m.type === 'config') {
       if ('audio' in m.cfg) audioOn = !!m.cfg.audio;
+      if ('record' in m.cfg) recordOn = !!m.cfg.record;
       pipe.configure(Object.assign({}, m.cfg, { audio: audioOn }));
     } else if (m.type === 'reset') {
       pipe.reset(); clip = null; preroll = []; prerollN = 0; processed = 0;

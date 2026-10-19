@@ -401,7 +401,7 @@ class DeviceManager extends EventEmitter {
   }
 
   onConfig(changed) {
-    if (changed.some(p => p.startsWith('receivers.sdr') || p === 'receivers.sdrDevices' || p.startsWith('audio.'))) {
+    if (changed.some(p => p.startsWith('receivers.sdr') || p === 'receivers.sdrDevices' || p.startsWith('receivers.record.') || p.startsWith('audio.'))) {
       for (const s of this.sdrs.values()) if (s.state !== 'unplugged') s.reconfigure();
     }
     if (changed.some(p => p === 'receivers.ports' || p === 'receivers.autoDetect' || p === 'receivers.extraPorts')) {

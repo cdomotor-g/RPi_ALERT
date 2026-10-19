@@ -796,7 +796,7 @@ function rxBodyHtml(d) {
           + Math.round(t.mirrorHz / 1000) + ' kHz from another\'s mirror image</span>' : '')]);
     } else {
       rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + d.sampleRate / 1000 + ' ksps' + tuner)]);
-      rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format)]);
+      rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format) + (d.channels && d.channels[0] && d.channels[0].recording ? ' <span class="dim">· every burst recorded (Settings → Recordings)</span>' : '')]);
     }
     rows.push(['Settings', esc(d.own.length ? 'its own ' + d.own.map(f => OWN_LABELS[f] || f).join(', ') + '; the rest shared' : 'the shared ones') + ' — <a href="#settings-sdr">change</a>']);
     if (d.level) {
@@ -849,7 +849,7 @@ function channelTable(d) {
     const lv = ch.level, c = ch.counts, ld = ch.lastDecode;
     const signal = !ch.inBand ? '<span style="color: var(--warn)">⚠ ' + esc(NO_FIT) + '</span>'
       : lv ? esc(lv.chDb + ' dB, floor ' + lv.nfDb + (lv.open ? ' · OPEN' : '')) : '<span class="dim">' + (unplugged ? '—' : 'starting…') + '</span>';
-    return '<tr><td>' + esc(Channels.mhz(ch.freqHz)) + ' MHz</td><td>' + esc(FORMAT_NAMES[ch.format] || ch.format) + '</td><td><code class="small">' + esc(ch.pointId) + '</code></td>'
+    return '<tr><td>' + esc(Channels.mhz(ch.freqHz)) + ' MHz' + (ch.recording ? ' <span class="dim small" title="Every burst kept as IQ: Settings → Recordings">● recording</span>' : '') + '</td><td>' + esc(FORMAT_NAMES[ch.format] || ch.format) + '</td><td><code class="small">' + esc(ch.pointId) + '</code></td>'
       + '<td>' + signal + '</td><td>' + esc(c.bursts + ' bursts, ' + c.decodes + ' readings' + (c.undecoded ? ', ' + c.undecoded + ' undecoded' : '')) + '</td>'
       + '<td>' + (ld ? esc(ld.id + ' = ' + ld.value + ' (' + ld.votes + ' votes) ' + ago(Date.now() - ld.t)) : '<span class="dim">—</span>') + '</td></tr>';
   });
@@ -898,6 +898,22 @@ async function loadConfig() {
   fillForms();
 }
 
+// The bursts kept as IQ (Settings → Recordings), newest first, each a download.
+async function loadRecordings() {
+  const el = $('#rec-list');
+  let r;
+  try { r = await api('/api/recordings'); } catch (e) { el.textContent = 'Could not list them: ' + e.message; return; }
+  const s = r.recordings, files = r.files;
+  const head = '<p class="dim">' + (files.length ? s.files + ' kept, ' + s.mb + ' MB of ' + s.maxMb + (s.files > files.length ? ' — the newest ' + files.length + ' below' : '') : 'None kept yet.')
+    + (s.freqHz.length ? ' Recording every burst on ' + esc(s.freqHz.map(f => Channels.mhz(f)).join(', ')) + ' MHz.' : ' Not recording.')
+    + (s.skipped ? ' ' + s.skipped + ' not kept (the SD card nearly full).' : '') + '</p>';
+  const row = (f) => '<tr><td>' + esc(f.t ? new Date(f.t).toLocaleString() : '') + '</td><td>' + esc(f.freqHz ? Channels.mhz(f.freqHz) : '') + '</td><td>' + esc(f.receiver || '')
+    + '</td><td>' + esc(f.ms != null ? f.ms + ' ms' : '') + '</td><td>' + esc(f.peakDb != null ? f.peakDb + ' dBFS' : '') + '</td><td>' + (f.decoded ? esc(f.decoded) + ' decoded' : '<span class="dim">none decoded</span>')
+    + '</td><td><a href="/api/recordings/' + encodeURIComponent(f.name) + '.iq8" download>IQ</a> · <a href="/api/recordings/' + encodeURIComponent(f.name) + '.json" download>info</a></td></tr>';
+  el.innerHTML = head + (files.length ? '<div class="table-wrap"><table class="readings"><thead><tr><th>Heard</th><th>MHz</th><th>Receiver</th><th>Burst</th><th>Peak</th><th>Decoded</th><th></th></tr></thead><tbody>'
+    + files.map(row).join('') + '</tbody></table></div>' : '');
+}
+
 function fillForms() {
   const c = S.config;
   if (!c) return;
@@ -944,6 +960,10 @@ function fillForms() {
     fh.ssid.value = c.hotspot.ssid || '';
     fh.password.value = c.hotspot.password || '';
   }
+  const fr = $('#f-record'), rec = c.receivers.record || { freqHz: [], maxMb: 256 };
+  fr.freqs.value = Channels.text(rec.freqHz.map(freqHz => ({ freqHz })), null);
+  fr.maxMb.value = rec.maxMb;
+
   $('#f-display').kiosk.value = c.kiosk.mode;
   if (c.remote) $('#f-remote').mode.value = c.remote.mode;
   $('#f-system').timezone.value = c.system.timezone || (S.status ? S.status.clock.timezone : '');
@@ -1198,6 +1218,21 @@ function wireSettings() {
     save(f, { audio: { enabled: f.mode.value !== 'off', mode: f.mode.value === 'off' ? S.config.audio.mode : f.mode.value, device: f.device.value, volume: Number(f.volume.value) } });
   });
   $$('#f-audio [data-test]').forEach(b => b.addEventListener('click', () => api('/api/audio/test', { method: 'POST', body: { kind: b.dataset.test } }).catch(e => flash($('#f-audio'), e.message, false))));
+
+  $('#f-record').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const p = Channels.parse(f.freqs.value);
+    if (p.error) { flash(f, 'Record on: ' + p.error, false); return; }
+    await save(f, { receivers: { record: { freqHz: [...new Set(p.channels.map(ch => ch.freqHz))], maxMb: Number(f.maxMb.value) || 256 } } });
+    loadRecordings();
+  });
+  $('#rec-refresh').addEventListener('click', () => loadRecordings());
+  $('#rec-clear').addEventListener('click', async () => {
+    if (!confirm('Delete every recording on this Pi?')) return;
+    try { const r = await api('/api/recordings/delete', { method: 'POST', body: { all: true } }); flash($('#f-record'), r.removed + ' deleted.', true); } catch (err) { flash($('#f-record'), err.message, false); }
+    loadRecordings();
+  });
 
   $('#f-display').addEventListener('submit', (e) => { e.preventDefault(); save(e.target, { kiosk: { mode: e.target.kiosk.value } }); });
   $('#f-system').addEventListener('submit', (e) => { e.preventDefault(); save(e.target, { system: { timezone: e.target.timezone.value.trim() } }); });
@@ -1584,7 +1619,7 @@ function showTab(t) {
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'rx') renderRxFull();
   if (t === 'survey') loadSurvey(true);
-  if (t === 'settings') { loadConfig().catch(() => {}); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
+  if (t === 'settings') { loadConfig().catch(() => {}); loadRecordings(); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
   if (t === 'dash') renderCharts(true);
 }

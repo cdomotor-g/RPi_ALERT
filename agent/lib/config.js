@@ -113,6 +113,9 @@ function defaults() {
       // Anything left out is the shared setting above. (0.4 matched them by
       // { serial } alone, which every stick with that serial shares; still read.)
       sdrDevices: [],
+      // Every burst heard on a channel of these frequencies, on any stick, kept
+      // as IQ in <data>/recordings (lib/recorder.js) — the newest, up to maxMb.
+      record: { freqHz: [], maxMb: 256 },
     },
     audio: {
       enabled: true,
@@ -268,6 +271,9 @@ function validate(c) {
   need(SDR_FORMATS.includes(s.format), 'receivers.sdr.format: one of ' + SDR_FORMATS.join(', '));
   need(num(s.squelchDb, 2, 40) !== undefined, 'receivers.sdr.squelchDb: 2–40 dB');
   need(num(s.minVotes, 1, 45) !== undefined && num(s.minVotesCrc, 1, 45) !== undefined, 'receivers.sdr.minVotes: 1–45');
+  const rec = r.record || {};
+  need(Array.isArray(rec.freqHz) && rec.freqHz.length <= 16 && rec.freqHz.every(f => isNum(f, 24e6, 1766e6)), 'receivers.record.freqHz: up to 16 frequencies, 24–1766 MHz');
+  need(Number.isInteger(rec.maxMb) && rec.maxMb >= 16 && rec.maxMb <= 8192, 'receivers.record.maxMb: 16–8192 MB');
   need(Array.isArray(r.sdrDevices), 'receivers.sdrDevices: a list');
   if (Array.isArray(r.sdrDevices)) {
     r.sdrDevices.forEach((d, i) => { const e = stickErrors(d); if (e.length) errs.push('receivers.sdrDevices[' + i + '] ' + e.join('; ')); });

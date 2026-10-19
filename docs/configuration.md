@@ -59,6 +59,18 @@ option, so the agent switches it with `rtl_biast` (part of the `rtl-sdr` package
 share a serial it waits until it has seen which device number is which stick, so the volts never
 reach the other one. If it cannot be switched, the stick receives without it and its card says why.
 
+<a id="recordings"></a>**Recordings.** Under **Settings → Recordings**, list channels (MHz) to keep the IQ of every
+burst heard on them — to see what is on a channel nothing here decodes yet (ALERT2, another
+format), and to build the decoder that will. Each burst is two files in
+`/var/lib/rpi-alert/recordings`: an `.iq8`, the channel's own 240 ksps as u8 I then Q, centred on
+it — the burst and 0.4 s either side, exactly what the decoder read, and the format MegaNet's SDR
+card captures and its tests decode — and a `.json` saying what it was (frequency, stick and
+tuning, the burst's level and length, what it decoded as). The newest are kept, up to the size set
+(256 MB by default; about 1 MB a second of burst), and none is written with under 512 MB of the
+card free. The same card lists them, newest first, each a download; `rpi-alert record` does it
+from the command line, and MegaNet can fetch one a piece at a time
+([remote-management.md](remote-management.md)). A recorded channel says so on the Receivers page.
+
 **Tuning help.** Each stick's card on the **Receivers** page suggests the ppm and gain to set, from
 what it has heard since the agent started, with a button that sets it for that stick only:
 
@@ -122,6 +134,8 @@ rpi-alert access                 who may log in over SSH (docs/access.md)
 sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"   remove-key <fingerprint> · github <name…>|none
 rpi-alert access meganet on|off · from private|any · password-login on|off|unchanged · ssh on|off · sync
 sudo rpi-alert access alert-password [--none]   the alert account's password (the console)
+rpi-alert record 151.5375        keep the IQ of every burst on these channels (off: stop; clear: delete
+                                 them all); with nothing after it, what is kept and the newest
 rpi-alert readings [n] · log [n] · test-audio [alert|alert2|beep] · send-now · version
 sudo journalctl -u rpi-alert -f  the full log
 sudo systemctl restart rpi-alert
@@ -201,6 +215,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
+| `receivers.record` | `{ freqHz: [], maxMb: 256 }` | Channels whose every burst is kept as IQ, and how much of the card they may take (16–8192 MB): [Recordings](#recordings) |
 | `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |

@@ -197,7 +197,7 @@ class SdrChannel {
     const lv = this.level, s = this.spec;
     return {
       k: this.k, id: this.id, key: this.key, name: this.name(), pointId: this.point.pointId, state: this.state(),
-      freqHz: s.freqHz, format: s.format, offsetHz: s.offsetHz, inBand: s.inBand,
+      freqHz: s.freqHz, format: s.format, offsetHz: s.offsetHz, inBand: s.inBand, recording: s.inBand && this.stick.recording(s),
       level: lv && plugged && s.inBand ? { chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
       counts: this.counts, lastDecode: this.lastDecode, lastBurst: this.lastBurst,
     };
@@ -346,8 +346,11 @@ class SdrSession extends EventEmitter {
 
   dspCfg(c, spec) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
-      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc };
+      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec) };
   }
+
+  // Its bursts kept as IQ (lib/recorder.js, receivers.record)?
+  recording(spec) { return !!(this.agent.recorder && this.agent.recorder.wants(spec.freqHz)); }
 
   // Plugged in: each channel's MegaNet receiver registered (the manager calls
   // these as the stick comes and goes).
@@ -608,6 +611,7 @@ class SdrSession extends EventEmitter {
     if (m.type === 'spectrum') { if (ch === this.channels.find(x => x.worker)) this.spectrum = m; return; }
     if (m.type === 'audio') { this.agent.audio && this.agent.audio.live(m.pcm, m.rate); return; }
     if (m.type === 'error') { ch.log.error('decoder: ' + m.message); return; }
+    if (m.type === 'recording') { if (this.agent.recorder) this.agent.recorder.save(ch, m); return; }
     if (m.type === 'burst') {
       ch.counts.bursts++;
       const peak = round(m.peakDb), nf = round(m.nfDb);

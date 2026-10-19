@@ -137,6 +137,9 @@ const VERBS = {
     r.wantFull = true;
     return { result: f.name + ' removed' };
   } },
+  // Bursts kept as IQ (lib/recorder.js): what there is, and one file a piece at a time.
+  recordings: { label: 'list its recordings', run: async (r) => ({ result: { recordings: r.agent.recorder.status(), files: r.agent.recorder.list(100) } }) },
+  'recording.get': { label: 'send a piece of a recording', run: async (r, a) => ({ result: r.agent.recorder.chunk(a.file, a.offset, a.length) }) },
   'send-now': { label: 'send what is queued now', run: async (r) => { r.agent.uplink.sendNow(); return { result: r.agent.uplink.status().queued + ' readings queued, sending' }; } },
   'stations.refresh': { label: 'download the station register again', run: async (r) => { r.agent.stations.refresh(); return { result: 'downloading' }; } },
   'agent.restart': { label: 'restart the agent', run: async () => ({ result: 'restarting the agent — it is back within seconds', after: () => system.priv('restart-agent') }) },

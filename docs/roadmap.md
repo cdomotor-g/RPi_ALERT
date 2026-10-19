@@ -63,7 +63,12 @@ badly each one strands somebody:
 ## Receiving
 
 - **ALERT2 off the air with an RTL-SDR** — today ALERT2 needs an ERT-A2. A 4800 bps ALERT2 demodulator
-  in the SDR worker would let one stick hear both protocols.
+  in the SDR worker would let one stick hear both protocols. The AirLink layer is public (NHWC
+  *ALERT2 AirLink Layer Specification* 1.1: RRC-filtered 4800 bps NRZ on FM, sync 0xEB90B433AAAA
+  then 0x352EF853, a 17-bit MLS scrambler, CCSDS Reed–Solomon and a rate-½ k=7 convolutional code),
+  and MegaNet's `alert2.js` already reads the MANT PDUs above it. First step done: real frames to
+  build it against — [recordings](configuration.md#recordings) keep every burst on a channel as
+  IQ (151.5375 MHz at one base station: a 60 s TDMA frame, 2 s slots).
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
