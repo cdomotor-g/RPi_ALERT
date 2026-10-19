@@ -41,8 +41,11 @@ test('a record relayed by several paths is one reading and a reception for each;
   assert.deepEqual(a.readings.map(r => [r.alert_id, r.value_raw, new Date(r.ts).toISOString()]), [
     [7182, 18, '2026-10-19T02:11:36.000Z'], [7171, 13, '2026-10-19T02:11:43.000Z'], [1909, 38, '2026-10-19T02:11:29.000Z']]);
   assert.equal(a.receptions.length, 6);
-  assert.deepEqual(a.receptions.map(x => [x.alert_id, x.ok, x.fault, x.detail.duplicate]),
-    [[7182, true, null, false], [7171, true, null, false], [7182, true, null, true], [7171, true, null, true], [1909, true, null, false], [1234, false, 'test', false]]);
+  // A test PDU's reception is not ok, and says so in its detail — not as a
+  // fault, since MegaNet's receptions take only the faults it knows (0047).
+  assert.deepEqual(a.receptions.map(x => [x.alert_id, x.ok, x.fault, x.detail.duplicate, !!x.detail.test]),
+    [[7182, true, null, false, false], [7171, true, null, false, false], [7182, true, null, true, false], [7171, true, null, true, false],
+      [1909, true, null, false, false], [1234, false, null, false, true]]);
   assert.deepEqual(a.receptions[4].detail.path, [10019]);
   assert.equal(a.receptions[4].detail.clock, 'utc');
   // The next frame relays 1909 again, by another path: still the one reading.
@@ -174,11 +177,11 @@ test('an ALERT2 frame on a legacy channel, off the air: an "alert2" reading in M
   const ch = s.devices.sdrs[0].channels[0];
   assert.ok(ch.counts.alert2 >= 1, JSON.stringify(ch.counts));
   assert.deepEqual(ch.alert2.sources.sort(), [10019, 33300]);
-  await until(() => m.stored.receptions.some(x => x.protocol === 'alert2' && x.fault === 'test'), 15000);
+  await until(() => m.stored.receptions.some(x => x.protocol === 'alert2' && x.detail && x.detail.test), 15000);
   const rx = m.stored.receptions.filter(x => x.protocol === 'alert2');
   assert.ok(rx.some(x => x.alert_id === 1909 && x.ok && x.detail.duplicate === false && x.detail.source === 33300), JSON.stringify(rx));
   assert.ok(rx.some(x => x.alert_id === 1909 && x.detail.duplicate === true), 'the relayed copy is a reception');
-  assert.ok(rx.some(x => x.alert_id === 1234 && !x.ok && x.fault === 'test'), 'the test PDU is a reception only');
+  assert.ok(rx.some(x => x.alert_id === 1234 && !x.ok && !x.fault && x.detail.test === true), 'the test PDU is a reception only');
   assert.ok(!a2().some(x => x.alert_id === 1234), 'and never a reading');
   assert.ok(!m.stored.receptions.some(x => x.protocol === 'alert' && x.fault === 'undecoded' && x.detail && x.detail.burst_ms > 150 && x.detail.burst_ms < 400),
     'the ALERT2 burst is not an undecoded legacy one');

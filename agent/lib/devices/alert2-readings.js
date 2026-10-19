@@ -59,7 +59,8 @@ function otherPdu(p, fd) {
   if (sensors.length) detail.sensors = sensors.slice(0, 40).map(s => (s.hex ? [s.sensor, s.hex] : [s.sensor, s.value]));
   const others = (app.elements || []).filter(e => !e.sensors).map(e => e.type);
   if (others.length) detail.elements = others.slice(0, 20);
-  return { alert_id: null, ok: !app.test, fault: app.test ? 'test' : null, payload_hex: app.hex ? app.hex.slice(0, 64) : null,
+  if (app.test) detail.test = true;
+  return { alert_id: null, ok: !app.test, fault: null, payload_hex: app.hex ? app.hex.slice(0, 64) : null,
     detail: Object.assign(detail, { kind: sensors.length ? 'self-report' : 'other' }) };
 }
 
@@ -143,8 +144,11 @@ class Alert2Reader {
           if (dup) this.counts.duplicates++;
           const detail = Object.assign({ source: p.source, path: p.path, hop_limit: p.hopLimit, stamp: app.stamp, before_s: r.before,
             clock: placed ? placed.clock : 'arrival', late: !!(placed && placed.late), duplicate: dup }, fd);
+          if (app.test) detail.test = true;
           // Heard now (the agent times it), as every SDR reception is; when it was read is in the stamp.
-          out.receptions.push({ alert_id: r.id, value_raw: r.value, payload_hex: r.hex, ok: !app.test, fault: app.test ? 'test' : null, detail });
+          // A test PDU's is not ok, and says why in its detail: MegaNet's
+          // receptions take only the faults it knows (0047), and "test" is not one.
+          out.receptions.push({ alert_id: r.id, value_raw: r.value, payload_hex: r.hex, ok: !app.test, fault: null, detail });
           if (app.test || dup) continue;
           this.counts.readings++;
           out.readings.push({ alert_id: r.id, value_raw: r.value, ts: trusted ? ts : null, source: p.source, path: p.path, stamp: app.stamp, before: r.before });
