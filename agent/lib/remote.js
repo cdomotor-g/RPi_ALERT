@@ -210,11 +210,16 @@ function receiverOf(d) {
   if (d.kind === 'sdr') {
     Object.assign(r, { enabled: d.enabled !== false, freq_hz: d.freqHz, format: d.format, gain_db: d.gainDb, ppm: d.ppm || 0, squelch_db: d.squelchDb,
       bias_tee: !!d.biasTee, sample_rate: d.sampleRate, model: d.model || d.tuner || null, serial: d.device.serial || null,
-      usb_port: d.device.port || null, own: d.own, last_seen: d.lastSeen || null });
+      usb_port: d.device.port || null, own: d.own, last_seen: d.lastSeen || null,
+      // Whether the Pi keeps up: the rate arriving, and what its decoders have had to drop.
+      rate_ksps: d.rateKsps || 0, dropped_mb: mb(d.counts && d.counts.dropped) });
     // A stick hearing more than one channel: each, its own first.
     if (Array.isArray(d.channels) && d.channels.length > 1) {
-      r.channels = d.channels.map(ch => ({ freq_hz: ch.freqHz, format: ch.format, in_band: ch.inBand !== false,
-        decoded: ch.counts ? ch.counts.decodes || 0 : 0, point: ch.pointId || null }));
+      r.channels = d.channels.map(ch => {
+        const n = ch.counts || {};
+        return { freq_hz: ch.freqHz, format: ch.format, in_band: ch.inBand !== false, decoded: n.decodes || 0, undecoded: n.undecoded || 0,
+          alert2: n.alert2 || 0, alert2_bad: n.alert2Bad || 0, dropped_mb: mb(n.dropped), point: ch.pointId || null };
+      });
     }
   } else {
     const q = d.detail || {};
@@ -224,6 +229,9 @@ function receiverOf(d) {
   }
   return r;
 }
+
+// Bytes of u8 IQ → MB, to a tenth.
+function mb(bytes) { return Math.round((bytes || 0) / 1e5) / 10; }
 
 // SSH access, as MegaNet sees it: who may log in and how — fingerprints and
 // the keys' own comments, never a key.

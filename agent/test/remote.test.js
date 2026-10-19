@@ -44,7 +44,9 @@ function rig(m, over) {
   const sdr = { key: 'sdr-port:1-1.3', kind: 'sdr', state: 'running', name: () => 'RTL-SDR', restart: async () => { done.restarted.push('sdr-port:1-1.3'); },
     status: () => ({ key: 'sdr-port:1-1.3', kind: 'sdr', name: 'RTL-SDR', state: 'running', protocol: 'alert', pointId: 'rpi-abc-sdr1', enabled: true,
       freqHz: cfg.get().receivers.sdr.freqHz, format: 'BINARY', gainDb: 29.7, ppm: 0, squelchDb: 8, biasTee: false, sampleRate: 960000, model: 'RTL-SDR Blog V4',
-      device: { serial: '00000001', port: '1-1.3' }, own: [], counts: { bursts: 5, decodes: 4 }, lastSeen: null, spectrum: { db: new Array(512).fill(-90) } }) };
+      device: { serial: '00000001', port: '1-1.3' }, own: [], counts: { bursts: 5, decodes: 4, dropped: 12345678 }, rateKsps: 960, lastSeen: null, spectrum: { db: new Array(512).fill(-90) },
+      channels: [{ freqHz: 151500000, format: 'BINARY', inBand: true, pointId: 'rpi-abc-sdr1', counts: { decodes: 4, undecoded: 1, dropped: 0 } },
+        { freqHz: 151537500, format: 'BINARY', inBand: true, pointId: 'rpi-abc-sdr1-151.5375', counts: { decodes: 7, undecoded: 0, alert2: 3, alert2Bad: 1, dropped: 12345678 } }] }) };
   const radio = { key: 'usb-Quansheng', kind: 'quansheng', state: 'unplugged', name: () => 'Quansheng radio', restart: async () => {},
     status: () => ({ key: 'usb-Quansheng', kind: 'quansheng', name: 'Quansheng radio', state: 'unplugged', protocol: 'alert', pointId: 'rpi-abc-qs1',
       port: { dev: '/dev/ttyACM0', byId: '/dev/serial/by-id/usb-Quansheng', baud: null }, how: 'USB id', lastRxAgoMs: 4000, detail: { firmware: '3.1', battery: { pct: 80 }, counts: { dec: 9 } } }) };
@@ -79,6 +81,9 @@ test('remote: a heartbeat every check-in, the whole status when it changed — a
   assert.deepEqual(st.receivers.map(r => [r.key, r.state]), [['sdr-port:1-1.3', 'running'], ['usb-Quansheng', 'unplugged']]);
   assert.equal(st.receivers[0].freq_hz, 151500000);
   assert.ok(!('spectrum' in st.receivers[0]), 'what changes every second stays out of it');
+  assert.deepEqual([st.receivers[0].rate_ksps, st.receivers[0].dropped_mb], [960, 12.3], 'whether the Pi keeps up');
+  assert.deepEqual(st.receivers[0].channels[1], { freq_hz: 151537500, format: 'BINARY', in_band: true, decoded: 7, undecoded: 0, alert2: 3, alert2_bad: 1,
+    dropped_mb: 12.3, point: 'rpi-abc-sdr1-151.5375' });
   assert.equal(st.location.lat, -27.46981);
   assert.equal(st.config.receivers.sdr.freqHz, 151500000, 'the settings, for editing them there');
   const call = m.calls.find(c => c.fn === 'base_station_checkin');
