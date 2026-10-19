@@ -164,8 +164,22 @@ const Charts = (() => {
     if (!c.dataset.tipWired) wireTip(c);
   }
 
-  // The pointer over a chart: what is at that time, in a box beside it.
+  // The box beside the pointer, at client point (x, y): every chart's, and the
+  // spectrum's and waterfall's (app.js).
   let tipEl = null;
+  function showTip(x, y, text) {
+    if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'chart-tip'; document.body.appendChild(tipEl); }
+    tipEl.textContent = text;
+    tipEl.hidden = false;
+    const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+    let lx = x + 12, ly = y - th - 8;
+    if (lx + tw > window.innerWidth - 4) lx = x - tw - 12;
+    if (ly < 4) ly = y + 14;
+    tipEl.style.left = lx + 'px'; tipEl.style.top = ly + 'px';
+  }
+  function hideTip() { if (tipEl) tipEl.hidden = true; }
+
+  // The pointer over a chart: what is at that time, in a box beside it.
   function wireTip(c) {
     c.dataset.tipWired = '1';
     const move = (ev) => {
@@ -177,22 +191,16 @@ const Charts = (() => {
       const t = st.o.t0 + (x - st.left) / st.pw * (st.o.t1 - st.o.t0);
       const text = st.o.tip(t);
       if (!text) { hide(); return; }
-      if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'chart-tip'; document.body.appendChild(tipEl); }
-      tipEl.textContent = text;
-      tipEl.hidden = false;
-      const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
-      let lx = ev.clientX + 12, ly = ev.clientY - th - 8;
-      if (lx + tw > window.innerWidth - 4) lx = ev.clientX - tw - 12;
-      if (ly < 4) ly = ev.clientY + 14;
-      tipEl.style.left = lx + 'px'; tipEl.style.top = ly + 'px';
+      showTip(ev.clientX, ev.clientY, text);
     };
-    const hide = () => { if (tipEl) tipEl.hidden = true; };
+    const hide = hideTip;
     c.addEventListener('pointermove', move);
     c.addEventListener('pointerdown', move);
     c.addEventListener('pointerleave', hide);
   }
 
-  // A waterfall: rows of dB, newest at the top, in a blue → yellow → red ramp.
+  // A waterfall: rows of dB, newest at the top, in a blue → yellow → red ramp;
+  // cursor { x: 0–1 across, row } marks a frequency down it, and a row.
   const RAMP = [[0, [8, 16, 40]], [0.3, [20, 60, 150]], [0.55, [30, 170, 200]], [0.75, [240, 220, 70]], [1, [240, 70, 50]]];
   function ramp(f) {
     f = Math.max(0, Math.min(1, f));
@@ -204,7 +212,7 @@ const Charts = (() => {
     }
     return RAMP[RAMP.length - 1][1];
   }
-  function waterfall(c, rows, lo, hi) {
+  function waterfall(c, rows, lo, hi, cursor) {
     if (!c || !rows.length) return;
     const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
     if (!W || !H) return;
@@ -223,8 +231,18 @@ const Charts = (() => {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.imageSmoothingEnabled = true;
     g.clearRect(0, 0, c.width, c.height);
-    g.drawImage(off, 0, 0, c.width, c.height * Math.min(1, rows.length / Math.max(1, c.dataset.rows || rows.length)));
+    const full = Math.max(1, c.dataset.rows || rows.length);
+    g.drawImage(off, 0, 0, c.width, c.height * Math.min(1, rows.length / full));
+    if (cursor && cursor.x >= 0 && cursor.x <= 1) {
+      const x = Math.round(cursor.x * c.width) + 0.5;
+      g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = dpr; g.setLineDash([3 * dpr, 3 * dpr]);
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, c.height); g.stroke(); g.setLineDash([]);
+      if (cursor.row != null && cursor.row < rows.length) {
+        const y = (cursor.row + 0.5) / full * c.height;
+        g.beginPath(); g.arc(x, y, 4 * dpr, 0, 7); g.stroke();
+      }
+    }
   }
 
-  return { draw, waterfall, alpha, hhmm, MIN };
+  return { draw, waterfall, showTip, hideTip, alpha, hhmm, MIN };
 })();

@@ -714,8 +714,8 @@ function renderRxFull() {
         $('.spec-note', spec).textContent = d.spectrum.channelsHz && d.spectrum.channelsHz.length > 1
           ? '— the whole slice the stick hears; its channels are the green lines. 1 s max hold.' : '— around the channel (green line); 1 s max hold.';
         drawSpectrum($('canvas.spectrum', spec), d);
-        const wf = S.wf.get(d.key);
-        if (wf && wf.rows.length) { const c = $('canvas.waterfall', spec); c.dataset.rows = WF_ROWS; Charts.waterfall(c, wf.rows, wf.lo, wf.hi); }
+        drawWaterfall($('canvas.waterfall', spec), d.key);
+        wireSpecHover(spec, d.key);
       } else if (spec.firstChild) spec.innerHTML = '';
     },
   });
@@ -765,12 +765,13 @@ function collectSpectra() {
     if (!sp || !sp.db || !sp.db.length) continue;
     let wf = S.wf.get(d.key);
     const sig = sp.db.length + ':' + sp.centerHz + ':' + sp.rate;
-    if (!wf || wf.sig !== sig) { wf = { sig, rows: [], lo: 0, hi: 1, last: '' }; S.wf.set(d.key, wf); }
+    if (!wf || wf.sig !== sig) { wf = { sig, rows: [], times: [], lo: 0, hi: 1, last: '', centerHz: sp.centerHz, rate: sp.rate }; S.wf.set(d.key, wf); }
     const fp = sp.db.slice(0, 8).join(',') + sp.db[sp.db.length >> 1];
     if (fp === wf.last) continue;
     wf.last = fp;
     wf.rows.unshift(Float32Array.from(sp.db));
-    if (wf.rows.length > WF_ROWS) wf.rows.length = WF_ROWS;
+    wf.times.unshift(Date.now());
+    if (wf.rows.length > WF_ROWS) { wf.rows.length = WF_ROWS; wf.times.length = WF_ROWS; }
     // The colours span from the noise to a strong signal, steadied over the rows.
     const sorted = Array.from(sp.db).sort((a, b) => a - b);
     const lo = sorted[Math.floor(sorted.length * 0.2)], hi = Math.max(lo + 30, sorted[sorted.length - 1]);
@@ -868,8 +869,61 @@ function channelTable(d) {
     + rows.join('') + '</tbody></table></div>';
 }
 
+function drawWaterfall(c, key) {
+  const wf = S.wf.get(key);
+  if (!c || !wf || !wf.rows.length) return;
+  const h = S.hover && S.hover.key === key ? S.hover : null;
+  c.dataset.rows = WF_ROWS;
+  Charts.waterfall(c, wf.rows, wf.lo, wf.hi, h ? { x: 0.5 + (h.hz - wf.centerHz) / wf.rate, row: h.row } : null);
+}
+
+// Pointing at a stick's spectrum or waterfall: the frequency there, its level
+// and the channel it is on — on the waterfall, when too — in a callout, and a
+// line at that frequency down both.
+function wireSpecHover(spec, key) {
+  if (spec.dataset.hoverWired) return;
+  spec.dataset.hoverWired = '1';
+  const sc = $('canvas.spectrum', spec), wc = $('canvas.waterfall', spec);
+  const redraw = () => { if (sc._d) drawSpectrum(sc, sc._d); drawWaterfall(wc, key); };
+  const move = (ev) => {
+    const d = sc._d, sp = d && d.spectrum;
+    if (!sp) return;
+    const c = ev.currentTarget, r = c.getBoundingClientRect();
+    const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+    let rate = sp.rate, cHz = sp.centerHz, db = sp.db, row = null, when = null;
+    if (c === wc) {
+      const wf = S.wf.get(key);
+      if (!wf || !wf.rows.length) return;
+      row = Math.floor(fy * WF_ROWS);
+      if (row >= wf.rows.length) { leave(); return; }
+      rate = wf.rate; cHz = wf.centerHz; db = wf.rows[row]; when = wf.times[row];
+    }
+    const hz = cHz + (fx - 0.5) * rate, binHz = rate / db.length;
+    const lines = [(hz / 1e6).toFixed(binHz < 2000 ? 4 : 3) + ' MHz · ' + db[Math.round(fx * (db.length - 1))].toFixed(1) + ' dB'];
+    if (when) lines.push(ago(Date.now() - when) + ' (' + new Date(when).toLocaleTimeString() + ')');
+    // The channel it is on: within half a 12.5 kHz step, or the bin's width when that is wider.
+    const chans = (d.channels && d.channels.length ? d.channels : [{ freqHz: sp.channelHz, format: d.format }]).filter(ch => ch.freqHz);
+    const near = chans.reduce((a, ch) => (!a || Math.abs(ch.freqHz - hz) < Math.abs(a.freqHz - hz) ? ch : a), null);
+    if (near && Math.abs(near.freqHz - hz) <= Math.max(6250, binHz)) {
+      const off = (hz - near.freqHz) / 1000;
+      lines.push(Channels.mhz(near.freqHz) + ' MHz channel' + (near.format ? ' (' + (FORMAT_NAMES[near.format] || near.format) + ')' : '')
+        + (Math.abs(off) >= 0.5 ? ' · ' + Math.abs(off).toFixed(1) + ' kHz ' + (off > 0 ? 'above' : 'below') : ''));
+    }
+    S.hover = { key, hz, row };
+    Charts.showTip(ev.clientX, ev.clientY, lines.join('\n'));
+    redraw();
+  };
+  const leave = () => { Charts.hideTip(); if (S.hover && S.hover.key === key) { S.hover = null; redraw(); } };
+  for (const c of [sc, wc]) {
+    c.addEventListener('pointermove', move);
+    c.addEventListener('pointerdown', move);
+    c.addEventListener('pointerleave', leave);
+  }
+}
+
 function drawSpectrum(c, d) {
   if (!c) return;
+  c._d = d;
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
   if (!w || !h) return;
   c.width = w * dpr; c.height = h * dpr;
@@ -899,6 +953,17 @@ function drawSpectrum(c, d) {
   g.stroke();
   g.fillStyle = col('--dim'); g.textAlign = 'left';
   g.fillText(Math.round(hi) + ' dB', 4, 11); g.fillText(Math.round(lo) + ' dB', 4, ph - 4);
+  // Where the pointer is, on this plot or the waterfall under it.
+  const hv = S.hover && S.hover.key === d.key ? S.hover : null;
+  if (hv) {
+    const x = Math.round(X(hv.hz)) + 0.5, i = Math.round(((hv.hz - cHz) / rate + 0.5) * (db.length - 1));
+    g.strokeStyle = col('--text'); g.globalAlpha = 0.55; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    if (i >= 0 && i < db.length) {
+      g.fillStyle = col('--accent');
+      g.beginPath(); g.arc(x, ph - 4 - (db[i] - lo) / span * (ph - 10), 3.5, 0, 7); g.fill();
+    }
+  }
 }
 
 // ── settings ────────────────────────────────────────────────────────────────
