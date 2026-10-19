@@ -59,9 +59,20 @@ option, so the agent switches it with `rtl_biast` (part of the `rtl-sdr` package
 share a serial it waits until it has seen which device number is which stick, so the volts never
 reach the other one. If it cannot be switched, the stick receives without it and its card says why.
 
+<a id="alert2-off-the-air"></a>**ALERT2 off the air.** Every SDR channel hears ALERT2 as well as its
+legacy format: a burst none of the legacy formats reads is tried as an ALERT2 AirLink frame, and
+each ALERT concentration record in it is a reading with protocol `alert2`, format ALERT2, timed by
+its own stamp (seconds since 00:00 or 12:00 UTC; a network on local time is read in local time;
+neither within ten minutes of the Pi's clock and it is timed by arrival, and the Receivers page
+says why). A record relayed by several repeaters is one reading and a reception for each path, so
+the Reception Map shows the paths. A channel's row on the Receivers page counts its ALERT2 frames
+(and those whose sync was heard but would not decode). Nothing to set — the channel's format
+stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
+costs a few tenths of a second on a Pi 4, and only bursts nothing else decoded are tried.
+
 <a id="recordings"></a>**Recordings.** Under **Settings → Recordings**, list channels (MHz) to keep the IQ of every
-burst heard on them — to see what is on a channel nothing here decodes yet (ALERT2, another
-format), and to build the decoder that will. Each burst is two files in
+burst heard on them — to see what is on a channel nothing here decodes yet (another format,
+another protocol), and to build the decoder that will — as ALERT2's was. Each burst is two files in
 `/var/lib/rpi-alert/recordings`: an `.iq8`, the channel's own 240 ksps as u8 I then Q, centred on
 it — the burst and 0.4 s either side, the decoder's own samples scaled so the loudest fills most of
 a byte (a channel heard at −60 dBFS would otherwise be nothing but 127s and 128s), in the format
@@ -216,12 +227,13 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
+| `receivers.sdr.alert2` | true | Also try every burst the legacy decoder reads nothing in as ALERT2 (AirLink, 4800 bps) — on every channel of every stick; its readings go as protocol `alert2`: [ALERT2 off the air](#alert2-off-the-air) |
 | `receivers.record` | `{ freqHz: [], maxMb: 256 }` | Channels whose every burst is kept as IQ, and how much of the card they may take (16–8192 MB): [Recordings](#recordings) |
 | `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |
-| `system.timezone` | — | Set from the page; ALERT2 frame times are local |
+| `system.timezone` | — | Set from the page; an ERT-A2's ALERT2 frame times are local (off the air they are UTC) |
 | `remote.mode` | manage | manage · report · off — what MegaNet's Base Stations tab may do. Set only on the Pi: MegaNet cannot change it |
 | `remote.idleS` | 60 | How often to check in with MegaNet while nobody has the base station open (30–900 s) |
 | `hotspot.mode` | auto | The Pi's own Wi-Fi network: auto — up after three minutes with no network (neither Ethernet nor a Wi-Fi network joined), down the moment there is one, and, with nobody on it, stepping aside every ten minutes for a minute and a half so the Pi can join a Wi-Fi network it knows; on — always (it takes the Wi-Fi radio); off. Set on the Pi only: MegaNet sees whether a password is set, never the password, and cannot change any of it |

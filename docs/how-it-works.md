@@ -9,7 +9,7 @@ flowchart LR
     ps --> e[ERT-A2 driver<br/>alert2.js]
     ps --> g[GPS driver<br/>serial-gps.js]
     scan --> sdr[SDR session<br/>rtl_sdr supervisor]
-    sdr --> w[a worker thread per channel<br/>alert-dsp.js Pipeline]
+    sdr --> w[a worker thread per channel<br/>alert-dsp.js Pipeline · alert2-air.js]
     q & e & w --> agent[agent<br/>time · name · show · play]
     g --> clock[clock<br/>NTP / GPS]
     g --> agent
@@ -101,20 +101,38 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
 
 | | Legacy **ALERT** | **ALERT2** |
 |---|---|---|
-| On air | 300-baud AFSK on narrowband FM | 4800 bps, a different modulation and framing |
-| Frame formats | ALERT Binary (no check), Enhanced iFLOWS (CRC-6), ALERT ASCII | IND 0x74 "ALERT concentration" element: seconds-since-midnight + 4-byte records |
-| Heard by | RTL-SDR (decoded on the Pi, every channel in the stick's slice at once), Quansheng radio (decoded on the radio) | ELPRO ERT-A2 (decoded on the receiver) |
+| On air | 300-baud AFSK on narrowband FM | 4800 bps NRZ, root-raised-cosine shaped, on FM (AirLink 1.1); TDMA slots |
+| Frame formats | ALERT Binary (no check), Enhanced iFLOWS (CRC-6), ALERT ASCII | MANT PDUs (source, path of repeaters) carrying ALERT concentration: a time stamp + 4-byte records; every block Reed–Solomon checked |
+| Heard by | RTL-SDR (decoded on the Pi, every channel in the stick's slice at once), Quansheng radio (decoded on the radio) | RTL-SDR (decoded on the Pi, any channel: a burst the legacy decoder reads nothing in), ELPRO ERT-A2 (decoded on the receiver) |
 | Reading | `protocol: "alert"`, format shown as ABF / EIF / ASCII | `protocol: "alert2"` |
 
 Both carry the same 13-bit ALERT address and 11-bit value, which is why MegaNet stores them in one
-table. Decoding ALERT2 off the air with an RTL-SDR is on the [roadmap](roadmap.md).
+table.
+
+**ALERT2 off the air** (`lib/devices/alert2-air.js`, `alert2-fec.js`). In a channel's worker, a
+burst the legacy decoder read nothing in (no reading, repeat or shadow; 100 ms or longer) is tried
+again, off the same window: the burst's carrier from where its power is, mixed down to 48 kHz,
+±7 kHz, an FM discriminator and a matched RRC filter (β 0.96); the 80-bit sync, 0xEB90B433AAAA
+then 0x352EF853, either way up (an FC0013 stick's channel arrives inverted); the bit clock that
+opens the eye widest, first over the sync and first block and then over the whole frame. The first
+block (24 bytes and 16 of Reed–Solomon parity, convolutionally coded on its own) holds the length;
+the follow-on blocks of 32 bytes are one coded stream. Rate-½ k=7 convolutional code (0x6d, 0x4f),
+Viterbi with soft decisions; Reed–Solomon over GF(256) of 0x187, roots α^(11·(112+i)), 8 errors a
+block; the x^17+x^3+1 self-synchronising scrambler, started afresh each block. A frame decodes or
+it does not — there is no guessing. Several frames in one burst (back-to-back TDMA slots) are each
+read. Then `alert2-readings.js`: each record a reception (with its source and repeater path), and
+a reading once — a network relays a PDU along several paths, so the same record comes two, three,
+four times. Timed by its PDU's stamp, seconds since 00:00 or 12:00 UTC, less the seconds the record
+says it was before it. It takes 0.1–0.2 s a burst on a PC, a few times that on a Pi 4. A frame
+longer than the burst gate's 3 s is cut off and not read.
 
 ## A reading's life
 
 1. A driver decodes it (alert_id, value, protocol, format, signal, the frequency it was heard on,
    the raw line).
 2. **Time.** A live reading is timed by its arrival (as MegaNet's Serial Monitor does) — except an
-   ALERT2 frame, which carries its own time of day. If the Pi's clock is not yet trusted (no NTP
+   ALERT2 frame, which carries its own time of day (an ERT-A2's in local time; off the air, a
+   stamp in UTC's half day, less each record's own offset). If the Pi's clock is not yet trusted (no NTP
    since boot, no GPS), the reading is **held** with a CLOCK_MONOTONIC stamp and this boot's id,
    and timed when the clock is trusted: `now − (monotonic now − monotonic then)`. One held across a
    reboot that never saw a good clock cannot be placed and is dropped (counted, logged).

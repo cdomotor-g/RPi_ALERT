@@ -107,6 +107,9 @@ function defaults() {
         squelchDb: 8,
         minVotes: 4,
         minVotesCrc: 4,
+        // A burst none of the legacy formats reads is tried as ALERT2
+        // (AirLink, 4800 bps): its readings go to MegaNet as protocol "alert2".
+        alert2: true,
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
       //   { key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }
@@ -271,6 +274,7 @@ function validate(c) {
   need(SDR_FORMATS.includes(s.format), 'receivers.sdr.format: one of ' + SDR_FORMATS.join(', '));
   need(num(s.squelchDb, 2, 40) !== undefined, 'receivers.sdr.squelchDb: 2–40 dB');
   need(num(s.minVotes, 1, 45) !== undefined && num(s.minVotesCrc, 1, 45) !== undefined, 'receivers.sdr.minVotes: 1–45');
+  need(typeof s.alert2 === 'boolean', 'receivers.sdr.alert2: true or false');
   const rec = r.record || {};
   need(Array.isArray(rec.freqHz) && rec.freqHz.length <= 16 && rec.freqHz.every(f => isNum(f, 24e6, 1766e6)), 'receivers.record.freqHz: up to 16 frequencies, 24–1766 MHz');
   need(Number.isInteger(rec.maxMb) && rec.maxMb >= 16 && rec.maxMb <= 8192, 'receivers.record.maxMb: 16–8192 MB');

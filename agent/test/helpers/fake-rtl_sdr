@@ -27,6 +27,10 @@
 //                                                 a burst on each of several channels, one after
 //                                                 another (also per stick: "bursts": […]); a burst
 //                                                 out of the slice rtl_sdr was told to tune is not sent
+//   RPI_ALERT_FAKE_ALERT2='[{"channelHz": 151537500, "startSec": 4, "cfoHz": 2800, "inverted": true,
+//       "pdus": [{"source": 33300, "path": [10019], "stamp": "now", "records": [{"id": 1909, "value": 38, "before": 52}]}]}]'
+//                                                 ALERT2 frames too (test/helpers/alert2-tx.js; also per
+//                                                 stick: "alert2": […]); a stamp "now" is the time it starts
 //   RPI_ALERT_FAKE_FORMAT=BINARY|ENHANCED_IFLOWS
 //   RPI_ALERT_FAKE_ORDER=forward                  number the sticks in device-path order,
 //                                                 unlike libusb (the agent must notice)
@@ -160,6 +164,25 @@ const bursts = want.map((b, i) => ({ startSec: b.startSec != null ? Number(b.sta
   .filter(b => Math.abs(b.cfoHz) < rate / 2 - 15000);
 const seconds = Math.max(want.length > 1 ? 11 : 6, ...bursts.map(b => b.startSec + 3));
 const loop = D.synthIq({ fs: rate, seconds, snrDb: 28, seed: 7, bursts });
+
+// ALERT2 frames, added to the noise and the legacy bursts.
+let alert2 = mine.alert2 || null;
+try { if (!alert2) alert2 = JSON.parse(process.env.RPI_ALERT_FAKE_ALERT2 || 'null'); } catch (_) {}
+if (alert2 && alert2.length) {
+  const Tx = require(path.join(__dirname, 'alert2-tx.js'));
+  const n = loop.length >> 1, re = new Float32Array(n), im = new Float32Array(n);
+  for (const f of alert2) {
+    const cfoHz = Number(f.channelHz) - center - ppmOff * Number(f.channelHz) / 1e6 + Number(f.cfoHz || 0);
+    if (Math.abs(cfoHz) >= rate / 2 - 15000) continue;
+    const pdus = f.pdus.map(p => Object.assign({}, p, { stamp: p.stamp === 'now' ? Tx.stampOf(Date.now()) : p.stamp }));
+    Tx.addFrame(re, im, rate, Math.round(Number(f.startSec || 4) * rate), { pdus, cfoHz, inverted: !!f.inverted, amp: 40 });
+  }
+  for (let i = 0; i < n; i++) {
+    if (!re[i] && !im[i]) continue;
+    loop[2 * i] = Math.max(0, Math.min(255, Math.round(loop[2 * i] + re[i])));
+    loop[2 * i + 1] = Math.max(0, Math.min(255, Math.round(loop[2 * i + 1] + im[i])));
+  }
+}
 
 const chunk = Math.round(rate / 20) * 2;   // 50 ms
 let pos = 0;

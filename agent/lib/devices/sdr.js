@@ -31,6 +31,12 @@
 // "both", and why a frequency is never listed twice, even in two formats).
 // Readings go to MegaNet as protocol "alert".
 //
+// And ALERT2 (alert2-air.js), on any channel: a burst none of those formats
+// reads is tried as an AirLink frame in the decoder's worker, and what it
+// carries goes to MegaNet as protocol "alert2" (alert2-readings.js), as an
+// ERT-A2's frames do — the channel's format stays the legacy one it decodes.
+// receivers.sdr.alert2 false turns it off (a Pi short of CPU).
+//
 // Each stick is a session of its own — its own rtl_sdr — and may have its own
 // settings (receivers.sdrDevices, by its key): other channels, format, gain,
 // ppm, bias tee. rtl-index.js sees that each rtl_sdr opens the stick it is
@@ -54,6 +60,7 @@ const { STICK_FIELDS, channelsOf } = require('../config');
 const { openedUsb } = require('./rtl-index');
 const { plan, reach } = require('./sdr-plan');
 const { TuneHelp } = require('./tune-help');
+const { Alert2Reader } = require('./alert2-readings');
 const { mhz } = require('../../web/channels');
 
 const STALL_MS = 10000;
@@ -88,9 +95,10 @@ class SdrChannel {
   // What it has heard so far — from scratch when it is moved to another frequency.
   blank() {
     this.level = null;
-    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0 };
+    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0 };
     this.lastDecode = null;
     this.lastBurst = null;
+    this.alert2 = new Alert2Reader();
   }
 
   name() {
@@ -172,13 +180,41 @@ class SdrChannel {
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: s.sensorId, value_raw: s.value, ok: false, fault: 'shadow', votes: s.votes,
         level_dbfs: level, detail: { fmt, shadow_of: s.of, freq_mhz: freq } });
     }
+    const a2 = m.alert2 ? this.onAlert2(m, { level, nf, snr, freq }) : 0;
     // `all` counts readings before the pipeline drops repeats from overlapping
     // windows: a burst whose readings were all repeats was still decoded.
-    if (m.burst && !m.all && !(m.shadows || []).length) {
+    if (m.burst && !m.all && !(m.shadows || []).length && !a2) {
       this.counts.undecoded++;
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: null, ok: false, fault: 'undecoded', level_dbfs: level,
         detail: { fmt, burst_ms: m.burst.ms, nf_dbfs: nf, freq_mhz: freq } });
     }
+  }
+
+  // A burst's ALERT2 frames (the worker's alert2-air.js plain()) → readings
+  // and receptions. → how many frames had a sync (an undecoded burst's are
+  // ALERT2 frames that failed, not an undecoded burst).
+  onAlert2(m, at) {
+    const res = m.alert2;
+    if (res.error && !this.alert2Error) { this.alert2Error = true; this.log.error('ALERT2 decoder: ' + res.error); }
+    if (!res.frames.length) return 0;
+    const out = this.alert2.take(res, this.agent.clock.now(), this.agent.clock.trusted());
+    for (const n of out.notes) this.log.warn(n);
+    this.counts.alert2 = this.alert2.counts.frames;
+    this.counts.alert2Bad = this.alert2.counts.bad;
+    const burstKey = 's' + (m.burst ? m.burst.t : Date.now());
+    for (const r of out.readings) {
+      this.counts.decodes++;
+      this.lastDecode = { t: Date.now(), id: r.alert_id, value: r.value_raw, votes: null, fmt: 'ALERT2' };
+      this.agent.deviceReading(this, { alert_id: r.alert_id, value_raw: r.value_raw, protocol: 'alert2', fmt: 'ALERT2', ts: r.ts,
+        freq_mhz: at.freq, level_dbfs: at.level, nf_dbfs: at.nf, snr_db: at.snr, burstKey,
+        line: 'SDR,ALERT2,' + r.alert_id + ',' + r.value_raw + ',src=' + r.source + (r.path.length ? ',path=' + r.path.join('-') : '')
+          + (r.stamp != null ? ',stamp=' + r.stamp : '') + ',before=' + r.before + ',mhz=' + at.freq });
+    }
+    for (const rx of out.receptions) {
+      this.agent.deviceReception(this, Object.assign({ protocol: 'alert2', level_dbfs: at.level }, rx,
+        { detail: Object.assign({ fmt: 'ALERT2', nf_dbfs: at.nf, snr_db: at.snr, freq_mhz: at.freq }, rx.detail) }));
+    }
+    return res.frames.length;
   }
 
   // What report_ingest_point is told about this receiver (agent.describe()).
@@ -200,6 +236,7 @@ class SdrChannel {
       freqHz: s.freqHz, format: s.format, offsetHz: s.offsetHz, inBand: s.inBand, recording: s.inBand && this.stick.recording(s),
       level: lv && plugged && s.inBand ? { chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
       counts: this.counts, lastDecode: this.lastDecode, lastBurst: this.lastBurst,
+      alert2: this.counts.alert2 || this.counts.alert2Bad ? this.alert2.status() : null,
     };
   }
 }
@@ -346,7 +383,7 @@ class SdrSession extends EventEmitter {
 
   dspCfg(c, spec) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
-      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec) };
+      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false };
   }
 
   // Its bursts kept as IQ (lib/recorder.js, receivers.record)?
@@ -682,8 +719,8 @@ class SdrSession extends EventEmitter {
     const first = this.channels[0];
     const lv = first && first.level;
     // The stick's counts are its channels' together.
-    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0 };
-    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped']) counts[k] += ch.counts[k];
+    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0 };
+    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad']) counts[k] += ch.counts[k];
     const latest = (f) => this.channels.map(ch => ch[f]).filter(Boolean).sort((a, b) => b.t - a.t)[0] || null;
     return {
       key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',

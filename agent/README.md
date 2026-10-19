@@ -15,6 +15,8 @@ lib/devices/ert.js         ERT-A2: ALERT2 ASCII and USB binary
 lib/devices/gps.js         NMEA fix and time
 lib/devices/sdr.js         rtl_sdr supervisor, one per stick, with its own settings, and its channels — a receiver each,
                            all from one stream;  sdr-worker.js: AlertDsp.Pipeline in a worker thread, one per channel
+lib/devices/alert2-air.js  ALERT2 off the air (AirLink 1.1): sync, clock, frames, MANT PDUs; alert2-fec.js its
+                           Viterbi, Reed–Solomon and scrambler; alert2-readings.js the readings, timed and once each
 lib/devices/sdr-plan.js    where to tune a stick, and how fast, to hear all its channels (DC spike, mirror images)
 lib/devices/rtl-index.js   which rtl_sdr -d opens which stick (serials shared; libusb's order; checked in /proc)
 lib/serial/port.js         a serial port with no native module (non-blocking fd + stty)

@@ -88,7 +88,7 @@ class Recorder {
       burstAt: new Date(t).toISOString(),
       freqHz: ch.spec.freqHz,
       burst: m.burst ? { ms: m.burst.ms, peakDb: r1(m.burst.peakDb), nfDb: r1(m.burst.nfDb) } : null,
-      decodedAs: { format: m.format, readings: m.readings || [], all: m.all || 0, shadows: m.shadows || 0 },
+      decodedAs: { format: m.format, readings: m.readings || [], all: m.all || 0, shadows: m.shadows || 0, alert2: m.alert2 || null },
       receiver: { name: ch.name(), key: ch.key, pointId: ch.point.pointId },
       stick: { key: st.key, model: st.model, tuner: st.tuner, serial: st.stick.serial || null, usbPort: st.stick.busPath || null,
         sampleRate: c.sampleRate, centerHz: c.centerHz, offsetHz: ch.spec.offsetHz, gainDb: c.gainDb, ppm: c.ppm || 0 },
@@ -190,7 +190,8 @@ function brief(meta) {
   if (!meta) return null;
   const d = meta.decodedAs || {};
   return { t: meta.burstAt ? Date.parse(meta.burstAt) : null, freqHz: meta.freqHz, receiver: meta.receiver && meta.receiver.name,
-    ms: meta.burst && meta.burst.ms, peakDb: meta.burst && meta.burst.peakDb, seconds: meta.seconds, decoded: (d.readings || []).length };
+    ms: meta.burst && meta.burst.ms, peakDb: meta.burst && meta.burst.peakDb, seconds: meta.seconds, decoded: (d.readings || []).length,
+    alert2: (d.alert2 || []).filter(f => f.ok).length };
 }
 
 // The last n samples of a ring of complex floats (the pipeline's ringR/ringI,

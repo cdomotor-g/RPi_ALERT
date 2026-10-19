@@ -144,6 +144,25 @@ test('receptions go to report_receptions; a database without it keeps them', asy
   up.stop(); await m.close();
 });
 
+test('a steady stream — a reading and a reception every second — is still sent, not put off for ever', { timeout: 30000 }, async () => {
+  const m = await stub.start();
+  const { up } = rig(m);
+  up.load().start();
+  const t0 = Date.now();
+  let n = 0;
+  const tick = setInterval(() => {
+    n++;
+    up.addReading({ point: 'rpi-abc-sdr1', protocol: 'alert', alert_id: 100 + n, value_raw: n, ts: Date.now() });
+    up.addReception('rpi-abc-sdr1', 'rtl-sdr', { heard_at: Date.now(), protocol: 'alert', alert_id: 100 + n, value_raw: n, ok: true, location_source: 'none', detail: {} });
+  }, 1000);
+  try {
+    // Readings within 5 s of the first (and the start's 2 s), receptions within 10 s.
+    assert.ok(await until(() => m.calls.some(c => c.fn === 'ingest_http'), 9000), 'readings sent while more keep coming');
+    assert.ok(await until(() => m.calls.some(c => c.fn === 'report_receptions'), 14000), 'receptions too');
+    assert.ok(Date.now() - t0 < 15000);
+  } finally { clearInterval(tick); up.stop(); await m.close(); }
+});
+
 test('a receiver reports itself with its point id, kind and approximate location', async () => {
   const m = await stub.start();
   const { up } = rig(m);

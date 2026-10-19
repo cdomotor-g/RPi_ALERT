@@ -152,10 +152,16 @@ class Uplink {
 
   // ── readings out ────────────────────────────────────────────────────────
 
+  // A send already due sooner stays as it is; one due later is brought
+  // forward. (Each reading used to put it off again, so a station heard more
+  // often than every five seconds — a flood — was never sent at all.)
   schedule(ms) {
     if (this.inflight || this.stopped) return;
+    const at = Date.now() + Math.max(ms, this.backoff);
+    if (this.timer && this.timerAt <= at) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.flush(), Math.max(ms, this.backoff));
+    this.timerAt = at;
+    this.timer = setTimeout(() => { this.timer = null; this.flush(); }, at - Date.now());
   }
 
   async flush() {
@@ -232,8 +238,11 @@ class Uplink {
 
   scheduleRx(ms) {
     if (this.rxInflight || this.stopped) return;
+    const at = Date.now() + ms;
+    if (this.rxTimer && this.rxTimerAt <= at) return;     // as schedule(): never put off
     clearTimeout(this.rxTimer);
-    this.rxTimer = setTimeout(() => this.flushRx(), ms);
+    this.rxTimerAt = at;
+    this.rxTimer = setTimeout(() => { this.rxTimer = null; this.flushRx(); }, ms);
   }
 
   async flushRx() {

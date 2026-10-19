@@ -803,14 +803,15 @@ function rxBodyHtml(d) {
       rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '')
         + (multi ? '' : ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : '')))]);
     }
-    rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded')]);
+    rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded'
+      + (d.counts.alert2 || d.counts.alert2Bad ? ' · ALERT2: ' + alert2Text(d.counts) : ''))]);
     if (!multi && d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
     if (!multi && d.lastBurst) {
       const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;
       rows.push(['Last burst', esc('peak ' + b.peakDb + ' dBFS over floor ' + b.nfDb + ' · ' + (sat ? '≥ ' : '') + snrText(b.snrDb) + ' · ' + b.ms + ' ms, ' + ago(Date.now() - b.t))
         + (sat ? ' <span style="color: var(--warn)">⚠ saturated — reached the ADC full scale; lower the gain until bursts peak below ' + SATURATED_DBFS + ' dBFS</span>' : '')]);
     }
-    if (!multi && d.lastDecode) rows.push(['Last decode', esc(d.lastDecode.id + ' = ' + d.lastDecode.value + ' (' + d.lastDecode.votes + ' votes) ' + ago(Date.now() - d.lastDecode.t))]);
+    if (!multi && d.lastDecode) rows.push(['Last decode', esc(decodeText(d.lastDecode))]);
     rows.push(['Samples', esc(d.rateKsps + ' ksps arriving' + (d.counts.restarts ? ', rtl_sdr restarted ' + d.counts.restarts + '×' : '') + (d.counts.dropped ? ', ' + Math.round(d.counts.dropped / 1e6) + ' MB dropped (CPU)' : ''))]);
     if (d.stderr && d.stderr.length) rows.push(['rtl_sdr says', '<span class="mono small">' + esc(d.stderr.join(' | ')) + '</span>']);
     if (multi) return kv(rows) + channelTable(d);
@@ -842,6 +843,15 @@ function rxBodyHtml(d) {
   return kv(rows);
 }
 
+// A channel's last reading: legacy ALERT's with its votes, ALERT2's with no need of any (each block has its parity).
+function decodeText(ld) {
+  return ld.id + ' = ' + ld.value + ' (' + (ld.fmt === 'ALERT2' ? 'ALERT2' : ld.votes + ' votes') + ') ' + ago(Date.now() - ld.t);
+}
+
+function alert2Text(c) {
+  return (c.alert2 || 0) + ' frame' + (c.alert2 === 1 ? '' : 's') + (c.alert2Bad ? ' (' + c.alert2Bad + ' more would not decode)' : '');
+}
+
 // A stick's channels, a row each: each one a receiver of its own.
 function channelTable(d) {
   const unplugged = d.state === 'unplugged';
@@ -850,8 +860,9 @@ function channelTable(d) {
     const signal = !ch.inBand ? '<span style="color: var(--warn)">⚠ ' + esc(NO_FIT) + '</span>'
       : lv ? esc(lv.chDb + ' dB, floor ' + lv.nfDb + (lv.open ? ' · OPEN' : '')) : '<span class="dim">' + (unplugged ? '—' : 'starting…') + '</span>';
     return '<tr><td>' + esc(Channels.mhz(ch.freqHz)) + ' MHz' + (ch.recording ? ' <span class="dim small" title="Every burst kept as IQ: Settings → Recordings">● recording</span>' : '') + '</td><td>' + esc(FORMAT_NAMES[ch.format] || ch.format) + '</td><td><code class="small">' + esc(ch.pointId) + '</code></td>'
-      + '<td>' + signal + '</td><td>' + esc(c.bursts + ' bursts, ' + c.decodes + ' readings' + (c.undecoded ? ', ' + c.undecoded + ' undecoded' : '')) + '</td>'
-      + '<td>' + (ld ? esc(ld.id + ' = ' + ld.value + ' (' + ld.votes + ' votes) ' + ago(Date.now() - ld.t)) : '<span class="dim">—</span>') + '</td></tr>';
+      + '<td>' + signal + '</td><td>' + esc(c.bursts + ' bursts, ' + c.decodes + ' readings' + (c.undecoded ? ', ' + c.undecoded + ' undecoded' : '')
+        + (c.alert2 || c.alert2Bad ? ', ALERT2 ' + alert2Text(c) : '')) + '</td>'
+      + '<td>' + (ld ? esc(decodeText(ld)) : '<span class="dim">—</span>') + '</td></tr>';
   });
   return '<div class="table-wrap chans"><table><thead><tr><th>Channel</th><th>Format</th><th>MegaNet receiver id</th><th>Signal</th><th>Heard</th><th>Last decode</th></tr></thead><tbody>'
     + rows.join('') + '</tbody></table></div>';
@@ -908,7 +919,7 @@ async function loadRecordings() {
     + (s.freqHz.length ? ' Recording every burst on ' + esc(s.freqHz.map(f => Channels.mhz(f)).join(', ')) + ' MHz.' : ' Not recording.')
     + (s.skipped ? ' ' + s.skipped + ' not kept (the SD card nearly full).' : '') + '</p>';
   const row = (f) => '<tr><td>' + esc(f.t ? new Date(f.t).toLocaleString() : '') + '</td><td>' + esc(f.freqHz ? Channels.mhz(f.freqHz) : '') + '</td><td>' + esc(f.receiver || '')
-    + '</td><td>' + esc(f.ms != null ? f.ms + ' ms' : '') + '</td><td>' + esc(f.peakDb != null ? f.peakDb + ' dBFS' : '') + '</td><td>' + (f.decoded ? esc(f.decoded) + ' decoded' : '<span class="dim">none decoded</span>')
+    + '</td><td>' + esc(f.ms != null ? f.ms + ' ms' : '') + '</td><td>' + esc(f.peakDb != null ? f.peakDb + ' dBFS' : '') + '</td><td>' + (f.decoded || f.alert2 ? esc([f.decoded ? f.decoded + ' decoded' : '', f.alert2 ? f.alert2 + ' ALERT2 frame' + (f.alert2 === 1 ? '' : 's') : ''].filter(Boolean).join(', ')) : '<span class="dim">none decoded</span>')
     + '</td><td><a href="/api/recordings/' + encodeURIComponent(f.name) + '.iq8" download>IQ</a> · <a href="/api/recordings/' + encodeURIComponent(f.name) + '.json" download>info</a></td></tr>';
   el.innerHTML = head + (files.length ? '<div class="table-wrap"><table class="readings"><thead><tr><th>Heard</th><th>MHz</th><th>Receiver</th><th>Burst</th><th>Peak</th><th>Decoded</th><th></th></tr></thead><tbody>'
     + files.map(row).join('') + '</tbody></table></div>' : '');
@@ -943,6 +954,7 @@ function fillForms() {
   fs.squelch.value = sd.squelchDb;
   fs.enabled.checked = sd.enabled;
   fs.biasTee.checked = !!sd.biasTee;
+  fs.alert2.checked = sd.alert2 !== false;
   renderSticks(true);
 
   $('#f-ports').autoDetect.checked = c.receivers.autoDetect;
@@ -1200,7 +1212,8 @@ function wireSettings() {
     const sticks = stickEntries();
     if (sticks.error) { flash(f, sticks.error, false); return; }
     save(f, { receivers: { sdr: { freqHz: Math.round(Number(f.freq.value) * 1e6), moreChannels: more.channels, format: f.format.value, gainDb: g === '' || /auto/i.test(g) ? null : Number(g),
-      sampleRate: Number(f.rate.value), ppm: Number(f.ppm.value) || 0, squelchDb: Number(f.squelch.value) || 8, enabled: f.enabled.checked, biasTee: f.biasTee.checked },
+      sampleRate: Number(f.rate.value), ppm: Number(f.ppm.value) || 0, squelchDb: Number(f.squelch.value) || 8, enabled: f.enabled.checked, biasTee: f.biasTee.checked,
+      alert2: f.alert2.checked },
     sdrDevices: sticks.list } });
   });
 
