@@ -1,6 +1,7 @@
 :root {
   --bg: #0b1520; --panel: #122131; --panel2: #18293c; --line: #24394f; --text: #e6eef5; --dim: #8ea3b6;
   --accent: #5fc3ff; --ok: #3fb68b; --warn: #e6b450; --bad: #ef6b6b; --alert2: #b48cff; --alert: #5fc3ff;
+  --stick1: #5fc3ff; --stick2: #ff9f43; --stick3: #ea6fd3; --stick4: #8fd14f;
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
 }
@@ -8,6 +9,7 @@
   :root:not(.kiosk) {
     --bg: #f3f6f9; --panel: #ffffff; --panel2: #eef3f7; --line: #d6e0e8; --text: #12212e; --dim: #5b6f80;
     --accent: #0a78c2; --ok: #1f8a5f; --warn: #a86b00; --bad: #c33; --alert2: #7a4fd0; --alert: #0a78c2;
+    --stick1: #0a78c2; --stick2: #c46500; --stick3: #b0359a; --stick4: #4f8a1a;
   }
 }
 * { box-sizing: border-box; }
@@ -37,6 +39,7 @@ header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wra
 .banner.bad { background: color-mix(in srgb, var(--bad) 18%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
 
 main { padding: 12px 16px 24px; max-width: 1400px; margin: 0 auto; }
+.kiosk main { max-width: 1880px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
 .card h2 { margin: 0 0 10px; font-size: 1.02em; font-weight: 650; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
@@ -59,7 +62,6 @@ tr.fresh td { animation: flash 2s ease-out; }
 .proto.alert { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 50%, transparent); }
 .proto.alert2 { color: var(--alert2); border-color: color-mix(in srgb, var(--alert2) 50%, transparent); }
 
-.rx-mini { display: grid; gap: 6px; }
 /* A receiver a line: what it is on the left, its own chart on the right — every
    chart over the same time, so a burst heard on two lines up. */
 .rx-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 4px 14px; align-items: center; padding: 8px 10px;
@@ -69,33 +71,52 @@ tr.fresh td { animation: flash 2s ease-out; }
 .rx-line .rx-count { margin-top: 3px; }
 .rx-line .rx-chart { height: 58px; }
 .rx-line.no-chart { grid-template-columns: 1fr; }
-.rx-line.no-chart .rx-chart, .rx-line.is-stick .rx-chart { display: none; }
-.rx-line.is-stick { grid-template-columns: 1fr; background: transparent; padding: 10px 2px 2px; }
-.rx-line.chan { margin-left: 16px; border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.rx-line.chan + .rx-line:not(.chan) { margin-top: 6px; }
-@media (max-width: 720px) { .rx-line { grid-template-columns: 1fr; } .rx-line.chan { margin-left: 8px; } }
+.rx-line.no-chart .rx-chart { display: none; }
+@media (max-width: 720px) { .rx-line { grid-template-columns: 1fr; } }
 .dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
 .dot.running { background: var(--ok); } .dot.identifying, .dot.starting, .dot.opening { background: var(--accent); }
 .dot.disconnected, .dot.unplugged, .dot.restarting, .dot.error { background: var(--warn); }
-.rxcard .kv, #f-access .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
-.rxcard .kv div:nth-child(odd), #f-access .kv div:nth-child(odd) { color: var(--dim); }
+#f-access .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
+#f-access .kv div:nth-child(odd) { color: var(--dim); }
 #f-access .kv div { min-width: 0; overflow-wrap: anywhere; }
 .remote-history { margin: 4px 0 8px; padding-left: 1.2em; }
 #f-access details ul { margin: 6px 0; padding-left: 1.2em; }
-.rxcard canvas.spectrum { width: 100%; height: 130px; display: block; background: var(--panel2); border-radius: 6px; cursor: crosshair; touch-action: pan-y; }
-.rxcard canvas.waterfall { width: 100%; height: 110px; display: block; border-radius: 6px; background: #081028; cursor: crosshair; touch-action: pan-y; }
-.rxcard .spec .chart-label { margin-top: 10px; }
-.rxcard .hist { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 4px 18px; }
-.rxcard .hist:empty { display: none; }
-.hist-rx { min-width: 0; }
-.hist-rx .hist-act { height: 70px; }
-.hist-rx .hist-nf { height: 70px; }
-.rxcard .chans { margin-top: 10px; font-size: .9em; }
-.rxcard .chans td:nth-child(4) { white-space: normal; }
-.rxcard .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-.rxcard .head h2 { margin: 0; }
-.rxcard .head button { margin-left: auto; }
 .pill { font-size: .78em; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
+
+/* The Overview's radio picture: every stick on one spectrum and one waterfall. */
+.radio .card-head { align-items: center; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .85em; }
+.legend .lg { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.legend .lg i { width: 18px; height: 4px; border-radius: 2px; background: var(--c); }
+.radio canvas { width: 100%; display: block; cursor: crosshair; touch-action: pan-y; }
+.radio canvas.spectrum { height: 200px; background: var(--panel2); border-radius: 8px 8px 0 0; }
+.radio canvas.waterfall { height: 230px; background: #081028; border-radius: 0 0 8px 8px; margin-bottom: 8px; }
+.kiosk .radio canvas.spectrum { height: 230px; }
+.kiosk .radio canvas.waterfall { height: 300px; }
+
+/* Receivers: a block a device — a stick in its colour, a line a channel. */
+.head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.all-bursts { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.all-bursts .chart-label { margin-top: 0; }
+.rx-list { display: grid; gap: 14px; }
+.rx-dev { border-left: 4px solid var(--c, var(--line)); padding: 2px 0 2px 12px; min-width: 0; }
+.dev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.dev-head .name { font-size: 1.02em; }
+.dev-head .acts { margin-left: auto; }
+.dev-head .meta { flex-basis: 100%; color: var(--dim); font-size: .85em; }
+.dev-lines { display: grid; gap: 6px; margin-top: 8px; }
+.dev-lines:empty { display: none; }
+.rx-more { margin-top: 6px; }
+.rx-more summary { cursor: pointer; color: var(--dim); font-size: .86em; padding: 2px 0; width: max-content; }
+.rx-more[open] summary { margin-bottom: 6px; }
+.rx-more .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
+.rx-more .kv div:nth-child(odd) { color: var(--dim); }
+.rx-more .chans { font-size: .9em; margin-bottom: 6px; }
+.rx-more .more-nf { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 4px 18px; }
+.rx-more .hist-nf { height: 70px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; align-items: start; }
+.split > .card { margin-bottom: 0; }
+@media (max-width: 1400px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 /* Charts (charts.js): the canvas takes its size from here. */
 canvas.chart { width: 100%; height: 90px; display: block; touch-action: pan-y; }

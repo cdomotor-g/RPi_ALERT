@@ -21,7 +21,7 @@ run on a real Pi with real receivers yet**. This is that run.
 - **Install over**: SSH in, then
   `curl -fsSL https://raw.githubusercontent.com/cdomotor-g/RPi_ALERT/main/os/bootstrap.sh | sudo bash`,
   then `rpi-alert setup` (press Enter at the token question).
-- **The token**: `rpi-alert request-token` (or *Request a token* on the dashboard) shows a code and
+- **The token**: `rpi-alert request-token` (or *Request a token* on the Overview) shows a code and
   a QR code. Scan it with the phone, check the code on MegaNet's Admin tab matches, press
   *Approve*. Expect the Pi to say *Approved* within five seconds. Then on the Admin tab the token
   is listed as *Bench Pi*, made by you, and — once a receiver is plugged in — the receivers behind it.
@@ -31,12 +31,12 @@ the token's label, the clock **ok (ntp)**, and the location.
 
 ## 2. The V2 stick (known good)
 
-1. Plug it in with its antenna. Within a few seconds: **Receivers → RTL-SDR**, state *receiving*,
+1. Plug it in with its antenna. Within a few seconds: the Overview's **Receivers** shows the RTL-SDR, state *receiving*,
    tuner *Fitipower FC0013*, samples arriving at ~960 ksps (Pi 4).
-2. Wait for traffic on 151.5 MHz. The dashboard's burst plot shows bursts; decoded ones turn green and
+2. Wait for traffic on 151.5 MHz. The Overview's burst plot shows bursts; decoded ones turn green and
    readings appear with station names. Compare a few with MegaNet's Message Log.
 3. If bursts are heard but not decoded: check the frame format (ALERT Binary for the live network),
-   the ADC level (no clipping on the Receivers page; lower the gain if there is), and the ppm.
+   the ADC level (no clipping on the Overview; lower the gain if there is), and the ppm.
 4. Save a good burst for the tests: `sudo systemctl stop rpi-alert;
    rtl_sdr -f 151260000 -s 960000 -g 29.7 -n 2880000 burst.iq8` while a station transmits (3 s), then
    restart the agent and send the file back.
@@ -58,7 +58,7 @@ the token's label, the clock **ok (ntp)**, and the location.
 2. **Settings → RTL-SDR → Each stick**: give *RTL-SDR 2* another channel (or the same channel in
    Enhanced iFLOWS) and save. Only that stick restarts; each now hears its own. `rpi-alert sdr`
    lists both with their USB ports.
-3. On the Receivers page, each card's *USB port* line should say *seen to be this stick*. Swap
+3. On the Overview, each stick's details: the *USB port* line should say *seen to be this stick*. Swap
    the antennas, or unplug one, to be sure which is which.
 4. Reboot with both plugged in: the same names, ports and channels come back.
 5. Unplug one: it stays listed as *unplugged*. Press **Remove**: it is gone, and plugged in again
@@ -88,12 +88,12 @@ the token's label, the clock **ok (ntp)**, and the location.
 
 Plug in by USB-C with the ALERT app running (F then 0). Expect *Quansheng radio*, recognised by USB id
 36b7, firmware hash, battery and noise floor within 10 s; the radio's clock set (`EVT … CLOCK`
-in the log); each DEC on the dashboard and in MegaNet.
+in the log); each DEC on the Overview and in MegaNet.
 
 ## 5. ERT-A2
 
 RS-232 through a USB-serial cable (9600 8N1), or its USB port. Expect *ERT-A2* after its first frame,
-readings tagged ALERT2. If the Receivers page says frame times are hours out, check the Pi's time zone.
+readings tagged ALERT2. If the Overview says frame times are hours out, check the Pi's time zone.
 
 ## 6. The things that go wrong at a site
 
@@ -101,7 +101,7 @@ readings tagged ALERT2. If the Receivers page says frame times are hours out, ch
 |---|---|
 | Unplug a receiver for 10 s, plug it back in | *unplugged*, then *receiving* again; readings resume; same receiver id |
 | Unplug the radio while it is sending | the port closes cleanly, reopens on replug |
-| Pull the network for 10 minutes | readings keep arriving on the dashboard; *waiting* climbs; all sent when the network returns |
+| Pull the network for 10 minutes | readings keep arriving on the Overview; *waiting* climbs; all sent when the network returns |
 | Pull the power, restore it | everything comes back by itself; anything queued is sent |
 | Boot with no network at all, then connect it | readings show ⏳ (held for the clock) until NTP sets it, then are timed and sent |
 | A monitor plugged in / unplugged | the full-screen dashboard starts within ~10 s / stops |

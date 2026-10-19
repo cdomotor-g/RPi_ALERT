@@ -35,7 +35,7 @@ Any RTL2832U stick works through `librtlsdr`'s `rtl_sdr`; the agent decodes the 
 Settings that matter: **frequency** (a new base station hears all four of MegaNet's channels —
 151.5, 151.525, 151.95 and 152.4 MHz — on one stick: below), **format** (ALERT Binary
 for the live networks; Enhanced iFLOWS for an ERT-A2 set to it — one at a time, see
-`alert-dsp.js`), **gain** (~30 dB; lower if the ADC clips, which the Receivers page shows),
+`alert-dsp.js`), **gain** (~30 dB; lower if the ADC clips, which the Overview shows),
 **ppm** (the stick's frequency error; the decoder searches ±10 kHz so it matters little).
 
 The DVB-T modules (`dvb_usb_rtl28xxu`, `rtl2832`, `rtl2832_sdr`, `rtl2830`, `r820t`) are
@@ -60,7 +60,7 @@ station listens on all four of the channels MegaNet's stations use; change them 
   tuner like the V2's FC0013 shows a faint copy of each signal at the opposite offset; a strong
   burst's copy landing on another channel would be decoded there too). For the four channels above:
   1.92 Msps around 151.85 MHz — the nearest channel 100 kHz from the spike, no image within 200 kHz.
-  The Receivers page shows both. One channel alone is tuned as before: a quarter of the rate away.
+  The Overview shows both (a stick's details). One channel alone is tuned as before: a quarter of the rate away.
 - **What it costs**: a decoder thread per channel, each working through the whole slice, so a
   channel's work goes with its stick's rate. On a Pi 4, roughly 20% of a core per channel at
   960 ksps and 40–50% at 1.92 Msps, plus a second or so per burst decoded (from a PC, scaled;
@@ -98,7 +98,7 @@ many others come and go. librtlsdr numbers the sticks itself (`rtl_sdr -d 0, 1, 
 device-path order, as libusb lists them), and those numbers change as sticks are plugged in and out,
 so the agent works out each stick's number when it starts its `rtl_sdr`, then checks the stick it
 really opened (the `/dev/bus/usb` node it holds) and reopens the right one if they differ. The
-Receivers page shows each stick's port and how it was opened.
+Overview shows each stick's port (its details) and how it was opened.
 
 To make a stick recognisable in any port, give it a serial of its own — with the agent stopped and
 that stick alone plugged in: `sudo systemctl stop rpi-alert; rtl_eeprom -s ALERT1`, then unplug it
@@ -114,7 +114,7 @@ toggled after 25 s of silence — the radio stops sending if a send is not colle
 connect, the radio's clock set from the Pi's (`TIME <epoch>`, again hourly), one console command at
 a time. Every `DEC` line is a reading (protocol ALERT, format ABF/EIF as the radio reports); `BST`
 lines with no frames are logged as undecoded receptions; `STA` gives battery, noise floor, RSSI and
-the flash log, shown on the Receivers page. Run the radio's **ALERT app** (F then 0) — records flow
+the flash log, shown on the Overview. Run the radio's **ALERT app** (F then 0) — records flow
 only while it runs.
 
 The K1's speaker/mic jack UART (38400 8N1, through a USB-serial cable) carries the same records but no
@@ -135,7 +135,7 @@ lines are recognised (the agent hunts for the speed when it sees line noise) and
 Both are parsed by MegaNet's `alert2.js`. Only frames the receiver calls clean, and their clean
 records, are readings (protocol ALERT2), timed by the frame's own time of day put on the nearest
 day — unless that is more than ten minutes from the Pi's clock (time zone, drifting network clock),
-when arrival time is used and the Receivers page says so. **Set the Pi's time zone** to the network's
+when arrival time is used and the Overview says so. **Set the Pi's time zone** to the network's
 (Australia/Brisbane is the image's default). Every record, bad ones included, is a reception.
 
 ## USB GPS

@@ -19,8 +19,7 @@
   </div>
   <div class="chips" id="chips" aria-live="polite"></div>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="dash" aria-selected="true">Dashboard</button>
-    <button role="tab" data-tab="rx">Receivers</button>
+    <button role="tab" data-tab="dash" aria-selected="true">Overview</button>
     <button role="tab" data-tab="survey">Survey</button>
     <button role="tab" data-tab="settings">Settings</button>
     <button role="tab" data-tab="log">Log</button>
@@ -30,10 +29,60 @@
 <div id="banner" class="banner" hidden></div>
 
 <main>
-  <!-- ── Dashboard ─────────────────────────────────────────────── -->
+  <!-- ── Overview: everything heard, on one page to scroll ─────── -->
   <section id="tab-dash" class="tab">
     <div id="pair-dash"></div>
     <div class="stats" id="stats"></div>
+
+    <div class="card radio" id="radio" hidden>
+      <div class="card-head">
+        <h2>Radio <span class="dim small" id="radio-note"></span></h2>
+        <div class="legend" id="radio-legend"></div>
+      </div>
+      <canvas id="spec-c" class="spectrum" aria-label="Spectrum: what every stick hears now"></canvas>
+      <canvas id="wf-c" class="waterfall" aria-label="Waterfall: the last few minutes"></canvas>
+      <div class="dim small" id="radio-foot"></div>
+    </div>
+
+    <div class="card" id="receivers">
+      <div class="card-head">
+        <h2>Receivers <span class="dim small" id="rx-note"></span></h2>
+        <div class="head-actions">
+          <div class="seg" role="group" aria-label="Time shown in the charts">
+            <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+          </div>
+          <button id="rescan" type="button" class="ghost small" title="Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut">Look for devices</button>
+        </div>
+      </div>
+      <div class="all-bursts">
+        <div class="chart-label">Every receiver <span class="dim" id="burst-count"></span></div>
+        <canvas id="burst-canvas" class="chart" aria-label="Bursts heard by every receiver"></canvas>
+        <div class="dim small" id="burst-note"></div>
+      </div>
+      <div id="rx-list" class="rx-list"></div>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <h2>Readings <span class="dim" id="read-count"></span></h2>
+        <div class="table-wrap">
+          <table class="readings">
+            <thead><tr><th>Time</th><th>Protocol</th><th>Address</th><th>Station</th><th class="num">Value</th><th>Signal</th><th>Receiver</th></tr></thead>
+            <tbody id="readings"><tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Most heard <span class="dim small">(this session)</span></h2>
+        <div class="table-wrap">
+          <table class="top-heard">
+            <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Heard</th><th>Last value</th><th>Best signal</th><th>Last</th></tr></thead>
+            <tbody id="top-heard"><tr><td colspan="6" class="dim">Nothing heard yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div class="card pi-card">
       <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
       <div class="pi-charts">
@@ -43,50 +92,6 @@
       </div>
       <div class="dim small" id="pi-note"></div>
     </div>
-    <div class="card">
-      <div class="card-head">
-        <h2>Bursts heard — every receiver <span class="dim" id="burst-count"></span></h2>
-        <div class="seg" role="group" aria-label="Time shown in the charts">
-          <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
-        </div>
-      </div>
-      <canvas id="burst-canvas" class="chart" aria-label="Bursts heard by every receiver"></canvas>
-      <div class="dim small" id="burst-note"></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><h2>Receivers</h2><span class="dim small" id="rx-note"></span></div>
-      <div id="rx-mini" class="rx-mini"></div>
-    </div>
-    <div class="card">
-      <h2>Most heard <span class="dim small">(this session)</span></h2>
-      <div class="table-wrap">
-        <table class="top-heard">
-          <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Heard</th><th>Last value</th><th>Best signal</th><th>Last</th></tr></thead>
-          <tbody id="top-heard"><tr><td colspan="6" class="dim">Nothing heard yet.</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-    <div class="card">
-      <h2>Readings <span class="dim" id="read-count"></span></h2>
-      <div class="table-wrap">
-        <table class="readings">
-          <thead><tr><th>Time</th><th>Protocol</th><th>Address</th><th>Station</th><th class="num">Value</th><th>Signal</th><th>Receiver</th></tr></thead>
-          <tbody id="readings"><tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Receivers ─────────────────────────────────────────────── -->
-  <section id="tab-rx" class="tab" hidden>
-    <div class="row-actions">
-      <button id="rescan" class="ghost">Look for devices now</button>
-      <div class="seg" role="group" aria-label="Time shown in the charts">
-        <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
-      </div>
-      <span class="dim small">Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut.</span>
-    </div>
-    <div id="rx-full"></div>
   </section>
 
   <!-- ── Site survey ───────────────────────────────────────────── -->

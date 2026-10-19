@@ -86,12 +86,12 @@ badly each one strands somebody:
   MegaNet's `alert-dsp.js` first, so the website gains it too.
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
   frames the radio heard but did not report, as MegaNet's Serial Monitor does.
-- **Upload MegaNet's station table to a Quansheng radio** from the Receivers page
+- **Upload MegaNet's station table to a Quansheng radio** from the Overview
   (`Quansheng.buildStationTable` + `uploadCommands`, already in the vendored codec).
 
 ## Seeing what the radio hears
 
-- **Transmitter drift per station.** The Receivers page's tuning help measures every decoded
+- **Transmitter drift per station.** The Overview's tuning help measures every decoded
   burst's carrier offset to tens of Hz (lib/devices/carrier.js); with the stick's own error taken
   out, what is left is each station's transmitter — MegaNet's transmitter-drift finding (*MegaNet side*).
 - **Record the next N seconds.** A button (and a CLI verb) that saves a stick's IQ or demodulated
@@ -132,7 +132,7 @@ badly each one strands somebody:
   signed by MegaNet for short-lived access, if the key lists ever grow unwieldy.
 - **Cellular backhaul**: a USB LTE modem through NetworkManager/ModemManager (the udev rules already
   keep ModemManager off the receivers).
-- **UPS HAT** status on the dashboard. (A battery RTC — a Pi 5's, or an RTC board — is used and shown
+- **UPS HAT** status on the Overview. (A battery RTC — a Pi 5's, or an RTC board — is used and shown
   since 0.9: the clock trusts it once NTP or a GPS has vouched for it, [survey.md](survey.md).)
 - **Timing a power-up that never learnt the time**, after the fact: what a survey heard in it carries
   its monotonic times, and the network's own readings of the same stations, at the same values, say

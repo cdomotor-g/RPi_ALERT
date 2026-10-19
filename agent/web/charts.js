@@ -199,8 +199,9 @@ const Charts = (() => {
     c.addEventListener('pointerleave', hide);
   }
 
-  // A waterfall: rows of dB, newest at the top, in a blue → yellow → red ramp;
-  // cursor { x: 0–1 across, row } marks a frequency down it, and a row.
+  // A waterfall: rows of dB, newest at the top, in a blue → yellow → red ramp
+  // (NaN: nothing there — the canvas's own background shows); cursor
+  // { x: 0–1 across, row } marks a frequency down it, and a row.
   const RAMP = [[0, [8, 16, 40]], [0.3, [20, 60, 150]], [0.55, [30, 170, 200]], [0.75, [240, 220, 70]], [1, [240, 70, 50]]];
   function ramp(f) {
     f = Math.max(0, Math.min(1, f));
@@ -220,7 +221,9 @@ const Charts = (() => {
     const n = rows[0].length, img = new ImageData(n, rows.length);
     rows.forEach((row, j) => {
       for (let i = 0; i < n; i++) {
-        const [r, gg, b] = ramp((row[i] - lo) / (hi - lo)), k = (j * n + i) * 4;
+        const v = row[i], k = (j * n + i) * 4;
+        if (v !== v) continue;
+        const [r, gg, b] = ramp((v - lo) / (hi - lo));
         img.data[k] = r; img.data[k + 1] = gg; img.data[k + 2] = b; img.data[k + 3] = 255;
       }
     });

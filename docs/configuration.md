@@ -38,7 +38,7 @@ after any channel sent in another one (`152.4 EIF`). Each channel is a receiver 
 its frequency (*RTL-SDR · 151.525*), with its own MegaNet receiver id (`rpi-<host>-sdr1-151.525`; the
 stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and counts. The stick's
 sample rate goes up by itself to hold them (the setting is the least it uses), and it is tuned so the
-DC spike and any mirror image stay off every channel — the Receivers page shows where it is tuned and
+DC spike and any mirror image stay off every channel — the Overview's Receivers section shows where it is tuned and
 a row for each channel. Adding or removing a channel leaves the others alone: they keep their
 receiver ids, and are restarted only if the stick had to be tuned elsewhere. Channels too far apart
 for one stick are refused, saying which. More: [hardware.md](hardware.md#several-channels-on-one-stick).
@@ -65,10 +65,10 @@ each ALERT concentration record in it is a reading with protocol `alert2`, forma
 its own stamp (seconds since 00:00 or 12:00 UTC; a network on local time is read in local time).
 The network's fresh PDUs say which clock it keeps, and then one delivered late — a repeater's
 store and forward, half an hour behind — keeps its stamp too, up to six hours old; a stamp that
-fits neither, or comes from the future, is timed by arrival, and the Receivers page says why. A record relayed by several repeaters is one reading and a reception for each path, so
+fits neither, or comes from the future, is timed by arrival, and the stick's details on the Overview say why. A record relayed by several repeaters is one reading and a reception for each path, so
 the Reception Map shows the paths. A station reporting its own sensors (self-reporting, not
 concentrated ALERT) is a reception with each sensor's number and value — it has no ALERT id to be a
-reading by. A channel's row on the Receivers page counts its ALERT2 frames
+reading by. A channel's line on the Overview counts its ALERT2 frames
 (and those whose sync was heard but would not decode). Nothing to set — the channel's format
 stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
 costs a few tenths of a second on a Pi 4, and only bursts nothing else decoded are tried.
@@ -84,7 +84,7 @@ stick and tuning, the burst's level and length, the scale, what it decoded as). 
 (256 MB by default; about 1 MB a second of burst), and none is written with under 512 MB of the
 card free. The same card lists them, newest first, each a download; `rpi-alert record` does it
 from the command line, and MegaNet can fetch one a piece at a time
-([remote-management.md](remote-management.md)). A recorded channel says so on the Receivers page.
+([remote-management.md](remote-management.md)). A recorded channel says so on the Overview.
 
 **Tuning help.** Each stick's card on the **Receivers** page suggests the ppm and gain to set, from
 what it has heard since the agent started, with a button that sets it for that stick only:
@@ -97,7 +97,7 @@ what it has heard since the agent started, with a button that sets it for that s
   12 dB) when even the strongest bursts peak below −30 dBFS; otherwise it says the gain is right.
   Only bursts heard at the gain now set count, so each change is judged afresh.
 
-The dashboard's line for the stick says *⚙ suggests …* while there is something to change.
+The stick's line on the Overview says *⚙ suggests …* while there is something to change.
 
 Most sticks share one serial number (`00000001`), so sticks are told apart by the **USB port** they
 are in: keep each in its port and it keeps its name, settings and receiver id, across replugs and
@@ -241,7 +241,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `remote.idleS` | 60 | How often to check in with MegaNet while nobody has the base station open (30–900 s) |
 | `hotspot.mode` | auto | The Pi's own Wi-Fi network: auto — up after three minutes with no network (neither Ethernet nor a Wi-Fi network joined), down the moment there is one, and, with nobody on it, stepping aside every ten minutes for a minute and a half so the Pi can join a Wi-Fi network it knows; on — always (it takes the Wi-Fi radio); off. Set on the Pi only: MegaNet sees whether a password is set, never the password, and cannot change any of it |
 | `hotspot.ssid` | — | Its name; empty is `RPi-ALERT-` and the first four of the host id |
-| `hotspot.password` | made on the Pi | WPA2, 8–63 characters, no spaces; made the first time the agent starts (`xxxx-xxxx-xxxx`) and shown on the dashboard, `rpi-alert hotspot` and the Survey page |
+| `hotspot.password` | made on the Pi | WPA2, 8–63 characters, no spaces; made the first time the agent starts (`xxxx-xxxx-xxxx`) and shown on the Overview, `rpi-alert hotspot` and the Survey page |
 
 Environment variables (for development and tests): `RPI_ALERT_CONFIG`, `RPI_ALERT_DATA`,
 `RPI_ALERT_DEV`, `RPI_ALERT_SYSFS`, `RPI_ALERT_PRIV`, `RPI_ALERT_ASSUME_CLOCK=1`,

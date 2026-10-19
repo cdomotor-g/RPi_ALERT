@@ -93,7 +93,7 @@ and writes what it did to `rpi-alert-boot.log` on the same drive.
 3. Open **http://rpi-alert.local/** (or the hostname you chose) from a computer on the same
    network. If `.local` names do not resolve there (some corporate networks), use the address
    your router lists for the Pi, or plug in a monitor: the console shows it.
-4. **Get the token — press *Request a token*** (the banner on the dashboard, or **Settings →
+4. **Get the token — press *Request a token*** (the banner on the Overview, or **Settings →
    MegaNet**). The Pi shows a code such as `WDJB-MJHT` and a QR code. On a phone or computer
    signed in to MegaNet as an administrator, **scan the QR code** (or open MegaNet → **Admin** →
    **Ingest tokens**), check the request shows the same code, and press **Approve** — rename it

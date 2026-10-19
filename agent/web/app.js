@@ -462,8 +462,7 @@ function renderCharts(now) {
 
 function drawCharts() {
   $$('[data-win]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.win === S.win)));
-  if (S.tab === 'dash') { renderBursts(); renderRxMini(); renderPi(); }
-  if (S.tab === 'rx') renderRxFull();
+  if (S.tab === 'dash') { drawRadio(); renderBursts(); renderRxList(); renderPi(); }
 }
 
 function renderBursts() {
@@ -483,66 +482,110 @@ function renderBursts() {
   }
 }
 
-// The receivers, a line each — a stick with several channels as a heading
-// with its channels under it — each with its own chart over the same time.
-function rxLines() {
-  const out = [];
-  for (const d of allDevices()) {
-    if (d.kind === 'sdr' && d.channels && d.channels.length > 1) {
-      out.push({ key: 'stick:' + d.key, stick: d });
-      for (const ch of d.channels) out.push({ key: ch.key, d: Object.assign({}, ch, { kind: 'sdr', protocol: 'alert', stick: d }), chan: true });
-    } else out.push({ key: d.key, d });
-  }
-  return out;
+// Each stick's colour, on the radio picture and beside its receivers.
+const STICK_COLORS = ['--stick1', '--stick2', '--stick3', '--stick4'];
+function stickColor(d) {
+  const i = S.status ? S.status.devices.sdrs.findIndex(x => x.key === d.key) : 0;
+  return STICK_COLORS[Math.max(0, i) % STICK_COLORS.length];
 }
 
 function stickLine(s) {
-  const bits = [s.channels.length + ' channels'];
+  const bits = [s.channels.length > 1 ? s.channels.length + ' channels' : (s.freqHz / 1e6).toFixed(4) + ' MHz'];
   if (s.state === 'unplugged' || S.status.devices.sdrs.length > 1) bits.push('USB port ' + (s.device.port || '?'));
   if (s.state === 'unplugged') { if (s.lastSeen) bits.push('last seen ' + ago(Date.now() - s.lastSeen)); }
   else {
-    if (s.model || s.tuner) bits.push(s.model || s.tuner);
-    bits.push((s.centerHz / 1e6).toFixed(3) + ' MHz centre');
+    if (s.model || s.tuner) bits.push(s.tuner || s.model);
+    bits.push((s.centerHz / 1e6).toFixed(3) + ' MHz centre, ' + s.sampleRate / 1000 + ' ksps, gain ' + (s.gainDb == null ? 'auto' : s.gainDb + ' dB'));
     if (s.level) bits.push('ADC ' + s.level.dbfs + ' dBFS' + (s.level.clipPct ? ', clipping ' + s.level.clipPct + '%' : ''));
+    if (s.counts.dropped) bits.push('⚠ ' + Math.round(s.counts.dropped / 1e6) + ' MB of samples dropped (CPU)');
     if (tuneHint(s)) bits.push(tuneHint(s));
   }
   if (s.error) bits.push('⚠ ' + s.error);
   return bits.join(' · ');
 }
 
-function renderRxMini() {
-  const box = $('#rx-mini');
+// A channel of a stick, as a receiver of its own.
+function chanOf(s, ch) { return Object.assign({}, ch, { kind: 'sdr', protocol: 'alert', stick: s }); }
+
+// One line under a device: what it heard, and its chart over the window.
+function chanInfoHtml(d, n, w) {
+  const top = [];
+  if (d.kind === 'sdr') {
+    const c = d.counts || {};
+    top.push('<b>' + esc(Channels.mhz(d.freqHz)) + ' MHz</b>', '<span class="dim small">' + esc(FORMAT_NAMES[d.format] || d.format) + '</span>');
+    if (c.alert2 || c.alert2Bad) top.push(protoTag('alert2'));
+    if (d.recording) top.push('<span class="dim small" title="Every burst kept as IQ: Settings → Recordings">● recording</span>');
+    const meta = [];
+    if (!d.inBand) meta.push('⚠ ' + NO_FIT);
+    else if (d.level) meta.push('channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + (d.level.open ? ' · OPEN' : ''));
+    if (c.alert2 || c.alert2Bad) meta.push('ALERT2 ' + alert2Text(c));
+    if (d.lastDecode) meta.push('last ' + decodeText(d.lastDecode));
+    return '<div class="rx-top"><span class="dot ' + esc(d.state) + '"></span>' + top.join(' ') + '</div><div class="meta">' + esc(meta.join(' · ')) + '</div>'
+      + (n ? '<div class="rx-count small"><b>' + n.bursts + '</b> burst' + (n.bursts === 1 ? '' : 's') + ' · <b>' + n.readings + '</b> reading' + (n.readings === 1 ? '' : 's')
+        + ' <span class="dim">in ' + esc(w.text.replace('the ', '')) + '</span></div>' : '');
+  }
+  return '<div class="meta">' + esc(deviceLine(d)) + '</div>'
+    + (n ? '<div class="rx-count small"><b>' + n.bursts + '</b> burst' + (n.bursts === 1 ? '' : 's') + ' · <b>' + n.readings + '</b> reading' + (n.readings === 1 ? '' : 's')
+      + ' <span class="dim">in ' + esc(w.text.replace('the ', '')) + '</span></div>' : '');
+}
+
+function drawLineChart(c, d, t0, t1, w) {
+  if (S.win === '30m') return liveChart(c, d, t0, t1);
+  const bk = bucketed([d.key], t0, w.bucket);
+  Charts.draw(c, { t0, t1, xAxis: false, gutter: 26, bars: activityBars(bk, w.bucket), y: { floor: 0, minSpan: 2, fmt: v => String(v) }, tip: bucketTip(bk, w.bucket) });
+  return { bursts: bk.reduce((a, o) => a + o.b, 0), readings: bk.reduce((a, o) => a + o.d, 0) };
+}
+
+// Every device a block: a stick (in its colour) with a line a channel, or a
+// serial receiver with its one line; and, folded away, all there is to know
+// about it — its settings, its tuning help, each line's noise floor.
+function renderRxList() {
+  const box = $('#rx-list');
   if (!box || !S.status) return;
   const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
-  $('#rx-note').textContent = 'Charts: ' + w.text + '.';
-  keyedRows(box, rxLines(), {
-    key: x => x.key, cls: 'rx-line', make: '<div class="rx-info"></div><canvas class="chart rx-chart"></canvas>',
+  $('#rx-note').textContent = '— charts: ' + w.text;
+  keyedRows(box, allDevices(), {
+    key: d => d.key, cls: 'rx-dev',
+    make: '<div class="dev-head"></div><div class="dev-lines"></div><details class="rx-more"><summary>Details</summary><div class="more-kv"></div><div class="more-nf"></div></details>',
     empty: '<div class="dim none">No receivers found. Plug in an RTL-SDR stick, a Quansheng radio on the ALERT firmware (USB-C), an ERT-A2 (USB-serial cable) or a USB GPS — each is picked up within a few seconds.</div>',
-    update: (row, x) => {
-      const c = $('canvas', row);
-      if (x.stick) {
-        const s = x.stick;
-        row.className = 'rx-line is-stick';
-        setHtml($('.rx-info', row), '<div class="rx-top"><span class="dot ' + esc(s.state) + '"></span><b>' + esc(s.name) + '</b>' + protoTag('alert')
-          + '<span class="dim small">' + esc(stateLabel(s.state)) + '</span></div><div class="meta">' + esc(stickLine(s)) + '</div>');
-        return;
-      }
-      const d = x.d, charted = d.kind !== 'gps';
-      row.className = 'rx-line' + (x.chan ? ' chan' : '') + (charted ? '' : ' no-chart');
-      let n = null;
-      if (charted) {
-        if (S.win === '30m') n = liveChart(c, d, t0, t1);
-        else {
-          const bk = bucketed([d.key], t0, w.bucket);
-          Charts.draw(c, { t0, t1, xAxis: false, gutter: 26, bars: activityBars(bk, w.bucket), y: { floor: 0, minSpan: 2, fmt: v => String(v) }, tip: bucketTip(bk, w.bucket) });
-          n = { bursts: bk.reduce((a, o) => a + o.b, 0), readings: bk.reduce((a, o) => a + o.d, 0) };
-        }
-      }
-      setHtml($('.rx-info', row), '<div class="rx-top"><span class="dot ' + esc(d.state) + '"></span><b>' + esc(d.name) + '</b>'
-        + (d.protocol && !x.chan ? protoTag(d.protocol) : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span></div>'
-        + '<div class="meta">' + esc(deviceLine(d)) + '</div>'
-        + (n ? '<div class="rx-count small"><b>' + n.bursts + '</b> burst' + (n.bursts === 1 ? '' : 's') + ' · <b>' + n.readings + '</b> reading' + (n.readings === 1 ? '' : 's')
-          + ' <span class="dim">in ' + esc(w.text.replace('the ', '')) + '</span></div>' : ''));
+    fill: (el) => { $('details', el).addEventListener('toggle', () => renderRxList()); },
+    update: (el, d) => {
+      const sdr = d.kind === 'sdr';
+      el.style.setProperty('--c', sdr ? 'var(' + stickColor(d) + ')' : 'var(--line)');
+      const a2 = sdr && d.channels.some(ch => ch.counts && (ch.counts.alert2 || ch.counts.alert2Bad));
+      const act = d.state === 'unplugged'
+        ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '" title="Forget it: its name, its own settings and its MegaNet receiver id">Remove</button>'
+        : '<button type="button" class="ghost small" data-restart="' + esc(d.key) + '">Restart</button>';
+      setHtml($('.dev-head', el), '<span class="dot ' + esc(d.state) + '"></span><b class="name">' + esc(d.name) + '</b>'
+        + (d.protocol ? protoTag(d.protocol) : '') + (a2 ? protoTag('alert2') : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span>'
+        + '<span class="acts">' + act + '</span>' + '<div class="meta">' + esc(sdr ? stickLine(d) : deviceLine(d)) + '</div>');
+      const lines = sdr ? d.channels.map(ch => chanOf(d, ch)) : d.kind === 'gps' ? [] : [d];
+      keyedRows($('.dev-lines', el), lines, {
+        key: x => x.key, cls: 'rx-line', make: '<div class="rx-info"></div><canvas class="chart rx-chart"></canvas>', empty: '',
+        update: (row, x) => {
+          const n = drawLineChart($('canvas', row), x, t0, t1, w);
+          setHtml($('.rx-info', row), chanInfoHtml(x, n, w));
+        },
+      });
+      const more = $('details', el);
+      if (more.open) { setHtml($('.more-kv', el), rxBodyHtml(d) + (sdr ? tuneHtml(d) : '')); renderNf($('.more-nf', el), d); }
+    },
+  });
+}
+
+// Each line's noise floor over the window (the agent's history).
+function renderNf(box, d) {
+  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
+  const list = (d.kind === 'sdr' ? d.channels.map(ch => chanOf(d, ch)) : [d]).map(x => ({ x, h: S.hist.rx.get(x.key) }))
+    .filter(o => o.h && o.h.rows.some(p => p[0] >= t0 - MIN && p[3] != null));
+  keyedRows(box, list, {
+    key: o => o.x.key, cls: 'nf', make: '<div class="chart-label"></div><canvas class="chart hist-nf"></canvas>', empty: '',
+    update: (el, o) => {
+      const pts = o.h.rows.filter(p => p[0] >= t0 - MIN && p[3] != null).map(p => [p[0] + MIN / 2, p[3]]), vals = pts.map(p => p[1]), unit = o.h.unit || '';
+      setHtml($('.chart-label', el), 'Noise floor' + (o.x.kind === 'sdr' ? ' · ' + esc(Channels.mhz(o.x.freqHz)) + ' MHz' : '')
+        + ' <span class="dim small">' + esc(unit) + ' · now ' + esc(vals[vals.length - 1]) + ' · ' + esc(Math.min(...vals)) + ' to ' + esc(Math.max(...vals)) + '</span>');
+      Charts.draw($('canvas', el), { t0, t1, gutter: 34, lines: [{ pts, color: '--accent' }], y: { minSpan: 6, fmt: v => String(Math.round(v)) },
+        tip: (t) => { let b = null; for (const p of pts) if (!b || Math.abs(p[0] - t) < Math.abs(b[0] - t)) b = p; return b && Math.abs(b[0] - t) < 3 * MIN ? Charts.hhmm(b[0]) + ' · ' + b[1] + ' ' + unit : null; } });
     },
   });
 }
@@ -689,97 +732,6 @@ function openedText(o) {
   return 'rtl_sdr -d ' + o.arg + (o.how === 'serial' ? ' (its serial)' : '') + (o.checked ? ', seen to be this stick' : o.checked === false ? ', not checked' : '');
 }
 
-function rxHeadHtml(d) {
-  return '<h2>' + esc(d.name) + '</h2>' + (d.protocol ? protoTag(d.protocol) : '') + '<span class="pill">' + esc(d.kind) + '</span>'
-    + (d.state === 'unplugged'
-      ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '" title="Forget it: its name, its own settings and its MegaNet receiver id">Remove</button>'
-      : '<button type="button" class="ghost small" data-restart="' + esc(d.key) + '">Restart</button>');
-}
-
-function renderRxFull() {
-  keyedRows($('#rx-full'), allDevices(), {
-    key: d => d.key, cls: 'card rxcard', make: '<div class="head"></div><div class="body"></div><div class="tune-box"></div><div class="hist"></div><div class="spec"></div>',
-    empty: '<div class="card dim none">No receivers found yet.</div>',
-    update: (card, d) => {
-      setHtml($('.head', card), rxHeadHtml(d));
-      setHtml($('.body', card), rxBodyHtml(d));
-      setHtml($('.tune-box', card), d.kind === 'sdr' ? tuneHtml(d) : '');
-      renderRxHistory($('.hist', card), d);
-      const spec = $('.spec', card);
-      if (d.kind === 'sdr' && d.spectrum) {
-        if (!spec.firstChild) {
-          spec.innerHTML = '<div class="chart-label">Spectrum <span class="dim small spec-note"></span></div><canvas class="spectrum"></canvas>'
-            + '<div class="chart-label">Waterfall <span class="dim small">— newest at the top; the last few minutes while this page is open</span></div><canvas class="waterfall"></canvas>';
-        }
-        $('.spec-note', spec).textContent = d.spectrum.channelsHz && d.spectrum.channelsHz.length > 1
-          ? '— the whole slice the stick hears; its channels are the green lines. 1 s max hold.' : '— around the channel (green line); 1 s max hold.';
-        drawSpectrum($('canvas.spectrum', spec), d);
-        drawWaterfall($('canvas.waterfall', spec), d.key);
-        wireSpecHover(spec, d.key);
-      } else if (spec.firstChild) spec.innerHTML = '';
-    },
-  });
-}
-
-// Each receiver on a card — a serial device, or each channel of a stick — with
-// what it heard and its noise floor over the chosen time.
-function renderRxHistory(box, d) {
-  const list = d.kind === 'gps' ? [] : d.kind === 'sdr' && d.channels && d.channels.length > 1
-    ? d.channels.map(ch => Object.assign({}, ch, { label: Channels.mhz(ch.freqHz) + ' MHz' })) : [Object.assign({}, d, { label: '' })];
-  const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
-  // The half hour a minute a bar, from the history too, so every chart on this tab reads the same way.
-  const bucket = S.win === '30m' ? MIN : w.bucket;
-  if (!list.length) { if (box.firstChild) box.innerHTML = ''; return; }
-  keyedRows(box, list, {
-    key: x => x.key, cls: 'hist-rx',
-    make: '<div class="chart-label act-label"></div><canvas class="chart hist-act"></canvas><div class="chart-label nf-label"></div><canvas class="chart hist-nf"></canvas>',
-    empty: '',
-    update: (el, x) => {
-      const bk = bucketed([x.key], t0, bucket);
-      const nb = bk.reduce((a, o) => a + o.b, 0), nd = bk.reduce((a, o) => a + o.d, 0);
-      setHtml($('.act-label', el), (x.label ? '<b>' + esc(x.label) + '</b> · ' : '') + 'Heard: ' + nb + ' bursts, ' + nd + ' readings <span class="dim small">in ' + esc(w.text.replace('the ', ''))
-        + ', ' + Math.round(bucket / MIN) + ' min a bar</span>');
-      Charts.draw($('.hist-act', el), { t0, t1, gutter: 34, bars: activityBars(bk, bucket), y: { floor: 0, minSpan: 2, fmt: v => String(v) }, tip: bucketTip(bk, bucket) });
-      const h = S.hist.rx.get(x.key);
-      const pts = h ? h.rows.filter(p => p[0] >= t0 - MIN && p[3] != null).map(p => [p[0] + MIN / 2, p[3]]) : [];
-      const nfc = $('.hist-nf', el), nfl = $('.nf-label', el);
-      nfc.hidden = nfl.hidden = !pts.length;
-      if (pts.length) {
-        const unit = h.unit || '';
-        const vals = pts.map(p => p[1]);
-        nfl.title = 'A rise is interference, or a stronger noise source nearby';
-        setHtml(nfl, 'Noise floor <span class="dim small">' + esc(unit) + ' · now ' + esc(vals[vals.length - 1]) + ' · ' + esc(Math.min(...vals)) + ' to ' + esc(Math.max(...vals)) + '</span>');
-        Charts.draw(nfc, { t0, t1, gutter: 34, lines: [{ pts, color: '--accent' }], y: { minSpan: 6, fmt: v => String(Math.round(v)) },
-          tip: (t) => { let b = null; for (const p of pts) if (!b || Math.abs(p[0] - t) < Math.abs(b[0] - t)) b = p; return b && Math.abs(b[0] - t) < 3 * MIN ? Charts.hhmm(b[0]) + ' · ' + b[1] + ' ' + unit : null; } });
-      }
-    },
-  });
-}
-
-// A waterfall for each stick, from the spectrum in each status (every 2 s).
-const WF_ROWS = 90;
-S.wf = new Map();
-function collectSpectra() {
-  for (const d of (S.status && S.status.devices.sdrs) || []) {
-    const sp = d.spectrum;
-    if (!sp || !sp.db || !sp.db.length) continue;
-    let wf = S.wf.get(d.key);
-    const sig = sp.db.length + ':' + sp.centerHz + ':' + sp.rate;
-    if (!wf || wf.sig !== sig) { wf = { sig, rows: [], times: [], lo: 0, hi: 1, last: '', centerHz: sp.centerHz, rate: sp.rate }; S.wf.set(d.key, wf); }
-    const fp = sp.db.slice(0, 8).join(',') + sp.db[sp.db.length >> 1];
-    if (fp === wf.last) continue;
-    wf.last = fp;
-    wf.rows.unshift(Float32Array.from(sp.db));
-    wf.times.unshift(Date.now());
-    if (wf.rows.length > WF_ROWS) { wf.rows.length = WF_ROWS; wf.times.length = WF_ROWS; }
-    // The colours span from the noise to a strong signal, steadied over the rows.
-    const sorted = Array.from(sp.db).sort((a, b) => a - b);
-    const lo = sorted[Math.floor(sorted.length * 0.2)], hi = Math.max(lo + 30, sorted[sorted.length - 1]);
-    wf.lo = wf.rows.length > 1 ? wf.lo * 0.8 + lo * 0.2 : lo;
-    wf.hi = wf.rows.length > 1 ? wf.hi * 0.8 + hi * 0.2 : hi;
-  }
-}
-
 function rxBodyHtml(d) {
   const multi = d.kind === 'sdr' && d.channels && d.channels.length > 1;
   const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')]];
@@ -869,100 +821,227 @@ function channelTable(d) {
     + rows.join('') + '</tbody></table></div>';
 }
 
-function drawWaterfall(c, key) {
-  const wf = S.wf.get(key);
-  if (!c || !wf || !wf.rows.length) return;
-  const h = S.hover && S.hover.key === key ? S.hover : null;
-  c.dataset.rows = WF_ROWS;
-  Charts.waterfall(c, wf.rows, wf.lo, wf.hi, h ? { x: 0.5 + (h.hz - wf.centerHz) / wf.rate, row: h.row } : null);
-}
+// ── radio: every stick's slice on one spectrum and one waterfall ──────────
+// Each stick's spectrum (256 bins, in each status) is put on one frequency
+// axis, in dB over that stick's own noise floor so that sticks at other gains
+// read alike. The waterfall keeps a row each time they change — the loudest
+// stick at each frequency — newest at the top. A stick's spectrum is four
+// short looks a second (alert-dsp.js), which a short burst can fall between,
+// so every burst a channel heard is marked on its row too: its SNR across its
+// channel.
 
-// Pointing at a stick's spectrum or waterfall: the frequency there, its level
-// and the channel it is on — on the waterfall, when too — in a callout, and a
-// line at that frequency down both.
-function wireSpecHover(spec, key) {
-  if (spec.dataset.hoverWired) return;
-  spec.dataset.hoverWired = '1';
-  const sc = $('canvas.spectrum', spec), wc = $('canvas.waterfall', spec);
-  const redraw = () => { if (sc._d) drawSpectrum(sc, sc._d); drawWaterfall(wc, key); };
-  const move = (ev) => {
-    const d = sc._d, sp = d && d.spectrum;
-    if (!sp) return;
-    const c = ev.currentTarget, r = c.getBoundingClientRect();
-    const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
-    let rate = sp.rate, cHz = sp.centerHz, db = sp.db, row = null, when = null;
-    if (c === wc) {
-      const wf = S.wf.get(key);
-      if (!wf || !wf.rows.length) return;
-      row = Math.floor(fy * WF_ROWS);
-      if (row >= wf.rows.length) { leave(); return; }
-      rate = wf.rate; cHz = wf.centerHz; db = wf.rows[row]; when = wf.times[row];
-    }
-    const hz = cHz + (fx - 0.5) * rate, binHz = rate / db.length;
-    const lines = [(hz / 1e6).toFixed(binHz < 2000 ? 4 : 3) + ' MHz · ' + db[Math.round(fx * (db.length - 1))].toFixed(1) + ' dB'];
-    if (when) lines.push(ago(Date.now() - when) + ' (' + new Date(when).toLocaleTimeString() + ')');
-    // The channel it is on: within half a 12.5 kHz step, or the bin's width when that is wider.
-    const chans = (d.channels && d.channels.length ? d.channels : [{ freqHz: sp.channelHz, format: d.format }]).filter(ch => ch.freqHz);
-    const near = chans.reduce((a, ch) => (!a || Math.abs(ch.freqHz - hz) < Math.abs(a.freqHz - hz) ? ch : a), null);
-    if (near && Math.abs(near.freqHz - hz) <= Math.max(6250, binHz)) {
-      const off = (hz - near.freqHz) / 1000;
-      lines.push(Channels.mhz(near.freqHz) + ' MHz channel' + (near.format ? ' (' + (FORMAT_NAMES[near.format] || near.format) + ')' : '')
-        + (Math.abs(off) >= 0.5 ? ' · ' + Math.abs(off).toFixed(1) + ' kHz ' + (off > 0 ? 'above' : 'below') : ''));
-    }
-    S.hover = { key, hz, row };
-    Charts.showTip(ev.clientX, ev.clientY, lines.join('\n'));
-    redraw();
-  };
-  const leave = () => { Charts.hideTip(); if (S.hover && S.hover.key === key) { S.hover = null; redraw(); } };
-  for (const c of [sc, wc]) {
-    c.addEventListener('pointermove', move);
-    c.addEventListener('pointerdown', move);
-    c.addEventListener('pointerleave', leave);
+const WF_ROWS = 120, WF_COLS = 720;
+S.radio = { sig: '', rows: [], times: [], span: null, hi: 30, last: '', burstT: Date.now() };
+
+// The sticks with a spectrum now, each with its colour, slice and noise floor (its quietest fifth).
+function radioSticks() {
+  const out = [];
+  for (const d of (S.status && S.status.devices.sdrs) || []) {
+    const sp = d.spectrum;
+    if (!sp || !sp.db || !sp.db.length || d.state === 'unplugged') continue;
+    const sorted = Array.from(sp.db).sort((a, b) => a - b);
+    out.push({ d, sp, color: stickColor(d), floor: sorted[Math.floor(sorted.length * 0.2)], lo: sp.centerHz - sp.rate / 2, hi: sp.centerHz + sp.rate / 2 });
   }
+  return out;
 }
 
-function drawSpectrum(c, d) {
-  if (!c) return;
-  c._d = d;
+// dB over a stick's floor at hz; null outside its slice.
+function levelAt(st, hz) {
+  const f = (hz - st.lo) / (st.hi - st.lo), db = st.sp.db;
+  return f < 0 || f > 1 ? null : db[Math.min(db.length - 1, Math.round(f * (db.length - 1)))] - st.floor;
+}
+
+function collectSpectra() {
+  const sticks = radioSticks(), R = S.radio;
+  if (!sticks.length) return;
+  const lo = Math.min(...sticks.map(s => s.lo)), hi = Math.max(...sticks.map(s => s.hi));
+  const sig = sticks.map(s => s.d.key + ':' + s.sp.centerHz + ':' + s.sp.rate).join('|');
+  if (sig !== R.sig) Object.assign(R, { sig, rows: [], times: [], span: [lo, hi], last: '', burstT: Date.now() - 2000 });
+  const fp = sticks.map(s => s.sp.db.slice(0, 6).join(',') + s.sp.db[s.sp.db.length >> 1]).join('|');
+  if (fp === R.last) return;
+  R.last = fp;
+  const row = new Float32Array(WF_COLS);
+  let top = 20;
+  for (let i = 0; i < WF_COLS; i++) {
+    const hz = lo + (i + 0.5) / WF_COLS * (hi - lo);
+    let v = NaN;
+    for (const s of sticks) { const x = levelAt(s, hz); if (x != null && !(x <= v)) v = x; }
+    row[i] = v;
+    if (v > top) top = v;
+  }
+  // The bursts since the last row, on their channels.
+  const chanHz = new Map();
+  for (const st of sticks) for (const ch of st.d.channels || []) chanHz.set(ch.key, ch.freqHz);
+  for (const b of S.bursts) {
+    if (b.t <= R.burstT) break;
+    const hz = chanHz.get(b.key), snr = b.peakDb != null && b.nfDb != null ? b.peakDb - b.nfDb : null;
+    if (hz == null || snr == null) continue;
+    const c0 = Math.floor((hz - 5000 - lo) / (hi - lo) * WF_COLS), c1 = Math.ceil((hz + 5000 - lo) / (hi - lo) * WF_COLS);
+    for (let i = Math.max(0, c0); i <= Math.min(WF_COLS - 1, c1); i++) if (!(row[i] >= snr)) row[i] = snr;
+    if (snr > top) top = snr;
+  }
+  if (S.bursts.length) R.burstT = Math.max(R.burstT, S.bursts[0].t);
+  R.rows.unshift(row); R.times.unshift(Date.now());
+  if (R.rows.length > WF_ROWS) { R.rows.length = WF_ROWS; R.times.length = WF_ROWS; }
+  R.hi = R.rows.length > 1 ? R.hi * 0.85 + Math.min(60, top) * 0.15 : Math.min(60, top);
+}
+
+// Every channel of every stick in the picture: { hz, st, ch }.
+function radioChannels(sticks) {
+  const out = [];
+  for (const st of sticks) for (const ch of st.d.channels || []) if (ch.inBand !== false) out.push({ hz: ch.freqHz, st, ch });
+  return out.sort((a, b) => a.hz - b.hz);
+}
+
+function nearestChannel(sticks, hz) {
+  let best = null;
+  for (const c of radioChannels(sticks)) {
+    const tol = Math.max(6250, c.st.sp.rate / c.st.sp.db.length);
+    if (Math.abs(c.hz - hz) <= tol && (!best || Math.abs(c.hz - hz) < Math.abs(best.hz - hz))) best = c;
+  }
+  return best;
+}
+
+function drawRadio() {
+  const card = $('#radio');
+  if (!card || !S.status) return;
+  const sticks = radioSticks(), R = S.radio;
+  card.hidden = !sticks.length || !R.span;
+  if (card.hidden) return;
+  setHtml($('#radio-legend'), sticks.map(st => '<span class="lg" style="--c: var(' + st.color + ')"><i></i>' + esc(st.d.name)
+    + ' <span class="dim">' + (st.lo / 1e6).toFixed(2) + '–' + (st.hi / 1e6).toFixed(2) + ' MHz</span></span>').join(''));
+  $('#radio-note').textContent = '— every stick\'s slice; dB over each stick\'s own noise floor';
+  const span = Math.round((R.times[0] - R.times[R.times.length - 1]) / 1000);
+  $('#radio-foot').textContent = 'Spectrum: a look every 2 s. Waterfall: ' + (span >= 60 ? 'the last ' + Math.round(span / 60) + ' min' : 'filling in')
+    + ' while this page is open, newest at the top, every burst marked on its channel. Point at either for the frequency, the level and the channel.';
+  drawSpec($('#spec-c'), sticks, R);
+  const wc = $('#wf-c'), hv = S.hover && S.hover.key === 'radio' ? S.hover : null;
+  wc.dataset.rows = WF_ROWS;
+  if (R.rows.length) {
+    Charts.waterfall(wc, R.rows, 0, Math.max(20, R.hi), hv ? { x: (hv.hz - R.span[0]) / (R.span[1] - R.span[0]), row: hv.row } : null);
+    // Each channel a tick along the top, in its stick's colour.
+    const g = wc.getContext('2d'), k = wc.width / (R.span[1] - R.span[0]), dpr = window.devicePixelRatio || 1;
+    for (const c of radioChannels(sticks)) {
+      g.fillStyle = Charts.alpha(c.st.color, 0.95);
+      g.fillRect(Math.round((c.hz - R.span[0]) * k) - dpr, 0, 2 * dpr, 7 * dpr);
+    }
+  }
+  wireRadioHover();
+}
+
+// The spectrum: each stick's slice faintly, its trace in its colour, its
+// channels labelled along the top (in rows, where they would collide).
+function drawSpec(c, sticks, R) {
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
   if (!w || !h) return;
   c.width = w * dpr; c.height = h * dpr;
   const g = c.getContext('2d'); g.scale(dpr, dpr);
   const col = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const db = d.spectrum.db, lo = Math.min(...db), hi = Math.max(...db), span = Math.max(10, hi - lo);
-  const rate = d.spectrum.rate, cHz = d.spectrum.centerHz, bottom = 14, ph = h - bottom;
-  const X = (hz) => (0.5 + (hz - cHz) / rate) * w;
-  g.font = '10.5px ' + col('--font');
-  // The frequency along the bottom, at round steps.
-  const stepHz = [10e3, 25e3, 50e3, 100e3, 200e3, 250e3, 500e3, 1e6].find(s => rate / s <= Math.max(2, w / 90)) || 1e6;
-  g.strokeStyle = col('--line'); g.fillStyle = col('--dim'); g.textAlign = 'center'; g.lineWidth = 1;
-  for (let f = Math.ceil((cHz - rate / 2) / stepHz) * stepHz; f <= cHz + rate / 2; f += stepHz) {
-    const x = Math.round(X(f)) + 0.5;
-    g.globalAlpha = 0.4; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.globalAlpha = 1;
-    const s = (f / 1e6).toFixed(stepHz < 100e3 ? 3 : stepHz < 1e6 ? 2 : 1);
-    const tw = g.measureText(s).width;
-    g.fillText(s, Math.min(w - tw / 2, Math.max(tw / 2, x)), h - 2);
+  const [lo, hi] = R.span, X = (hz) => (hz - lo) / (hi - lo) * w;
+  const font = (h > 200 ? 11.5 : 10.5) + 'px ' + col('--font');
+  g.font = font;
+  // Channel labels: the first row that has room.
+  const chans = radioChannels(sticks), rowsEnd = [], placed = [];
+  for (const ch of chans) {
+    const a2 = ch.ch.counts && (ch.ch.counts.alert2 || ch.ch.counts.alert2Bad);
+    const text = Channels.mhz(ch.hz) + (a2 ? ' A2' : ''), tw = g.measureText(text).width, x = Math.min(w - tw / 2 - 2, Math.max(tw / 2 + 2, X(ch.hz)));
+    let r = rowsEnd.findIndex(e => x - tw / 2 > e + 6);
+    if (r < 0) { r = rowsEnd.length; rowsEnd.push(-Infinity); }
+    rowsEnd[r] = x + tw / 2;
+    placed.push({ ch, text, x, r });
   }
-  g.strokeStyle = col('--ok');
-  for (const hz of d.spectrum.channelsHz || [d.spectrum.channelHz]) {
-    const cx = Math.round(X(hz)) + 0.5;
-    g.globalAlpha = 0.8; g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, ph); g.stroke(); g.globalAlpha = 1;
+  const lh = h > 200 ? 15 : 13, top = Math.max(1, rowsEnd.length) * lh + 4, bottom = 16, ph = h - top - bottom;
+  let peak = 30;
+  for (const st of sticks) for (const v of st.sp.db) peak = Math.max(peak, v - st.floor);
+  const ymax = Math.ceil(peak / 10) * 10, ymin = -5, Y = (v) => top + ph - (v - ymin) / (ymax - ymin) * ph;
+  // Slices.
+  for (const st of sticks) { g.fillStyle = Charts.alpha(st.color, 0.07); g.fillRect(X(st.lo), top, X(st.hi) - X(st.lo), ph); }
+  // dB lines, and the frequency along the bottom at round steps.
+  g.strokeStyle = col('--line'); g.fillStyle = col('--dim'); g.lineWidth = 1;
+  g.textAlign = 'left';
+  for (let v = 0; v <= ymax; v += ymax > 40 ? 20 : 10) {
+    const y = Math.round(Y(v)) + 0.5;
+    g.globalAlpha = 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); g.globalAlpha = 1;
+    g.fillText(v ? '+' + v + ' dB' : 'floor', 4, y - 3);
   }
-  g.strokeStyle = col('--accent'); g.lineWidth = 1.2; g.beginPath();
-  db.forEach((v, i) => { const x = i / (db.length - 1) * w, y = ph - 4 - (v - lo) / span * (ph - 10); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-  g.stroke();
-  g.fillStyle = col('--dim'); g.textAlign = 'left';
-  g.fillText(Math.round(hi) + ' dB', 4, 11); g.fillText(Math.round(lo) + ' dB', 4, ph - 4);
-  // Where the pointer is, on this plot or the waterfall under it.
-  const hv = S.hover && S.hover.key === d.key ? S.hover : null;
-  if (hv) {
-    const x = Math.round(X(hv.hz)) + 0.5, i = Math.round(((hv.hz - cHz) / rate + 0.5) * (db.length - 1));
-    g.strokeStyle = col('--text'); g.globalAlpha = 0.55; g.setLineDash([3, 3]);
-    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-    if (i >= 0 && i < db.length) {
-      g.fillStyle = col('--accent');
-      g.beginPath(); g.arc(x, ph - 4 - (db[i] - lo) / span * (ph - 10), 3.5, 0, 7); g.fill();
+  const span = hi - lo, stepHz = [10e3, 25e3, 50e3, 100e3, 200e3, 250e3, 500e3, 1e6].find(s => span / s <= Math.max(2, w / 90)) || 1e6;
+  g.textAlign = 'center';
+  for (let f = Math.ceil(lo / stepHz) * stepHz; f <= hi; f += stepHz) {
+    const x = Math.round(X(f)) + 0.5, s = (f / 1e6).toFixed(stepHz < 100e3 ? 3 : stepHz < 1e6 ? 2 : 1), tw = g.measureText(s).width;
+    g.globalAlpha = 0.35; g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + ph); g.stroke(); g.globalAlpha = 1;
+    g.fillText(s, Math.min(w - tw / 2, Math.max(tw / 2, x)), h - 3);
+  }
+  // Channels: a line down, and their labels above.
+  for (const p of placed) {
+    const cc = col(p.ch.st.color), x = Math.round(X(p.ch.hz)) + 0.5;
+    g.strokeStyle = cc; g.globalAlpha = 0.55; g.setLineDash([2, 3]);
+    g.beginPath(); g.moveTo(x, top - 2); g.lineTo(x, top + ph); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    g.fillStyle = cc; g.fillText(p.text, p.x, (p.r + 1) * lh);
+  }
+  // The traces.
+  for (const st of sticks) {
+    const db = st.sp.db, n = db.length;
+    g.strokeStyle = col(st.color); g.lineWidth = 1.4; g.lineJoin = 'round'; g.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = X(st.lo + i / (n - 1) * (st.hi - st.lo)), y = Y(Math.max(ymin, db[i] - st.floor));
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
     }
+    g.stroke();
+  }
+  // Where the pointer is, here or on the waterfall.
+  const hv = S.hover && S.hover.key === 'radio' ? S.hover : null;
+  if (hv) {
+    const x = Math.round(X(hv.hz)) + 0.5;
+    g.strokeStyle = col('--text'); g.globalAlpha = 0.6; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + ph); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    for (const st of sticks) {
+      const v = levelAt(st, hv.hz);
+      if (v == null) continue;
+      g.fillStyle = col(st.color); g.beginPath(); g.arc(x, Y(Math.max(ymin, v)), 3.5, 0, 7); g.fill();
+    }
+  }
+}
+
+// Pointing at the spectrum or the waterfall: the frequency, each stick's level
+// there (on the waterfall, the loudest and when), and the channel it is on.
+function wireRadioHover() {
+  const sc = $('#spec-c'), wc = $('#wf-c');
+  if (!sc || sc.dataset.hoverWired) return;
+  sc.dataset.hoverWired = '1';
+  const leave = () => { Charts.hideTip(); if (S.hover && S.hover.key === 'radio') { S.hover = null; drawRadio(); } };
+  const move = (ev) => {
+    const R = S.radio;
+    if (!R.span) return;
+    const c = ev.currentTarget, r = c.getBoundingClientRect();
+    const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+    const hz = R.span[0] + fx * (R.span[1] - R.span[0]), sticks = radioSticks();
+    const lines = [(hz / 1e6).toFixed(3) + ' MHz'];
+    let row = null;
+    if (c === wc) {
+      row = Math.floor(fy * WF_ROWS);
+      if (row >= R.rows.length) { leave(); return; }
+      const v = R.rows[row][Math.min(WF_COLS - 1, Math.floor(fx * WF_COLS))];
+      lines[0] += v === v ? ' · ' + v.toFixed(1) + ' dB over the floor' : ' · no stick hears it';
+      lines.push(ago(Date.now() - R.times[row]) + ' (' + new Date(R.times[row]).toLocaleTimeString() + ')');
+    } else {
+      for (const st of sticks) { const v = levelAt(st, hz); if (v != null) lines.push(st.d.name + ': ' + v.toFixed(1) + ' dB over its floor'); }
+      if (lines.length === 1) lines.push('no stick hears it');
+    }
+    const ch = nearestChannel(sticks, hz);
+    if (ch) {
+      const off = (hz - ch.hz) / 1000, n = ch.ch.counts || {};
+      lines.push(Channels.mhz(ch.hz) + ' MHz channel · ' + (FORMAT_NAMES[ch.ch.format] || ch.ch.format) + (n.alert2 || n.alert2Bad ? ' · ALERT2 heard' : '')
+        + (Math.abs(off) >= 0.5 ? ' · ' + Math.abs(off).toFixed(1) + ' kHz ' + (off > 0 ? 'above' : 'below') : ''));
+      lines.push(ch.st.d.name + (n.bursts != null ? ' · ' + n.bursts + ' bursts, ' + n.decodes + ' readings' : ''));
+    }
+    S.hover = { key: 'radio', hz, row };
+    Charts.showTip(ev.clientX, ev.clientY, lines.join('\n'));
+    drawRadio();
+  };
+  for (const c of [sc, wc]) {
+    c.addEventListener('pointermove', move);
+    c.addEventListener('pointerdown', move);
+    c.addEventListener('pointerleave', leave);
   }
 }
 
@@ -1350,7 +1429,7 @@ function wireSettings() {
     catch (e) { st.textContent = e.message; st.className = 'status small bad'; }
   });
   $('#rescan').addEventListener('click', () => api('/api/devices/rescan', { method: 'POST', body: {} }).then(refresh));
-  $('#rx-full').addEventListener('click', (e) => {
+  document.addEventListener('click', (e) => {
     const b = e.target.closest && e.target.closest('[data-restart]');
     if (b) api('/api/devices/restart', { method: 'POST', body: { key: b.dataset.restart } }).then(refresh).catch(err => alert(err.message));
   });
@@ -1695,16 +1774,17 @@ function showTab(t) {
   renderHeader();
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
-  if (t === 'rx') renderRxFull();
   if (t === 'survey') loadSurvey(true);
   if (t === 'settings') { loadConfig().catch(() => {}); loadRecordings(); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
   if (t === 'dash') renderCharts(true);
 }
 
-// #settings, or #settings-sdr: the tab, then that card (id f-sdr).
+// #settings, or #settings-sdr: the tab, then that card (id f-sdr). #rx, the
+// Receivers tab that was: the Overview's receivers.
 function route() {
   const h = location.hash.slice(1) || 'dash';
+  if (h === 'rx') { showTab('dash'); $('#receivers').scrollIntoView({ block: 'start' }); return; }
   const tab = h.split('-')[0];
   showTab(tab);
   const card = h !== tab && document.getElementById('f-' + h.slice(tab.length + 1));
