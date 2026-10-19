@@ -61,12 +61,20 @@ station listens on all four of the channels MegaNet's stations use; change them 
   burst's copy landing on another channel would be decoded there too). For the four channels above:
   1.92 Msps around 151.85 MHz — the nearest channel 100 kHz from the spike, no image within 200 kHz.
   The Receivers page shows both. One channel alone is tuned as before: a quarter of the rate away.
-- **What it costs**: a decoder thread per channel, each working through the whole slice. On a Pi 4,
-  roughly 15–20% of a core per channel at 960 ksps and 30–40% at 1.92 Msps, plus a second or two
-  per burst decoded (estimated from a PC; [bench-test.md](bench-test.md) measures it). Four channels
-  at 1.92 Msps is well within a Pi 4; a Zero 2 W manages a few at 960 ksps — on one, list only the
-channels the site needs, since the four together need 1.92 Msps. A decoder that cannot
-  keep up drops samples and says so in the log. At most 8 channels a stick; each uses ~30 MB.
+- **What it costs**: a decoder thread per channel, each working through the whole slice, so a
+  channel's work goes with its stick's rate. On a Pi 4, roughly 20% of a core per channel at
+  960 ksps and 40–50% at 1.92 Msps, plus a second or so per burst decoded (from a PC, scaled;
+  [bench-test.md](bench-test.md) measures it). Four channels at 1.92 Msps take about half a Pi 4,
+  and can drop samples for a moment at start-up; eight at 1.92 Msps — two sticks of four — are
+  more than it has (a base station did that: load 9, every channel dropping samples, most bursts
+  lost). Keep each stick's channels close together instead: within about 0.74 MHz of each other
+  they take 960 ksps, half the work. The same eight split low and high over two sticks
+  (151.425–151.5375 on one, 151.95–152.4625 on the other) brought that base station to a load of
+  about 4.5 with its screen dashboard on — the whole Pi, still: list only channels worth hearing.
+  A channel that hears bursts it cannot decode costs a decode attempt (a second or so) for each.
+  A Zero 2 W manages a few at 960 ksps — on one, list only the channels the site needs, since the
+  four together need 1.92 Msps. A decoder that cannot keep up drops samples and says so in the
+  log. At most 8 channels a stick; each uses ~30 MB.
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
   push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.
   Each channel gates on its own power, at the stick's squelch, and has a format of its own

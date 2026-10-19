@@ -52,7 +52,7 @@ const { Worker } = require('node:worker_threads');
 const { EventEmitter } = require('node:events');
 const { STICK_FIELDS, channelsOf } = require('../config');
 const { openedUsb } = require('./rtl-index');
-const { plan } = require('./sdr-plan');
+const { plan, reach } = require('./sdr-plan');
 const { TuneHelp } = require('./tune-help');
 const { mhz } = require('../../web/channels');
 
@@ -135,8 +135,12 @@ class SdrChannel {
     if (this.backlog > limit) {
       this.counts.dropped += buf.length;
       if (this.counts.dropped === buf.length) {
+        const rate = this.stick.cfg().sampleRate;
         this.log.warn('the decoder is falling behind; dropping samples (' + (this.stick.channels.length > 1
-          ? 'too many channels for this Pi at ' + this.stick.cfg().sampleRate / 1000 + ' ksps — fewer, or closer together' : 'try a 240 ksps sample rate') + ')');
+          ? 'too many channels for this Pi at ' + rate / 1000 + ' ksps — fewer, or closer together'
+            // A channel's work goes with the rate: a stick whose channels are this close needs only 960 ksps.
+            + (rate > 960000 ? ': channels within about ' + (2 * reach(960000) / 1e6).toFixed(2) + ' MHz of each other take 960 ksps, half the work each — give the far ones another stick' : '')
+          : 'try a 240 ksps sample rate') + ')');
       }
       return;
     }
