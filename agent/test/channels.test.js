@@ -74,6 +74,20 @@ test('tuning: one channel as it always was; several share one slice, off the DC 
   holds(p, 'two at 240k');
   assert.equal(p.sampleRate, 240000);
   assert.equal(P.plan(MHz(151.5, 151.525), { sampleRate: 2400000, baseRate: 240000 }).sampleRate, 2400000);
+  // 37.5 kHz apart: automatic, a Pi 4 takes 960 ksps for the room from the
+  // spike; 240 ksps set by hand is kept, since they clear the hard limits.
+  p = P.plan(MHz(151.5375, 151.575), { baseRate: 960000 });
+  assert.equal(p.sampleRate, 960000);
+  p = P.plan(MHz(151.5375, 151.575), { sampleRate: 240000, baseRate: 960000 });
+  holds(p, '37.5 kHz apart at 240k');
+  assert.deepEqual([p.sampleRate, p.raised], [240000, false]);
+  assert.ok(p.dcHz >= P.DC_MIN && p.dcHz < P.DC_GOOD && p.mirrorHz >= P.MIRROR_GOOD, p.dcHz + ', ' + p.mirrorHz);
+  assert.ok(p.channels.every(c => c.inBand));
+  // …but not past them: 75 kHz apart with a mirror on each other at 240k, so
+  // the rate set by hand is raised to the first that clears it.
+  p = P.plan(MHz(151.5, 151.575), { sampleRate: 240000, baseRate: 960000 });
+  assert.equal(p.sampleRate, 960000);
+  assert.equal(p.raised, true);
   // Channels written twice (two formats — refused by the settings, but a
   // hand-edited file may have them) are one frequency to the tuner.
   p = P.plan([{ freqHz: 151500000, format: 'BINARY' }, { freqHz: 151500000, format: 'ENHANCED_IFLOWS' }], { baseRate: 960000 });

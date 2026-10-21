@@ -34,6 +34,16 @@
     <div id="pair-dash"></div>
     <div class="stats" id="stats"></div>
 
+    <div class="card pi-card">
+      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
+      <div class="pi-charts">
+        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
+        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
+        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
+      </div>
+      <div class="dim small" id="pi-note"></div>
+    </div>
+
     <div class="card radio" id="radio" hidden>
       <div class="card-head">
         <h2>Radio <span class="dim small" id="radio-note"></span></h2>
@@ -62,7 +72,8 @@
       <div id="rx-list" class="rx-list"></div>
     </div>
 
-    <div class="split">
+    <!-- A table a row: side by side, the columns ran out of room. -->
+    <div class="stack">
       <div class="card">
         <h2>Readings <span class="dim" id="read-count"></span></h2>
         <div class="table-wrap">
@@ -83,15 +94,6 @@
       </div>
     </div>
 
-    <div class="card pi-card">
-      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
-      <div class="pi-charts">
-        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
-        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
-        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
-      </div>
-      <div class="dim small" id="pi-note"></div>
-    </div>
   </section>
 
   <!-- ── Site survey ───────────────────────────────────────────── -->

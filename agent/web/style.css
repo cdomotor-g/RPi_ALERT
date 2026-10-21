@@ -114,9 +114,9 @@ tr.fresh td { animation: flash 2s ease-out; }
 .rx-more .chans { font-size: .9em; margin-bottom: 6px; }
 .rx-more .more-nf { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 4px 18px; }
 .rx-more .hist-nf { height: 70px; }
-.split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; align-items: start; }
-.split > .card { margin-bottom: 0; }
-@media (max-width: 1400px) { .split { grid-template-columns: minmax(0, 1fr); } }
+/* Cards holding a table are given the whole width, one under the other: side
+   by side, their columns ran out of room and were cut off. */
+.stack > .card { margin-bottom: 14px; }
 
 /* Charts (charts.js): the canvas takes its size from here. */
 canvas.chart { width: 100%; height: 90px; display: block; touch-action: pan-y; }

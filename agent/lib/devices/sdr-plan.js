@@ -28,7 +28,12 @@
 // channel, each hazard measured against its own clearance (beyond which it
 // makes no difference); then the one keeping the channels furthest from the
 // edges. A rate that cannot keep DC_GOOD from the spike and MIRROR_GOOD from
-// every image gives way to the next rate up that does better. Channels that
+// every image gives way to the next rate up that does better — when the rate
+// is automatic. A rate set by hand is a choice of less work over more room
+// (every channel's decoder takes in the whole slice, so 960 ksps costs four
+// times 240's): it is kept whenever its channels clear the hard limits —
+// DC_MIN from the spike, MIRROR_GOOD from every image — and raised only to the
+// first rate that does. Channels that
 // cannot all fit even at the top rate (the settings refuse channels further
 // apart than MAX_SPAN_HZ, so only one stuck on the DC spike in the middle of
 // the widest span gets here) are heard as many as fit, the stick's own channel
@@ -92,10 +97,11 @@ const memo = new Map();
 function plan(chans, opts) {
   opts = opts || {};
   const from = opts.sampleRate || opts.baseRate || RATES[1];
-  const key = chans.map(c => c.freqHz + '/' + c.format).join(',') + '|' + from + '|' + (opts.offsetHz || 0);
+  const pinned = !!opts.sampleRate;
+  const key = chans.map(c => c.freqHz + '/' + c.format).join(',') + '|' + from + '|' + (opts.offsetHz || 0) + '|' + pinned;
   let out = memo.get(key);
   if (!out) {
-    out = compute(chans, from, opts.offsetHz);
+    out = compute(chans, from, opts.offsetHz, pinned);
     if (memo.size >= 32) memo.delete(memo.keys().next().value);
     memo.set(key, out);
   }
@@ -103,7 +109,7 @@ function plan(chans, opts) {
     channels: out.channels.map(c => Object.assign({}, c)) };
 }
 
-function compute(chans, from, offsetHz) {
+function compute(chans, from, offsetHz, pinned) {
   const main = chans[0].freqHz;
   const freqs = [...new Set(chans.map(c => c.freqHz))].sort((a, b) => a - b);
   let rate, best, heard;
@@ -117,6 +123,7 @@ function compute(chans, from, offsetHz) {
       if (r < from) continue;
       const b = bestCentre(freqs, r);
       if (!b || b.dc < DC_MIN) continue;
+      if (pinned && b.mirror >= MIRROR_GOOD) { pick = { rate: r, best: b }; break; }
       if (!pick || b.clear > pick.best.clear) pick = { rate: r, best: b };
       if (pick.best.good) break;
     }
