@@ -150,8 +150,8 @@ longer than the burst gate's 3 s is cut off and not read.
 1. A driver decodes it (alert_id, value, protocol, format, signal, the frequency it was heard on,
    the raw line).
 2. **Time.** A live reading is timed by its arrival (as MegaNet's Serial Monitor does) — except an
-   ALERT2 frame, which carries its own time of day (an ERT-A2's in local time; off the air, a
-   stamp in UTC's half day, less each record's own offset). If the Pi's clock is not yet trusted (no NTP
+   ALERT2 frame, which carries its own stamp — seconds into the half-day, put on the half-day nearest
+   its arrival in UTC or local time (an ERT-A2's and off the air alike), less each record's own offset). If the Pi's clock is not yet trusted (no NTP
    since boot, no GPS), the reading is **held** with a CLOCK_MONOTONIC stamp and this boot's id,
    and timed when the clock is trusted: `now − (monotonic now − monotonic then)`. One held across a
    reboot that never saw a good clock cannot be placed and is dropped (counted, logged).

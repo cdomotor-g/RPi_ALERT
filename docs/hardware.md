@@ -132,11 +132,16 @@ lines are recognised (the agent hunts for the speed when it sees line noise) and
   `ALERT2A,` tag.
 - **USB port** → its binary framing (`ALERT2` sync + TLVs): RSSI in every frame, no receiver clock.
 
-Both are parsed by MegaNet's `alert2.js`. Only frames the receiver calls clean, and their clean
-records, are readings (protocol ALERT2), timed by the frame's own time of day put on the nearest
-day — unless that is more than ten minutes from the Pi's clock (time zone, drifting network clock),
-when arrival time is used and the Overview says so. **Set the Pi's time zone** to the network's
-(Australia/Brisbane is the image's default). Every record, bad ones included, is a reception.
+Both are parsed by MegaNet's `alert2.js`, which reads the line by the NHWC specifications (IND API
+v1.1, MANT v1.2, Application Layer v1.3). The line carries no clean-or-bad verdict of its own; a
+frame is bad when its structure does not add up. Each ALERT concentration record (a repeater's
+bundle of legacy ALERT readings) of a frame that adds up is a reading (protocol ALERT2), timed by
+the frame's 16-bit stamp — seconds since the most recent 00:00 or 12:00 — put on the half-day
+nearest its arrival in UTC or local time, whichever lands within ten minutes, less the seconds a
+repeater held the record. A stamp that fits neither (a drifting network clock) is timed by arrival
+and the Overview says so. **Set the Pi's time zone** to the network's (Australia/Brisbane is the
+image's default). A gauge's own report of its sensors (a self-report) and a frame flagged as test
+data are receptions only; every record, bad ones included, is a reception.
 
 ## USB GPS
 

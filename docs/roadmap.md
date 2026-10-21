@@ -151,11 +151,10 @@ badly each one strands somebody:
 - ~~**The carrier offset with each reading**~~ Done: on the reception, not the reading — ALERT2
   since 0.13, legacy ALERT since 0.14 — for MegaNet's transmitter-drift finding
   ([MegaNet #217](https://github.com/cdomotor-g/MegaNet/issues/217)).
-- **Move `lib/devices/ert.js` to MegaNet's renamed ERT-A2 fields.** MegaNet's `alert2.js` names
-  the ERT-A2's fields as the NHWC specifications do now (its #209: an ALERT2 gauge's own report
-  decoded, afternoon frames keeping their time, a test frame said to be one); `ert.js` reads the
-  old names, so `vendor/meganet/alert2.js` and `serial-gps.js` stay at MegaNet 2299acc
-  (`vendor/meganet/SOURCE`) until it is moved — then run `sync-meganet.sh` whole again.
+- ~~**Move `lib/devices/ert.js` to MegaNet's renamed ERT-A2 fields.**~~ Done in 0.14.1: the ERT-A2
+  driver reads MegaNet's NHWC-named `alert2.js` (its #209) — no clean-or-bad flag the line does not
+  carry, a half-day stamp placed in UTC or local time less each record's hold, a gauge's
+  self-report and a test frame as receptions — and `vendor/meganet` is one MegaNet commit again.
 - **A burst heard by two receivers.** MegaNet drops a duplicate on address + `reading_ts` + raw
   value, and a legacy ALERT reading's `reading_ts` is this agent's arrival time to the millisecond,
   so two sticks or channels hearing one burst are probably stored twice

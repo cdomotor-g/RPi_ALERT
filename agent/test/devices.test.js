@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Sniffer, classifyText } = require('../lib/devices/sniff');
 const { QuanshengDriver } = require('../lib/devices/quansheng');
-const { ErtDriver, onDayNearest } = require('../lib/devices/ert');
+const { ErtDriver } = require('../lib/devices/ert');
 const { GpsDriver, utcOf } = require('../lib/devices/gps');
 const { Alert2 } = require('../lib/meganet-codecs');
 
@@ -109,24 +109,46 @@ test('Quansheng: 25 s of silence on USB toggles DTR; on the UART it does not', (
   assert.equal(u.out.dtr, 0);
 });
 
-test('ERT-A2: clean records are readings (protocol alert2) timed by the frame; a bad frame is only receptions', () => {
+const CONC = 'ALERT2A,1,9999,ELPRO,N,1,2026,6,8,19,28,32.582,0,0,0,0,0,1,0,0,0,7,11,9999,74,69,20,2D,13,8A,00,2C,13,0C,00';
+const SELF = 'ALERT2A,1,9999,ELPRO,N,1,2026,6,8,20,51,10.161,0,0,0,0,0,0,0,0,0,1,19,9999,74,7C,7E,01,0E,08,11,81,07,23,FF,FB,21,00,14,00,00,00,08';
+
+test('ERT-A2: concentration records are readings (protocol alert2) timed by the frame\'s half-day stamp; a self-report is a reception', () => {
   const now = new Date(2026, 5, 8, 19, 29, 0).getTime();
   const { c, out } = ctx({ clock: { trusted: () => true, now: () => now } });
   const d = new ErtDriver(c);
-  // Payload time 0x6920 = 26912 s = 07:28:32 — 12 h from the receiver's own clock in this capture.
-  d.feed(Buffer.from('ALERT2A,1,9999,ELPRO,N,1,2026,6,8,19,28,32.582,0,0,0,0,0,1,0,0,0,7,11,9999,74,69,20,2D,13,8A,00,2C,13,0C,00\r\n'));
+  // Stamp 0x6920 = 26912 s after 12:00 — 19:28:32, the half-day nearest 19:29.
+  d.feed(Buffer.from(CONC + '\r\n'));
   assert.deepEqual(out.readings.map(r => [r.alert_id, r.value_raw, r.protocol]), [[4909, 138, 'alert2'], [4908, 12, 'alert2']]);
-  // 07:28:32 is more than ten minutes from 19:29: timed by arrival instead.
-  assert.equal(out.readings[0].ts, now);
-  d.feed(Buffer.from('ALERT2A,1,9999,ELPRO,N,1,2026,6,8,20,51,10.161,0,0,0,0,0,0,0,0,0,1,19,9999,74,7C,7E,01,0E,08,11,81,07,23,FF,FB,21,00,14,00,00,00,08\r\n'));
-  assert.equal(out.readings.length, 2, 'nothing from the frame the receiver called bad');
-  assert.ok(out.receptions.slice(2).every(r => r.ok === false));
+  assert.equal(out.readings[0].ts, new Date(2026, 5, 8, 19, 28, 32).getTime());
+  assert.deepEqual(out.receptions.map(r => [r.alert_id, r.ok, r.fault, r.detail.port]), [[4909, true, null, 1], [4908, true, null, 1]]);
+  d.feed(Buffer.from(SELF + '\r\n'));
+  assert.equal(out.readings.length, 2, 'a self-report is not an ALERT reading');
+  const self = out.receptions[2];
+  assert.deepEqual([self.alert_id, self.ok, self.detail.kind, self.detail.self_report], [null, true, 'self-report', 3]);
+  assert.equal(d.status().counts.selfReports, 1);
 });
 
-test('ERT-A2: a frame time within ten minutes is put on the nearest day', () => {
-  const ref = new Date(2026, 5, 9, 0, 2, 0).getTime();
-  const ts = onDayNearest(23 * 3600 + 59 * 60, ref);          // 23:59 heard at 00:02 → yesterday
-  assert.equal(ts, new Date(2026, 5, 8, 23, 59, 0).getTime());
+test('ERT-A2: a record a repeater held is timed that much earlier; a stamp near neither clock is timed by arrival', () => {
+  const now = new Date(2026, 5, 8, 19, 29, 0).getTime();
+  const held = ctx({ clock: { trusted: () => true, now: () => now } });
+  new ErtDriver(held.c).feed(Buffer.from(CONC.replace('2D,13,8A,00', '2D,13,8A,1E') + '\r\n'));   // 30 s held
+  assert.equal(held.out.readings[0].ts, new Date(2026, 5, 8, 19, 28, 2).getTime());
+  assert.equal(held.out.readings[1].ts, new Date(2026, 5, 8, 19, 28, 32).getTime());
+  const late = new Date(2026, 5, 8, 15, 0, 0).getTime();
+  const off = ctx({ clock: { trusted: () => true, now: () => late } });
+  const d = new ErtDriver(off.c);
+  d.feed(Buffer.from(CONC + '\r\n'));
+  assert.equal(off.out.readings[0].ts, late);
+  assert.match(d.status().note, /timed by arrival/);
+});
+
+test('ERT-A2: a test frame is receptions only', () => {
+  const now = new Date(2026, 5, 8, 19, 29, 0).getTime();
+  const { c, out } = ctx({ clock: { trusted: () => true, now: () => now } });
+  // Control byte 0x7C: 0x74 with the test flag (0x08) set.
+  new ErtDriver(c).feed(Buffer.from(CONC.replace(',11,9999,74,', ',11,9999,7C,') + '\r\n'));
+  assert.equal(out.readings.length, 0);
+  assert.ok(out.receptions.length === 2 && out.receptions.every(r => r.ok === false && r.detail.test === true && !r.fault));
 });
 
 test('GPS: a fix, its accuracy, and the receiver\'s UTC time', () => {

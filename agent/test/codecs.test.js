@@ -44,14 +44,17 @@ test('ERT-A2 ASCII: the reference lines parse to their records', () => {
   const f = Alert2.parseAscii('ALERT2A,1,9999,ELPRO,N,1,2026,6,8,19,28,32.582,0,0,0,0,0,1,0,0,0,7,11,9999,74,69,20,2D,13,8A,00,2C,13,0C,00').frames;
   assert.equal(f.length, 1);
   assert.deepEqual(plain(f[0].records.map(r => [r.alertId, r.value, r.ok])), [[4909, 138, true], [4908, 12, true]]);
-  assert.equal(f[0].hdr.frameOk, 1);
-  assert.equal(f[0].payload.sod, 0x6920);
+  assert.equal(f[0].hdr.port, 1, 'ALERT concentration');
+  assert.equal(f[0].damaged, null);
+  assert.equal(f[0].payload.stamp, 0x6920);
 });
 
-test('ERT-A2 ASCII: the frame the receiver flagged bad says so', () => {
+test('ERT-A2 ASCII: a gauge\'s self-report is its sensors, not a bad frame (NHWC IND API v1.1: the line carries no verdict)', () => {
   const f = Alert2.parseAscii('ALERT2A,1,9999,ELPRO,N,1,2026,6,8,20,51,10.161,0,0,0,0,0,0,0,0,0,1,19,9999,74,7C,7E,01,0E,08,11,81,07,23,FF,FB,21,00,14,00,00,00,08').frames[0];
-  assert.equal(f.hdr.frameOk, 0);
-  assert.ok(f.records.some(r => !r.ok));
+  assert.equal(f.hdr.port, 0, 'self-report');
+  assert.equal(f.records.length, 0);
+  assert.equal(f.sensors.length, 3);
+  assert.equal(f.damaged, null);
 });
 
 test('ERT-A2 USB binary: frames carry readings and RSSI', () => {

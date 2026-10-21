@@ -5,30 +5,26 @@
 // Serial Monitor's ERT-A2 card (serial-ert.js) so a frame becomes the same
 // readings, at the same time, as it does on floodwarning.net.
 //
-// Readings are protocol "alert2". Only a frame the receiver called clean, and
-// only its clean records, are sent as readings; every record (and every frame
-// that would not parse) is still a reception, because the bad ones are what
-// finding a corrupting repeater is made of.
+// Readings are protocol "alert2": each ALERT concentration record (a
+// repeater's bundle of legacy ALERT readings, MANT port 1) of a frame whose
+// structure adds up. The line carries no verdict of its own (IND API v1.1
+// §5.2, MegaNet's #209): a frame is bad only when it does not add up
+// (`damaged`). Every record — and every frame that would not parse, and a
+// gauge's self-report (port 0) — is still a reception, because the bad ones
+// are what finding a corrupting repeater is made of. A frame flagged as test
+// data is receptions only, as on the SDR (alert2-readings.js).
 //
-// Time: an ALERT2 frame carries its own seconds-since-midnight, the network's
-// clock. It is put on the day nearest to its arrival — which lets two
-// receivers that heard one frame agree on it — unless that is more than ten
-// minutes from the Pi's clock (a time zone, a drifting network clock), when
-// the arrival time is used instead. Midnight is local time, as the ERT-A2 and
-// the Serial Monitor both take it: set the Pi's time zone (Australia/Brisbane
-// by default in the image).
+// Time: an ALERT2 frame carries a 16-bit stamp, seconds since the most recent
+// 00:00 or 12:00 — a half-day count, not a day's — and each record the seconds
+// a repeater held it. The stamp is put on the half-day nearest its arrival, in
+// UTC or local time, whichever lands within ten minutes (Alert2.placeStamp),
+// less each record's hold — which lets two receivers that heard one frame
+// agree on it. Neither fitting (a drifting network clock), the arrival time is
+// used and the log says why.
 
 const { Alert2 } = require('../meganet-codecs');
 
 const TAG = 'ALERT2A,';
-const SKEW_MS = 10 * 60 * 1000;
-
-function onDayNearest(sod, refMs) {
-  const d = new Date(refMs);
-  d.setHours(0, 0, 0, 0);
-  const t = d.getTime() + sod * 1000;
-  return [t - 86400000, t, t + 86400000].reduce((a, b) => (Math.abs(b - refMs) < Math.abs(a - refMs) ? b : a));
-}
 
 class ErtDriver {
   constructor(ctx, opts) {
@@ -38,7 +34,8 @@ class ErtDriver {
     this.fmt = opts && opts.binary ? 'bin' : null;
     this.text = '';
     this.bin = [];
-    this.counts = { frames: 0, bad: 0, readings: 0, warned: 0 };
+    this.counts = { frames: 0, bad: 0, readings: 0, warned: 0, tests: 0, selfReports: 0 };
+    this.bases = { utc: 0, local: 0, either: 0, none: 0 };
     this.lastFrame = null;
     this.decoder = null;
     this.sources = new Set();
@@ -106,52 +103,71 @@ class ErtDriver {
         detail: { error: String(f.error).slice(0, 120) } });
       return;
     }
+    const h = f.hdr;
     if (f.warn && f.warn.length) { this.counts.warned++; this.ctx.log.info('ALERT2 frame: ' + f.warn.join('; ')); }
-    if (f.hdr.decoder != null) this.decoder = String(f.hdr.decoder);
-    if (f.hdr.source != null) { this.sources.add(f.hdr.source); if (this.sources.size > 16) this.sources.delete(this.sources.values().next().value); }
-    if (f.hdr.clockSod != null && f.payload) {
-      let d = f.hdr.clockSod - f.payload.sod;
-      if (d > 46800) d -= 86400; else if (d < -46800) d += 86400;
-      this.clockSkewS = d;
-    }
+    if (h.decoder != null) this.decoder = String(h.decoder);
+    if (h.source != null) { this.sources.add(h.source); if (this.sources.size > 16) this.sources.delete(this.sources.values().next().value); }
     if (!f.payload) return;
+    const stamp = f.payload.stamp;
+    // The receiver's own clock against where the frame's stamp lands on it.
+    if (h.clockMs && !f.damaged && stamp != null) {
+      const p = Alert2.placeStamp(stamp, h.clockMs);
+      if (p) this.clockSkewS = Math.round((h.clockMs - (p.ms != null ? p.ms : p.local)) / 1000);
+    }
     const ts = this.frameTime(f, now);
-    const clean = f.hdr.frameOk !== 0;
+    const at = off => (ts == null ? null : ts - (off || 0) * 1000);
+    const clean = !f.damaged;
+    const test = !!(f.payload.ctl && f.payload.ctl.test);
+    if (test) this.counts.tests++;
+    const rssi = h.rssi == null ? null : h.rssi;
+    const base = { source: h.source, port: h.port, hop_limit: h.hopLimit, time_lock: h.timeLock };
     f.records.forEach(r => {
       this.ctx.reception({
         protocol: 'alert2', alert_id: r.alertId, value_raw: r.value,
         payload_hex: r.bytes.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase(),
-        ok: r.ok && clean, fault: !r.ok ? 'status' : !clean ? 'frame' : null,
-        rssi_dbm: f.hdr.rssi == null ? null : f.hdr.rssi, detail: { source: f.hdr.source, quality: f.hdr.quality }, ts,
+        ok: r.ok && clean && !test, fault: r.ok && clean ? null : 'frame', rssi_dbm: rssi,
+        detail: Object.assign({}, base, { offset_s: r.offset }, test ? { test: true } : {}), ts: at(r.offset),
       });
     });
-    if (!clean) return;
+    // A gauge's own report of its sensors: one reception for the frame.
+    if ((f.reports || []).length) {
+      this.counts.selfReports++;
+      this.ctx.reception({ protocol: 'alert2', alert_id: null, ok: clean && !test, fault: clean ? null : 'frame', rssi_dbm: rssi, ts,
+        detail: Object.assign({}, base, { kind: 'self-report', self_report: (f.sensors || []).length }, test ? { test: true } : {}) });
+    }
+    if (!clean || test) return;
     const recs = f.records.filter(r => r.ok);
     recs.forEach((r, i) => {
       this.counts.readings++;
-      this.ctx.reading({ alert_id: r.alertId, value_raw: r.value, protocol: 'alert2', fmt: 'ALERT2', ts,
-        line: i ? null : text, rssi_dbm: f.hdr.rssi == null ? null : f.hdr.rssi, burstKey: 'e' + this.counts.frames });
+      this.ctx.reading({ alert_id: r.alertId, value_raw: r.value, protocol: 'alert2', fmt: 'ALERT2', ts: at(r.offset),
+        line: i ? null : text, rssi_dbm: rssi, burstKey: 'e' + this.counts.frames });
     });
   }
 
+  // When the frame was stamped: its half-day stamp put on the half-day nearest
+  // its arrival, UTC or local, whichever lands within ten minutes. null while
+  // the Pi's clock is not trusted (the agent times it then, lib/agent.js).
   frameTime(f, now) {
-    const sod = f.payload.sod;
-    if (!this.ctx.clock.trusted()) return null;          // the agent times it once the clock is known
-    const ts = onDayNearest(sod, now);
-    if (Math.abs(ts - now) > SKEW_MS) {
-      const note = 'ALERT2 frame times are ' + Math.round((ts - now) / 60000) + ' min from this Pi\'s clock, so readings are timed by arrival (check the time zone)';
+    if (!this.ctx.clock.trusted()) return null;
+    const stamp = f.payload.stamp;
+    if (stamp == null) return now;
+    const p = Alert2.placeStamp(stamp, now);
+    this.bases[(p && p.base) || 'none']++;
+    if (!p || p.base == null) {
+      const off = p ? Math.min(Math.abs(p.utc - now), Math.abs(p.local - now)) : 0;
+      const note = 'ALERT2 frame times are ' + Math.round(off / 60000) + ' min from this Pi\'s clock on both UTC and local time, so readings are timed by arrival (check the network\'s clock)';
       if (note !== this.skewNote) { this.skewNote = note; this.ctx.log.warn(note); }
       return now;
     }
     this.skewNote = '';
-    return ts;
+    return p.ms;
   }
 
   tick() {}
 
   status() {
     return { format: this.fmt, counts: this.counts, lastFrame: this.lastFrame, decoder: this.decoder,
-      sources: [...this.sources], receiverClockSkewS: this.clockSkewS, note: this.skewNote || null };
+      sources: [...this.sources], receiverClockSkewS: this.clockSkewS, stampBases: this.bases, note: this.skewNote || null };
   }
 
   detail() {
@@ -163,4 +179,4 @@ class ErtDriver {
   }
 }
 
-module.exports = { ErtDriver, onDayNearest };
+module.exports = { ErtDriver };
