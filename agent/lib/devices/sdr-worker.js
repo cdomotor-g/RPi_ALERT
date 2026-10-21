@@ -46,7 +46,7 @@ const pipe = new AlertDsp.Pipeline((m) => {
       const alert2 = alert2On && m.burst && !m.all && !(m.shadows || []).length && m.burst.ms >= ALERT2_MIN_MS ? tryAlert2(n, m) : null;
       parentPort.postMessage({ type: 'decode', readings: m.readings, shadows: m.shadows, burst: m.burst, all: m.all,
         ms: m.ms, combos: m.combos, seconds: m.seconds, format: m.format, carrier: m.trace ? m.trace.carrierHz : null,
-        cfoHz: meter.take(m.burst && m.burst.t), alert2 });
+        cfo: meter.take(m.burst && m.burst.t), copies: m.copies || [], alert2 });
       if (recordOn && m.burst) {
         const rec = toU8(pipe.ringR, pipe.ringI, pipe.total, n);
         parentPort.postMessage({ type: 'recording', buf: rec.buf, scale: rec.scale, rate: AlertDsp.FS_IN, seconds: n / AlertDsp.FS_IN, burst: m.burst,

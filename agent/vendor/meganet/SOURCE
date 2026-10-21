@@ -4,6 +4,10 @@ exactly what floodwarning.net decodes.
 
 repository: https://github.com/cdomotor-g/MegaNet
 commit:     2299acc0c89445ce27d78e1999a0f733d457a63e (2026-10-01)
+            alert-dsp.js alone at 87f5e01ec8fae13c37b3f96de4e6740b1386958f (2026-10-21): a repeater's copy
+            of a reading reported as a copy (#217). MegaNet's alert2.js has since renamed the ERT-A2 fields to
+            the NHWC specifications' (its #209); lib/devices/ert.js reads the old names, so alert2.js and
+            serial-gps.js stay at 2299acc until ert.js is moved to them (docs/roadmap.md).
 
 alert-dsp.js    off-air ALERT decoder (Binary / Enhanced iFLOWS / ASCII), a port of agmurf/sdr-alert-decoder (MIT)
 quansheng.js    serial codec for the Quansheng UV-K5 V3 / UV-K1 ALERT receiver firmware (schema 2)

@@ -97,6 +97,18 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
   and the right number used; a number that was busy is another stick's, so the next is tried. A
   running `rtl_sdr` keeps its stick when others come and go.
 
+**Each burst's carrier** ([`carrier.js`](../agent/lib/devices/carrier.js)). An FM burst's
+discriminator output swings either side of its carrier's offset, so its trimmed mean over the
+middle of the burst is that offset, to a few tens of Hz. The two halves are measured too: more than
+60 Hz apart is two transmitters in one burst (a repeater keying up as its station lets go, holding
+the squelch open across both), and such a burst is sent with `cfo_split` (the halves) and no
+offset. Otherwise the offset goes with each of the burst's receptions as `cfo_hz` — for the stick's
+own ppm (tuning help) and for MegaNet's transmitter drift. The decoder takes the same reading again
+within ten seconds as a repeat; when that repeat is another burst, it is another transmitter's copy
+— a repeater's, on its own carrier — so it is sent as a reception (`duplicate: true`, `copy`: how
+many came before) though never as a reading again. MegaNet puts each burst down to the station or
+the repeater that sent it from those.
+
 ## ALERT and ALERT2
 
 | | Legacy **ALERT** | **ALERT2** |

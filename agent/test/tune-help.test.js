@@ -11,7 +11,7 @@ const { TuneHelp, snapGain } = require('../lib/devices/tune-help');
 function measure(rate, off, extra) {
   const got = [];
   let meter;
-  const p = new AlertDsp.Pipeline((m) => { if (m.type === 'decode' && m.readings.length) got.push(meter.take(m.burst && m.burst.t)); });
+  const p = new AlertDsp.Pipeline((m) => { if (m.type === 'decode' && m.readings.length) got.push((meter.take(m.burst && m.burst.t) || {}).hz); });
   p.configure({ deviceRate: rate, channelOffsetHz: off, format: AlertDsp.BINARY, specHz: 1, scopeHz: 1 });
   meter = new CarrierMeter(p, AlertDsp.FS_BB);
   const iq = AlertDsp.synthIq({ fs: rate, seconds: 4, snrDb: 15, bursts: [{ startSec: 1.5, cfoHz: off + extra, amp: 40, polarity: 'NEG',

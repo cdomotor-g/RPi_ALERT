@@ -104,7 +104,7 @@ class SdrChannel {
   // What it has heard so far — from scratch when it is moved to another frequency.
   blank() {
     this.level = null;
-    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0 };
+    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0 };
     this.lastDecode = null;
     this.lastBurst = null;
     this.alert2 = new Alert2Reader();
@@ -183,8 +183,15 @@ class SdrChannel {
     const nf = m.burst ? Math.round(m.burst.nfDb * 10) / 10 : null;
     // Burst peak over the closed-squelch floor it opened on, both in the 12 kHz channel.
     const snr = level != null && nf != null ? Math.round((level - nf) * 10) / 10 : null;
-    // How far off the channel this burst's carrier was: the stick's ppm error, and the station's.
-    if (m.cfoHz != null && m.readings.length) this.stick.tuneHelp.carrier(m.readings[0].sensorId, m.cfoHz, this.spec.freqHz, this.stick.cfg().ppm);
+    // How far off the channel this burst's carrier was (lib/devices/carrier.js):
+    // the stick's ppm error, and the transmitter's — sent with the reception as
+    // cfo_hz, for MegaNet's transmitter drift (#217). A burst that was two
+    // carriers (a repeater keying up as the station let go) has no offset; its
+    // halves go as cfo_split, so the reason is on record.
+    const c = m.cfo || null;
+    const cfoHz = c && c.steady ? c.hz : null;
+    const cfo = cfoHz != null ? { cfo_hz: cfoHz } : c && !c.steady ? { cfo_split: [c.head, c.tail] } : {};
+    if (cfoHz != null && m.readings.length) this.stick.tuneHelp.carrier(m.readings[0].sensorId, cfoHz, this.spec.freqHz, this.stick.cfg().ppm);
     for (const r of m.readings) {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
@@ -192,7 +199,19 @@ class SdrChannel {
         freq_mhz: freq, level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, '') + ',mhz=' + freq,
         burstKey: 's' + (m.burst ? m.burst.t : Date.now()) });
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''), ts,
-        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: { fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq } });
+        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: Object.assign({ fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq }, cfo) });
+    }
+    // Another transmission of a reading already heard, within ten seconds — a
+    // repeater's copy, on its own carrier. Not a reading again (MegaNet has it),
+    // but a reception: who sent it is what the carrier, the level and the copy
+    // number tell MegaNet. Not counted for the stick's ppm: the station's id
+    // would be on the repeater's carrier.
+    for (const r of m.copies || []) {
+      this.counts.copies++;
+      this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''), ts,
+        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes,
+        detail: Object.assign({ fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq,
+          duplicate: true, copy: r.copy }, cfo) });
     }
     for (const s of m.shadows || []) {
       this.counts.shadows++;
@@ -762,8 +781,8 @@ class SdrSession extends EventEmitter {
     const first = this.channels[0];
     const lv = first && first.level;
     // The stick's counts are its channels' together.
-    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0 };
-    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad']) counts[k] += ch.counts[k];
+    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0 };
+    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies']) counts[k] += ch.counts[k] || 0;
     const latest = (f) => this.channels.map(ch => ch[f]).filter(Boolean).sort((a, b) => b.t - a.t)[0] || null;
     return {
       key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',

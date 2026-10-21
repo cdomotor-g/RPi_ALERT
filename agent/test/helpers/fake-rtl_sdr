@@ -24,6 +24,7 @@
 //   RPI_ALERT_FAKE_STICKS='{"1-1.4": {"channelHz": 151600000, "frames": "3001:77"}}'
 //                                                 per stick, by USB port
 //   RPI_ALERT_FAKE_BURSTS='[{"channelHz": 152400000, "frames": "4001:5", "format": "ENHANCED_IFLOWS"}, …]'
+//                                                 ("offsetHz": its transmitter this far off the channel)
 //                                                 a burst on each of several channels, one after
 //                                                 another (also per stick: "bursts": […]); a burst
 //                                                 out of the slice rtl_sdr was told to tune is not sent
@@ -160,7 +161,7 @@ err('Found Rafael Micro R828D tuner\nRTL-SDR Blog V4 Detected\nSampling at ' + r
 // the same reading within ten seconds for a repeat). Only what falls inside
 // the slice rtl_sdr was told to tune is on the air here.
 const bursts = want.map((b, i) => ({ startSec: b.startSec != null ? Number(b.startSec) : 2.0 + 1.5 * i, frames: frameList(String(b.frames), b.format || 'BINARY'),
-  cfoHz: Number(b.channelHz) - center - ppmOff * Number(b.channelHz) / 1e6, amp: 40, polarity: 'NEG' }))
+  cfoHz: Number(b.channelHz) - center - ppmOff * Number(b.channelHz) / 1e6 + Number(b.offsetHz || 0), amp: 40, polarity: 'NEG' }))
   .filter(b => Math.abs(b.cfoHz) < rate / 2 - 15000);
 const seconds = Math.max(want.length > 1 ? 11 : 6, ...bursts.map(b => b.startSec + 3));
 const loop = D.synthIq({ fs: rate, seconds, snrDb: 28, seed: 7, bursts });
