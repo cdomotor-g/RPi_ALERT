@@ -37,7 +37,8 @@ function hear(bursts, seconds) {
   let meter;
   const p = new AlertDsp.Pipeline((m) => {
     if (m.type === 'decode' && (m.readings.length || (m.copies || []).length)) {
-      got.push({ ids: m.readings.map(r => r.sensorId), copies: (m.copies || []).map(r => [r.sensorId, r.copy]), cfo: meter.take(m.burst && m.burst.t) });
+      got.push({ ids: m.readings.map(r => r.sensorId), own: m.readings.map(r => r.own), copies: (m.copies || []).map(r => [r.sensorId, r.copy]),
+        cfo: meter.take(m.burst && m.burst.t) });
     }
   });
   p.configure({ deviceRate: 240000, channelOffsetHz: 0, format: AlertDsp.BINARY, gate: true, squelchDb: 8, specHz: 1, scopeHz: 1 });
@@ -57,6 +58,16 @@ test('a repeater\'s copy a second later is reported as a copy, each burst with i
   assert.deepEqual([got[1].ids, got[1].copies], [[], [[2088, 1]]]);
   assert.ok(got[0].cfo.steady && Math.abs(got[0].cfo.hz - 350) <= 40, 'station: ' + JSON.stringify(got[0].cfo));
   assert.ok(got[1].cfo.steady && Math.abs(got[1].cfo.hz + 650) <= 40, 'repeater: ' + JSON.stringify(got[1].cfo));
+});
+
+test('two stations keying up 170 ms apart: no copies, and the burst\'s carrier only on the reading it carried', () => {
+  const got = hear([{ startSec: 1.0, frames: FRAME, cfoHz: 350, amp: 40, polarity: 'NEG' },
+    { startSec: 1.0 + LEN_S + 0.17, frames: [AlertDsp.encodeFrame(AlertDsp.BINARY, 2443, 142)], cfoHz: -650, amp: 40, polarity: 'NEG' }], 4);
+  assert.ok(got.every(g => !g.copies.length), JSON.stringify(got));
+  const first = got[0];
+  assert.equal(first.own[first.ids.indexOf(2088)], true);
+  if (first.ids.includes(2443)) assert.equal(first.own[first.ids.indexOf(2443)], false, 'read from its neighbour: not this burst\'s');
+  assert.ok(first.cfo.steady && Math.abs(first.cfo.hz - 350) <= 40, JSON.stringify(first.cfo));
 });
 
 test('a repeater keying up as the station lets go: one burst, two carriers — no offset, and why', () => {

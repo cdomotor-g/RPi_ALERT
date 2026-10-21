@@ -106,7 +106,10 @@ offset. Otherwise the offset goes with each of the burst's receptions as `cfo_hz
 own ppm (tuning help) and for MegaNet's transmitter drift. The decoder takes the same reading again
 within ten seconds as a repeat; when that repeat is another burst, it is another transmitter's copy
 — a repeater's, on its own carrier — so it is sent as a reception (`duplicate: true`, `copy`: how
-many came before) though never as a reading again. MegaNet puts each burst down to the station or
+many came before) though never as a reading again. A decode window reaches 0.4 s or more past its
+burst, so a station keying up a moment later can be read in it too: the decoder gives each reading
+the times its frames start, and a burst's carrier goes only on readings whose frames start inside
+the burst itself — and only such a repeat is a copy. MegaNet puts each burst down to the station or
 the repeater that sent it from those.
 
 ## ALERT and ALERT2

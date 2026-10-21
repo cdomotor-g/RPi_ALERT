@@ -191,7 +191,8 @@ class SdrChannel {
     const c = m.cfo || null;
     const cfoHz = c && c.steady ? c.hz : null;
     const cfo = cfoHz != null ? { cfo_hz: cfoHz } : c && !c.steady ? { cfo_split: [c.head, c.tail] } : {};
-    if (cfoHz != null && m.readings.length) this.stick.tuneHelp.carrier(m.readings[0].sensorId, cfoHz, this.spec.freqHz, this.stick.cfg().ppm);
+    const mine = m.readings.find(r => r.own !== false);
+    if (cfoHz != null && mine) this.stick.tuneHelp.carrier(mine.sensorId, cfoHz, this.spec.freqHz, this.stick.cfg().ppm);
     for (const r of m.readings) {
       this.counts.decodes++;
       this.lastDecode = { t: Date.now(), id: r.sensorId, value: r.value, votes: r.votes, fmt };
@@ -199,7 +200,12 @@ class SdrChannel {
         freq_mhz: freq, level_dbfs: level, nf_dbfs: nf, snr_db: snr, line: 'SDR,' + fmt + ',' + r.sensorId + ',' + r.value + ',votes=' + r.votes + ',hex=' + r.hex.replace(/ /g, '') + ',mhz=' + freq,
         burstKey: 's' + (m.burst ? m.burst.t : Date.now()) });
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: r.sensorId, value_raw: r.value, payload_hex: r.hex.replace(/ /g, ''), ts,
-        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes, detail: Object.assign({ fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq }, cfo) });
+        ok: true, level_dbfs: level, nf_dbm: null, votes: r.votes,
+        // The burst's carrier only for a reading the burst carried: one read in
+        // its window from a neighbouring burst (another station keying up a
+        // moment later) was on that one's carrier.
+        detail: Object.assign({ fmt, polarity: r.polarity, carrier_hz: r.carrierHz, crc: r.crcOk, nf_dbfs: nf, snr_db: snr, freq_mhz: freq },
+          r.own === false ? {} : cfo) });
     }
     // Another transmission of a reading already heard, within ten seconds — a
     // repeater's copy, on its own carrier. Not a reading again (MegaNet has it),
