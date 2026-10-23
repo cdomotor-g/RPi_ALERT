@@ -21,6 +21,26 @@ test('settings: defaults, a valid change saved 0600, a bad one refused with a re
   assert.equal(c.get().receivers.sdr.format, 'BINARY');
 });
 
+test('settings: a stick\'s window, its own or the shared one; a 0.14 file\'s 240 ksps set by hand becomes automatic', () => {
+  const c = tmpConfig();
+  assert.equal(c.get().receivers.sdr.sampleRate, 0, 'automatic: the narrowest window that holds the channels');
+  assert.ok(c.update({ receivers: { sdr: { sampleRate: 1440000 }, sdrDevices: [{ key: 'sdr-port:1-1.3', sampleRate: 240000 }, { key: 'sdr-port:1-1.4', sampleRate: 0 }] } }).ok);
+  for (const bad of [300000, 2000000, -1, '960000']) {
+    assert.match(c.update({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', sampleRate: bad }] } }).errors.join(), /sampleRate: 0 \(the narrowest window/, String(bad));
+    assert.match(c.update({ receivers: { sdr: { sampleRate: bad } } }).errors.join(), /receivers\.sdr\.sampleRate/, String(bad));
+  }
+  // 0.14 raised a window set by hand for channels that needed more, and the
+  // one ever set, 240 ksps, meant "as light as they allow": automatic now.
+  fs.writeFileSync(c.file, JSON.stringify({ version: 1, name: 'Old', receivers: { sdr: { sampleRate: 240000 } } }));
+  let d = new Config(c.file).load();
+  assert.deepEqual([d.loadError, d.get().version, d.get().receivers.sdr.sampleRate, d.get().name], [null, 2, 0, 'Old']);
+  assert.equal(JSON.parse(fs.readFileSync(c.file, 'utf8')).version, 2, 'written back as version 2');
+  fs.writeFileSync(c.file, JSON.stringify({ name: 'Older', receivers: { sdr: { sampleRate: 960000 } } }));
+  assert.equal(new Config(c.file).load().get().receivers.sdr.sampleRate, 960000, 'any other is kept — exact from now on');
+  fs.writeFileSync(c.file, JSON.stringify({ version: 2, receivers: { sdr: { sampleRate: 240000 } } }));
+  assert.equal(new Config(c.file).load().get().receivers.sdr.sampleRate, 240000, 'and 240 kHz set since is exactly that');
+});
+
 test('settings: the token never comes back out whole', () => {
   const c = tmpConfig();
   c.update({ meganet: { token: 'mgn_abcdefghijklmnopqrstuvwxyz' } });

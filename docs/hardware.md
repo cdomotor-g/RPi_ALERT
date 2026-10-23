@@ -4,10 +4,10 @@
 
 | Pi | Image | Notes |
 |---|---|---|
-| **Pi 4 / 400 / CM4** | 64-bit | The recommended base station: CPU for the SDR decoder at 960 ksps, the screen dashboard, and a 3.5 mm audio jack. Official 15 W (5 V 3 A) supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts — for a [site survey](survey.md) with no GPS and no internet. |
+| **Pi 4 / 400 / CM4** | 64-bit | The recommended base station: CPU for several SDR channels, the screen dashboard, and a 3.5 mm audio jack. Official 15 W (5 V 3 A) supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts — for a [site survey](survey.md) with no GPS and no internet. |
 | Pi 5 / 500 / CM5 | 64-bit | Fastest. **No audio jack**: chirps over HDMI audio or a USB sound card. Official 27 W supply, or USB devices are current-limited. A Pi 5 can keep time across power cuts with its RTC battery (fitted to the J5 header). |
 | Pi 3 / 3+ / CM3 | 64-bit | Fine for every receiver; 1 GB is enough for the screen dashboard. 5 V 2.5 A supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts, as on a Pi 4. |
-| Zero 2 W | 64-bit | 512 MB: no screen dashboard (web page and console only); the SDR runs at 240 ksps. One micro-USB OTG port — use a powered USB hub for more than one receiver. No audio jack. |
+| Zero 2 W | 64-bit | 512 MB: no screen dashboard (web page and console only); a few SDR channels, closest in a 240 kHz window. One micro-USB OTG port — use a powered USB hub for more than one receiver. No audio jack. |
 | Pi 1 / 2 / Zero / Zero W | 32-bit | Too slow for the RTL-SDR decoder. Fine for a Quansheng radio or an ERT-A2. |
 
 **Power matters more than anything else here.** An under-powered Pi drops USB devices when a
@@ -47,36 +47,64 @@ A stick hands over a whole slice of the band at once — as wide as its sample r
 have to choose one channel: the agent decodes **every ALERT channel in the slice at the same time**,
 each with a decoder thread of its own, and each is a receiver of its own in MegaNet. A new base
 station listens on all four of the channels MegaNet's stations use; change them under
-**Settings → RTL-SDR → More channels on the same stick** (or `rpi-alert sdr 1 freq 151.5, 151.525,
-152.4`, or `sdr_frequency_mhz = 151.5, 151.525, 152.4` on the SD card).
+**Settings → RTL-SDR** — each stick's *Channels*, typed or picked from the frequencies MegaNet's
+stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 152.4`, or
+`sdr_frequency_mhz = 151.5, 151.525, 152.4` on the SD card).
 
 - **How far apart**: channels within **1.89 MHz** of each other fit one stick (80% of the top rate,
   2.4 Msps, less a channel's width at each end: the RTL2832U's filter rolls off at the edges). The
   channels MegaNet's stations use — 151.500, 151.525, 151.950 and 152.400 MHz — span 900 kHz: one
   stick hears all four. A channel further away needs a stick of its own (below); the settings say so.
-- **Where it is tuned**: the agent picks the sample rate (the lowest that holds the channels, never
-  below the setting) and the centre, keeping every channel at least 20 kHz — 100 kHz when there is
-  room — from the DC spike at the centre, and off every other channel's *mirror image* (a zero-IF
-  tuner like the V2's FC0013 shows a faint copy of each signal at the opposite offset; a strong
-  burst's copy landing on another channel would be decoded there too). For the four channels above:
-  1.92 Msps around 151.85 MHz — the nearest channel 100 kHz from the spike, no image within 200 kHz.
-  The Overview shows both (a stick's details). One channel alone is tuned as before: a quarter of the rate away.
-- **What it costs**: a decoder thread per channel, each working through the whole slice, so a
-  channel's work goes with its stick's rate. On a Pi 4, roughly 20% of a core per channel at
-  960 ksps and 40–50% at 1.92 Msps, plus a second or so per burst decoded (from a PC, scaled;
-  [bench-test.md](bench-test.md) measures it). Four channels at 1.92 Msps take about half a Pi 4,
-  and can drop samples for a moment at start-up (a decoder may fall up to 20 s behind — a burst
-  decode holds it up for seconds — before its samples are dropped; what it reads late is timed
-  as it was heard); eight at 1.92 Msps — two sticks of four — are
-  more than it has (a base station did that: load 9, every channel dropping samples, most bursts
-  lost). Keep each stick's channels close together instead: within about 0.74 MHz of each other
-  they take 960 ksps, half the work. The same eight split low and high over two sticks
-  (151.425–151.5375 on one, 151.95–152.4625 on the other) brought that base station to a load of
-  about 4.5 with its screen dashboard on — the whole Pi, still: list only channels worth hearing.
-  A channel that hears bursts it cannot decode costs a decode attempt (a second or so) for each.
-  A Zero 2 W manages a few at 960 ksps — on one, list only the channels the site needs, since the
-  four together need 1.92 Msps. A decoder that cannot keep up drops samples and says so in the
-  log. At most 8 channels a stick; each uses ~30 MB.
+- **The window** — the stretch of the band a stick takes, as wide as its sample rate — is what a
+  stick costs the Pi. Every channel's decoder takes in the whole window and filters its own channel
+  out of it, so a channel is about three times the work in a 960 kHz window as in 240 kHz, and five
+  times in 1.92 MHz — and hears nothing better for it: the decoder works at 240 ksps whatever the
+  window (a test holds a 240 kHz and a 960 kHz window to the same readings at 10 dB over the
+  noise). So *Automatic* takes the **narrowest window that holds the stick's channels**, and the
+  settings offer:
+
+  | Window | Holds channels up to | A channel's decoding, between bursts |
+  |---|---|---|
+  | 240 kHz | 162 kHz apart | 1× |
+  | 960 kHz | 0.74 MHz | 3× |
+  | 1.2 MHz | 0.93 MHz | 3.7× |
+  | 1.44 MHz | 1.12 MHz — MegaNet's four channels | 4.1× |
+  | 1.92 MHz | 1.51 MHz | 5.1× |
+  | 2.4 MHz | 1.89 MHz | 6.3× |
+
+  (Each is an exact divisor of the stick's 28.8 MHz crystal and a multiple of the decoder's 240 ksps.
+  Nothing between 300 kHz and 900 kHz: the RTL2832U does not sample there.) A burst's decode — a
+  second or so on a Pi 4 — comes on top, the same at any window: on the bench Pi 4, two sticks of
+  two channels took 0.49 of a core in 960 kHz windows and 0.26 in 240 kHz, bursts and all. A window set by hand (Settings →
+  RTL-SDR, the stick's *Window*; `rpi-alert sdr 1 window 240k`) is exactly that one: wider to see
+  more of the band on the waterfall, or narrow to keep a stick light whatever it is given — a
+  channel that does not fit in it is not decoded, and the stick says so, and which window would
+  hold them all.
+- **Where it is tuned**: within its window, the centre that keeps every channel at least 20 kHz —
+  100 kHz when there is room — from the DC spike at the centre, and at least 20 kHz off every other
+  channel's *mirror image* (a zero-IF tuner like the V2's FC0013 shows a faint copy of each signal
+  at the opposite offset; a strong burst's copy landing on another channel would be decoded there
+  too). For the four channels above: a 1.44 MHz window around 151.85 MHz — the nearest channel
+  100 kHz from the spike, no image within 200 kHz. Adding or taking away a channel keeps the stick
+  where it is tuned whenever that still holds them all, so its other channels hear on without a
+  break. The Overview shows both (a stick's details). One channel alone is tuned as before: a quarter
+  of the window away.
+- **What it costs this Pi**: a couple of minutes after it starts, the agent measures what a channel
+  costs its own Pi at each window; and as it runs, how busy each decoder is (its thread's share of
+  the time spent working, bursts and all — the Overview's *Decoder busy*). **Settings → RTL-SDR**
+  puts the two together as channels are typed: each stick's window and what it will take of the Pi
+  in cores, each choice of window with its cost, which channel is the one that widens a stick
+  (*152.4 MHz is what makes this stick 1.44 MHz wide: without it the rest fit 960 kHz*), and the
+  whole Pi's decoding against its cores. A decoder that cannot keep up drops samples — bursts in
+  them are missed — and says so in the log, on the Overview and in the settings: a decoder may
+  fall up to 20 s behind (a burst decode holds it up for seconds) before its samples are dropped,
+  and what it reads late is timed as it was heard. At 18 Bateson (a Pi 4 with its kiosk on), eight
+  channels in two 1.92 MHz windows were more than it had — load 9, every channel dropping samples,
+  most bursts lost; the same eight split low and high over two sticks (151.425–151.5375 on one,
+  151.95–152.4625 on the other) in 960 kHz each brought it to about 4.5: keep each stick's channels
+  close together, and list only channels worth hearing. A channel that hears bursts it cannot decode
+  costs a decode attempt (a second or so) for each. A Zero 2 W manages a few channels in 240 kHz,
+  fewer in 960 kHz. At most 8 channels a stick; each uses ~30 MB.
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
   push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.
   Each channel gates on its own power, at the stick's squelch, and has a format of its own
@@ -87,8 +115,9 @@ station listens on all four of the channels MegaNet's stations use; change them 
 ### Several sticks
 
 Plug in as many as the Pi's CPU and USB power allow — each is a receiver of its own with its own
-decoder threads, so a Pi 4 runs a few at 960 ksps (two V4s draw about 0.6 A; use a powered hub
-beyond that). Give each its own channels under **Settings → RTL-SDR → Each stick** (or
+decoder threads, so a Pi 4 runs a few, each in the narrowest window its channels allow (two V4s draw
+about 0.6 A; use a powered hub beyond that). Give each its own channels under **Settings → RTL-SDR**
+(or
 `rpi-alert sdr 2 freq 151.525`), and one Pi listens to networks further apart than one stick can
 hear.
 

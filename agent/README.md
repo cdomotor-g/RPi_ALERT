@@ -17,7 +17,7 @@ lib/devices/sdr.js         rtl_sdr supervisor, one per stick, with its own setti
                            all from one stream;  sdr-worker.js: AlertDsp.Pipeline in a worker thread, one per channel
 lib/devices/alert2-air.js  ALERT2 off the air (AirLink 1.1): sync, clock, frames, MANT PDUs; alert2-fec.js its
                            Viterbi, Reed–Solomon and scrambler; alert2-readings.js the readings, timed and once each
-lib/devices/sdr-plan.js    where to tune a stick, and how fast, to hear all its channels (DC spike, mirror images)
+lib/devices/sdr-bench.js   what a channel costs this Pi at each window, measured once after the start
 lib/devices/rtl-index.js   which rtl_sdr -d opens which stick (serials shared; libusb's order; checked in /proc)
 lib/serial/port.js         a serial port with no native module (non-blocking fd + stty)
 lib/serial/scan.js         ports, USB ids and RTL-SDR sticks from sysfs
@@ -27,12 +27,14 @@ lib/remote.js              checking in with MegaNet's Base Stations tab: health 
 lib/access.js              SSH access: the alert account's keys (SD card, GitHub, MegaNet), run as root by bin/rpi-alert-access
 lib/clock.js               is the time trustworthy (NTP, GPS); monotonic holding
 lib/state.js               receiver ids, what each port was, and every RTL-SDR stick seen (by model, serial and USB port)
-lib/stations.js            MegaNet's register, for names
+lib/stations.js            MegaNet's register, for names — and the frequencies its stations use, to offer a stick
 lib/recorder.js            recordings: every burst on chosen channels kept as 240 ksps IQ (.iq8 + .json), newest first
 lib/audio.js               live SDR audio, re-synthesised bursts, beeps — via aplay
 lib/bootconf.js            /boot/firmware/rpi-alert.conf
 lib/web/server.js, web/    the dashboard, API and SSE; web/qr.js draws QR codes (page and CLI); web/channels.js reads
-                           and writes channel lists ("151.5, 152.4 EIF": page, CLI and the boot-partition file)
+                           and writes channel lists ("151.5, 152.4 EIF": page, CLI and the boot-partition file);
+                           web/sdr-plan.js picks a stick's window and where to tune (DC spike, mirror images) for
+                           the agent and for the page as channels are typed; web/sdr-settings.js, Settings → RTL-SDR
 ```
 
 ## Running it on a development machine

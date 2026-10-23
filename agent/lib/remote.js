@@ -211,14 +211,18 @@ function receiverOf(d) {
     Object.assign(r, { enabled: d.enabled !== false, freq_hz: d.freqHz, format: d.format, gain_db: d.gainDb, ppm: d.ppm || 0, squelch_db: d.squelchDb,
       bias_tee: !!d.biasTee, sample_rate: d.sampleRate, model: d.model || d.tuner || null, serial: d.device.serial || null,
       usb_port: d.device.port || null, own: d.own, last_seen: d.lastSeen || null,
-      // Whether the Pi keeps up: the rate arriving, and what its decoders have had to drop.
-      rate_ksps: d.rateKsps || 0, dropped_mb: mb(d.counts && d.counts.dropped) });
+      // Whether the Pi keeps up: the rate arriving, what its decoders have had
+      // to drop, and how busy they are (cores of the Pi; the busiest one, 0–1).
+      rate_ksps: d.rateKsps || 0, dropped_mb: mb(d.counts && d.counts.dropped),
+      window: d.tune ? { auto: d.tune.auto, needs: d.tune.needs || null } : null,
+      load: d.load ? { cores: d.load.cores, most: d.load.most } : null });
     // A stick hearing more than one channel: each, its own first.
     if (Array.isArray(d.channels) && d.channels.length > 1) {
       r.channels = d.channels.map(ch => {
         const n = ch.counts || {};
         return { freq_hz: ch.freqHz, format: ch.format, in_band: ch.inBand !== false, decoded: n.decodes || 0, undecoded: n.undecoded || 0,
-          alert2: n.alert2 || 0, alert2_bad: n.alert2Bad || 0, dropped_mb: mb(n.dropped), point: ch.pointId || null };
+          alert2: n.alert2 || 0, alert2_bad: n.alert2Bad || 0, dropped_mb: mb(n.dropped), point: ch.pointId || null,
+          why: ch.why || undefined, busy: ch.busy != null ? ch.busy : undefined };
       });
     }
   } else {

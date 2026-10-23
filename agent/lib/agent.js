@@ -32,6 +32,8 @@ const { Stations } = require('./stations');
 const { Audio } = require('./audio');
 const { DeviceManager } = require('./devices/manager');
 const { board } = require('./serial/scan');
+const sdrBench = require('./devices/sdr-bench');
+const { width } = require('../web/sdr-plan');
 const system = require('./system');
 const webpw = require('./web-password');
 const pkg = require('../package.json');
@@ -40,6 +42,9 @@ const RECENT = 500;
 // Enough for the dashboard's half hour on a busy stick with four channels.
 const BURSTS = 2000;
 const KIOSK_MIN_MB = 900;
+// Measuring what a channel costs (sdr-bench.js) waits this long after the
+// start, for the decoders and the page to settle.
+const BENCH_AFTER_MS = 90 * 1000;
 
 class Agent extends EventEmitter {
   constructor(opts) {
@@ -77,6 +82,7 @@ class Agent extends EventEmitter {
     this.startedAt = Date.now();
     this.kiosk = { running: null, display: false, lastAction: 0, error: '' };
     this.timers = [];
+    this.sdrCost = null;        // what a channel's decoder costs this Pi at each window (lib/devices/sdr-bench.js)
   }
 
   start() {
@@ -111,6 +117,7 @@ class Agent extends EventEmitter {
     });
     this.timers.push(setInterval(() => this.kioskCheck(false), 5000));
     this.timers.push(setInterval(() => this.emit('tick'), 2000));
+    this.measureSdr(BENCH_AFTER_MS);
     this.watchdog();
     setTimeout(() => this.kioskCheck(false), 3000);
     return this;
@@ -131,6 +138,22 @@ class Agent extends EventEmitter {
   }
 
   baseName() { return this.config.get().name || 'RPi ALERT ' + os.hostname(); }
+
+  // What a channel's decoder costs this Pi at each window, measured once a
+  // stick is plugged in and the agent has settled — for the settings page to
+  // say what a stick's channels will take before they are saved.
+  measureSdr(ms) {
+    const t = setTimeout(() => {
+      if (![...this.devices.sdrs.values()].some(s => s.state !== 'unplugged')) return this.measureSdr(60000);
+      sdrBench.measure().then((r) => {
+        this.sdrCost = r;
+        const per = Object.entries(r.perChannel).map(([rate, v]) => width(Number(rate)) + ' ' + Math.round(v * 100) + ' %').join(', ');
+        this.log.info('a channel\'s decoder costs this Pi, at each window: ' + per + ' of a core (between bursts)');
+      }).catch((e) => this.log.warn('could not measure what a channel costs this Pi: ' + e.message));
+    }, ms);
+    t.unref?.();
+    this.timers.push(t);
+  }
 
   // ── from the devices ──────────────────────────────────────────────────────
 
@@ -343,6 +366,7 @@ class Agent extends EventEmitter {
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
       remote: this.remote.statusForPage(),
       survey: this.surveyBrief(), hotspot: this.hotspot.status(false), recordings: this.recorder.status(),
+      sdrCost: this.sdrCost,
     };
   }
 

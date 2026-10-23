@@ -23,8 +23,8 @@ itself after an unplug or a power cut.
 |---|---|
 | **Receivers** | **RTL-SDR** sticks (Blog V2, V3, V4, any RTL2832U) decoding off the air · **Quansheng** UV-K5 V3 / UV-K1 on the [ALERT receiver firmware](https://github.com/cdomotor-g/quansheng_alert_v3) (USB-C, schema 2) and the older [DP32G030 firmware](https://github.com/cdomotor-g/quansheng_alert) (programming cable, 38400) · **ELPRO ERT-A2** (RS-232 ALERT2 ASCII at 9600, or its USB binary framing) · any **NMEA GPS** |
 | **ALERT and ALERT2** | Each device is recognised from what it sends and every reading is tagged with its protocol: legacy **ALERT** (300-baud AFSK — ALERT Binary, Enhanced iFLOWS, ASCII) from SDRs and radios, **ALERT2** from the ERT-A2 — and off the air from the same SDR sticks: a burst none of the legacy formats reads is tried as an ALERT2 AirLink frame (4800 bps), so one stick hears both protocols on any channel. |
-| **Several channels on one stick** | A stick hears a whole slice of the band at once, and every ALERT channel in it is decoded at the same time — each with its own decoder thread, and each a receiver of its own in MegaNet. The channels MegaNet's stations use (151.500, 151.525, 151.950 and 152.400 MHz) fit one stick, and a new base station listens on all four by default — list fewer, or others, for a site that needs them. The agent picks the sample rate and where to tune so that the DC spike and a zero-IF tuner's mirror images stay off every channel. |
-| **Several sticks** | Each RTL-SDR stick can have its own channels, format, gain, ppm and bias tee — for networks further apart than one stick hears (about 1.9 MHz). Sticks that share a serial number, as most do, are told apart by their USB port, and each `rtl_sdr` is checked to have opened its own stick. Plugging in another stick never renames or restarts the ones running; an unplugged one stays listed until you remove it. |
+| **Several channels on one stick** | A stick hears a whole slice of the band at once, and every ALERT channel in it is decoded at the same time — each with its own decoder thread, and each a receiver of its own in MegaNet. The channels MegaNet's stations use (151.500, 151.525, 151.950 and 152.400 MHz) fit one stick, and a new base station listens on all four by default — list fewer, or others, for a site that needs them. The agent takes the narrowest window — the sample rate — that holds a stick's channels, since every channel's decoder works through the whole of it (a channel in 960 kHz is three times the work of one in 240 kHz, and hears no better), and tunes so that the DC spike and a zero-IF tuner's mirror images stay off every channel. A window set by hand is kept exactly: wider for the waterfall, or narrow to keep a stick light. |
+| **Several sticks** | Each RTL-SDR stick can have its own channels, window, format, gain, ppm and bias tee — for networks further apart than one stick hears (about 1.9 MHz). The settings page picks a stick's channels from the frequencies MegaNet's stations use, those near the Pi first, and shows, as they are typed, the window each stick will take and what it will cost this Pi — from what the agent measures a channel costs it at each window, and how busy each decoder is. Sticks that share a serial number, as most do, are told apart by their USB port, and each `rtl_sdr` is checked to have opened its own stick. Plugging in another stick never renames or restarts the ones running; an unplugged one stays listed until you remove it. |
 | **Graphs** | One page to scroll — on the Pi's own screen or any browser: every stick's slice on one spectrum and one waterfall, each stick in its own colour with its channels marked (point at either for the frequency, the level and the channel); then each receiver — each channel of a stick — with its own chart of what it heard, under one chart of every receiver together: the last half hour burst by burst, or 6 or 24 hours a bar every few minutes. Up top, the Pi's temperature, load and memory; further down, the stations heard most. The Receivers page draws each channel's noise floor over the day, and a spectrum with a frequency axis over a waterfall. A day is kept on the card, through restarts. |
 | **Tuning help, and transmitter drift** | Each stick's card measures the carrier offset of every burst it decodes and, across the stations it hears, works out the stick's own frequency error — then suggests the ppm to set, and the gain that stops bursts saturating (or makes room for weak ones), each a button press away. Each offset also goes to MegaNet with its reception — a repeater's copy of a reading too — where Station Health measures every station's and repeater's transmitter against the rest and says which is drifting. [docs/configuration.md](docs/configuration.md) |
 | **Same decoders as MegaNet** | The Pi runs MegaNet's own `alert-dsp.js`, `quansheng.js`, `alert2.js` and `serial-gps.js` (vendored verbatim), so a burst decodes on the Pi exactly as it does on floodwarning.net. ALERT2 off the air is the Pi's own (`alert2-air.js`): MegaNet has no AirLink decoder yet. |
@@ -73,10 +73,10 @@ with a key you gave it on the set-up page. Details: [docs/install.md](docs/insta
 
 | Pi | Image | RTL-SDR decoding | Screen dashboard | Audio jack |
 |---|---|---|---|---|
-| 5, 500, CM5 | 64-bit | ✓ (960 ksps) | ✓ | — use HDMI or USB audio |
-| **4, 400, CM4** (recommended) | 64-bit | ✓ (960 ksps) | ✓ | ✓ |
-| 3, 3+, CM3 | 64-bit | ✓ (960 ksps) | ✓ (1 GB) | ✓ |
-| Zero 2 W | 64-bit | ✓ (240 ksps) | — (512 MB) | — USB audio |
+| 5, 500, CM5 | 64-bit | ✓ several sticks | ✓ | — use HDMI or USB audio |
+| **4, 400, CM4** (recommended) | 64-bit | ✓ a few sticks | ✓ | ✓ |
+| 3, 3+, CM3 | 64-bit | ✓ | ✓ (1 GB) | ✓ |
+| Zero 2 W | 64-bit | ✓ a few channels, close together | — (512 MB) | — USB audio |
 | 1, 2, Zero, Zero W | 32-bit | — too slow; radios and ERT-A2 only | — | Pi 1/2 ✓ |
 
 Hardware notes, including the RTL-SDR V4 and power supplies: [docs/hardware.md](docs/hardware.md).
@@ -106,7 +106,7 @@ docs/             install, configuration, remote management, SSH access, hardwar
 
 ```sh
 cd agent
-node --test test/*.test.js       # 119 tests; the pty and serial end-to-end ones need socat, one sshd
+node --test test/*.test.js       # 170 tests; the pty and serial end-to-end ones need socat, one sshd
 scripts/simulate.sh [sticks]     # a simulated base station on http://localhost:8099/ (1–4 RTL-SDR sticks)
 scripts/simulate.sh --channels   # …with the first stick on the air on four channels at once
 ```

@@ -12,7 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const Channels = require('../web/channels');
-const P = require('../lib/devices/sdr-plan');
+const P = require('../web/sdr-plan');
 const { AlertDsp } = require('../lib/meganet-codecs');
 const { Config } = require('../lib/config');
 const boot = require('../lib/bootconf');
@@ -53,61 +53,92 @@ test('channel lists: as people write them, and back', () => {
   assert.deepEqual(Channels.parse(Channels.text(list, 'BINARY')).channels, list, 'round trip');
 });
 
-test('tuning: one channel as it always was; several share one slice, off the DC spike and each other\'s mirror images', () => {
-  assert.deepEqual(P.RATES, AlertDsp.DEVICE_RATES, 'the decoder\'s own rates');
-  // One channel: a quarter of the rate below it, as rtl_sdr was always told.
-  let p = P.plan(MHz(151.5), { baseRate: 960000 });
-  assert.deepEqual([p.sampleRate, p.centerHz, p.channels[0].offsetHz, p.raised], [960000, 151260000, 240000, false]);
-  p = P.plan(MHz(151.5), { sampleRate: 240000, baseRate: 960000, offsetHz: 50000 });
-  assert.deepEqual([p.sampleRate, p.centerHz], [240000, 151450000]);
-  // The four networks' channels: 1.92 Msps holds them, raised from the Pi's 960k.
-  p = P.plan(MHz(...NETS), { baseRate: 960000 });
+test('tuning: the narrowest window that holds the channels, or exactly the one set — off the DC spike and each other\'s mirror images', () => {
+  // Every window one the decoder divides exactly and the RTL2832U makes from
+  // its 28.8 MHz, in its valid bands; MegaNet's SDR card's are among them.
+  for (const r of P.RATES) {
+    assert.equal(r % AlertDsp.FS_IN, 0, r + ': a multiple of the decoder\'s 240 ksps');
+    assert.equal(28800000 % r, 0, r + ': a divisor of the crystal');
+    assert.ok((r > 225000 && r <= 300000) || (r > 900000 && r <= 3200000), r + ': a rate the RTL2832U takes');
+  }
+  for (const r of AlertDsp.DEVICE_RATES) assert.ok(P.RATES.includes(r), r + ': one of MegaNet\'s');
+  // One channel: a quarter of the window below it, as rtl_sdr was always
+  // told — in the lightest window, unless one is set.
+  let p = P.plan(MHz(151.5));
+  assert.deepEqual([p.sampleRate, p.centerHz, p.channels[0].offsetHz, p.auto, p.needs], [240000, 151440000, 60000, true, 240000]);
+  p = P.plan(MHz(151.5), { sampleRate: 960000, offsetHz: 50000 });
+  assert.deepEqual([p.sampleRate, p.centerHz, p.auto, p.lowHz, p.highHz], [960000, 151450000, false, 150970000, 151930000]);
+  // The four networks' channels: a 1.44 MHz window holds them — a fifth less
+  // work than the 1.92 MHz they took before there was one.
+  p = P.plan(MHz(...NETS));
   holds(p, 'four networks');
-  assert.equal(p.sampleRate, 1920000);
-  assert.equal(p.raised, true);
+  assert.deepEqual([p.sampleRate, p.needs], [1440000, 1440000]);
   assert.ok(p.channels.every(c => c.inBand));
-  assert.ok(p.dcHz >= P.DC_GOOD && p.mirrorHz >= P.MIRROR_GOOD, 'clear of the spike and of every mirror: ' + p.dcHz + ', ' + p.mirrorHz);
   const o = p.channels.map(c => c.offsetHz);
   for (let i = 0; i < o.length; i++) for (let j = i + 1; j < o.length; j++) assert.ok(Math.abs(o[i] + o[j]) >= P.MIRROR_GOOD, 'no channel on another\'s image');
-  // Two channels 25 kHz apart fit a Zero 2 W's 240 ksps; a rate set higher is kept.
-  p = P.plan(MHz(151.5, 151.525), { baseRate: 240000 });
-  holds(p, 'two at 240k');
-  assert.equal(p.sampleRate, 240000);
-  assert.equal(P.plan(MHz(151.5, 151.525), { sampleRate: 2400000, baseRate: 240000 }).sampleRate, 2400000);
-  // 37.5 kHz apart: automatic, a Pi 4 takes 960 ksps for the room from the
-  // spike; 240 ksps set by hand is kept, since they clear the hard limits.
-  p = P.plan(MHz(151.5375, 151.575), { baseRate: 960000 });
-  assert.equal(p.sampleRate, 960000);
-  p = P.plan(MHz(151.5375, 151.575), { sampleRate: 240000, baseRate: 960000 });
-  holds(p, '37.5 kHz apart at 240k');
-  assert.deepEqual([p.sampleRate, p.raised], [240000, false]);
-  assert.ok(p.dcHz >= P.DC_MIN && p.dcHz < P.DC_GOOD && p.mirrorHz >= P.MIRROR_GOOD, p.dcHz + ', ' + p.mirrorHz);
+  // Close channels fit the lightest window, clear of the spike and of every
+  // image: 25 kHz apart, 37.5, 75 (each would sit on the other's image at
+  // most centres), three 100 kHz across.
+  for (const set of [[151.5, 151.525], [151.5375, 151.575], [151.5, 151.575], [151.5, 151.525, 151.6], [151.5375, 151.55, 151.575]]) {
+    p = P.plan(MHz(...set));
+    holds(p, set.join(', '));
+    assert.equal(p.sampleRate, 240000, set.join(', '));
+    assert.ok(p.dcHz >= P.DC_MIN && p.mirrorHz >= P.MIRROR_GOOD, set.join(', ') + ': ' + p.dcHz + ', ' + p.mirrorHz);
+    assert.ok(p.channels.every(c => c.inBand));
+  }
+  // A window set wider than the channels need is kept: a broader view.
+  p = P.plan(MHz(151.5, 151.525), { sampleRate: 2400000 });
+  holds(p, 'wider than needed');
+  assert.deepEqual([p.sampleRate, p.needs, p.auto], [2400000, 240000, false]);
   assert.ok(p.channels.every(c => c.inBand));
-  // …but not past them: 75 kHz apart with a mirror on each other at 240k, so
-  // the rate set by hand is raised to the first that clears it.
-  p = P.plan(MHz(151.5, 151.575), { sampleRate: 240000, baseRate: 960000 });
-  assert.equal(p.sampleRate, 960000);
-  assert.equal(p.raised, true);
+  // A window set narrower is kept too — a stick kept light whatever it is
+  // given: its own channel, then the nearest that fit; the rest say why, and
+  // what would hold them all.
+  p = P.plan(MHz(151.5, 151.525, 151.335), { sampleRate: 240000 });
+  holds(p, 'kept light');
+  assert.deepEqual(p.channels.map(c => [c.inBand, c.why]), [[true, undefined], [true, undefined], [false, 'outside']]);
+  assert.deepEqual([p.sampleRate, p.needs, P.load(p)], [240000, 960000, 2]);
+  assert.equal(P.load(P.plan(MHz(151.5, 151.525, 151.335))), 9, 'all three heard: in 960 kHz, three times the work each');
+  assert.equal(P.load(p, { 240000: 0.06 }), 0.12, 'in cores, as this Pi measured a channel');
   // Channels written twice (two formats — refused by the settings, but a
   // hand-edited file may have them) are one frequency to the tuner.
-  p = P.plan([{ freqHz: 151500000, format: 'BINARY' }, { freqHz: 151500000, format: 'ENHANCED_IFLOWS' }], { baseRate: 960000 });
-  assert.deepEqual(p.channels.map(c => c.offsetHz), [240000, 240000]);
-  // Any channels within 1.5 MHz of each other fit, whatever they are.
+  p = P.plan([{ freqHz: 151500000, format: 'BINARY' }, { freqHz: 151500000, format: 'ENHANCED_IFLOWS' }]);
+  assert.deepEqual(p.channels.map(c => c.offsetHz), [60000, 60000]);
+  // Any channels within 1.5 MHz of each other fit, whatever they are; and in
+  // no window narrower than the one taken.
   let seed = 7;
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   for (let n = 0; n < 150; n++) {
     const k = 2 + Math.floor(rnd() * 7);
     const set = Array.from({ length: k }, () => 150.5 + Math.round(rnd() * 120) * 0.0125);
-    p = P.plan(MHz(...set), { baseRate: rnd() < 0.5 ? 240000 : 960000 });
+    p = P.plan(MHz(...set));
     holds(p, set.join(', '));
     assert.ok(p.channels.every(c => c.inBand), set.join(', ') + ' all heard');
+    const narrower = P.RATES.filter(r => r < p.sampleRate);
+    if (narrower.length) assert.ok(P.plan(MHz(...set), { sampleRate: narrower[narrower.length - 1] }).channels.some(c => !c.inBand), set.join(', ') + ': the narrowest');
   }
   // Only a channel stuck on the DC spike in the middle of the widest span is
   // left out — never the stick's own.
-  p = P.plan(MHz(151.5, 152.445, 153.39), { baseRate: 960000 });
+  p = P.plan(MHz(151.5, 152.445, 153.39));
   holds(p, 'widest span');
-  assert.equal(p.channels[0].inBand, true);
-  assert.deepEqual(p.channels.map(c => c.inBand), [true, true, false]);
+  assert.deepEqual(p.channels.map(c => [c.inBand, c.why]), [[true, undefined], [true, undefined], [false, 'spike']]);
+  assert.equal(p.needs, null);
+  // Where the stick is tuned is kept while it holds every channel in the
+  // window they need: a channel added or taken away retunes nothing.
+  const at = P.plan(MHz(151.5, 151.525, 151.6));
+  p = P.plan(MHz(151.5, 151.525), { prefer: at });
+  holds(p, 'one taken away');
+  assert.deepEqual([p.sampleRate, p.centerHz], [at.sampleRate, at.centerHz]);
+  assert.notEqual(P.plan(MHz(151.5, 151.525)).centerHz, at.centerHz, '…where, from scratch, it would tune elsewhere');
+  const two = P.plan(MHz(151.5, 151.525));
+  p = P.plan(MHz(151.5, 151.525, 151.414), { prefer: two });
+  holds(p, 'one added');
+  assert.deepEqual([p.sampleRate, p.centerHz], [two.sampleRate, two.centerHz]);
+  assert.notEqual(P.plan(MHz(151.5, 151.525, 151.414)).centerHz, two.centerHz);
+  p = P.plan(MHz(151.5, 151.525), { prefer: P.plan(MHz(...NETS)) });
+  assert.equal(p.sampleRate, 240000, 'but never kept wider than the channels need');
+  p = P.plan(MHz(151.5, 151.525), { prefer: { sampleRate: 240000, centerHz: 151510000 } });
+  assert.ok(p.dcHz >= P.DC_MIN, 'nor somewhere that breaks a limit');
 });
 
 test('settings: more channels are checked one by one, and together', () => {
@@ -164,9 +195,9 @@ test('a new base station hears all of MegaNet\'s channels, and keeps them when o
   const freqs = (list) => list.map(m => m.freqHz / 1e6);
   assert.deepEqual([sd().freqHz / 1e6].concat(freqs(sd().moreChannels)), NETS);
   assert.ok(sd().moreChannels.every(m => m.format === undefined), 'each in the stick\'s format');
-  let p = P.plan(MHz(...NETS), { baseRate: 960000 });
+  let p = P.plan(MHz(...NETS));
   holds(p, 'the defaults');
-  assert.equal(p.sampleRate, 1920000);
+  assert.equal(p.sampleRate, 1440000);
   assert.ok(p.channels.every(ch => ch.inBand));
   assert.equal(new Config(path.join(tmp('rpa-ch-'), 'config.json')).load().loadError, null);
   // MegaNet's Base Stations tab sets a frequency alone: the channel it moved
@@ -216,23 +247,23 @@ test('a stick\'s channels: each a receiver with its own name, receiver id and de
   const s = new SdrSession(agent, st);
   const id = s.point.pointId;
   assert.deepEqual(s.channels.map(ch => [ch.name(), ch.key, ch.point.pointId]), [['RTL-SDR', st.key, id]]);
-  assert.equal(s.tunerKey(s.cfg()), '-d  -f 151260000 -s 960000 -g 29.7 -b 65536 -', 'what rtl_sdr was always told');
+  assert.equal(s.tunerKey(s.cfg()), '-d  -f 151440000 -s 240000 -g 29.7 -b 16384 -', 'what rtl_sdr was always told, in the lightest window');
   s.attach();
   assert.deepEqual(attached, [id]);
   // Four: one rtl_sdr around them all, a decoder each at its own offset.
   config.update({ receivers: { sdr: { moreChannels: [{ freqHz: 151525000 }, { freqHz: 151950000, format: 'ENHANCED_IFLOWS' }, { freqHz: 152400000 }] } } });
   s.syncChannels(s.cfg());
   const c = s.cfg();
-  assert.equal(c.sampleRate, 1920000);
+  assert.equal(c.sampleRate, 1440000);
   assert.deepEqual(s.channels.map(ch => ch.name()), ['RTL-SDR · 151.500', 'RTL-SDR · 151.525', 'RTL-SDR · 151.950', 'RTL-SDR · 152.400']);
   assert.deepEqual(s.channels.map(ch => ch.point.pointId), [id, id + '-151.525', id + '-151.950', id + '-152.400']);
   assert.ok(s.channels.every(ch => /^[a-z0-9][a-z0-9._-]{2,63}$/.test(ch.point.pointId)), 'MegaNet\'s receiver id shape (0045)');
   assert.deepEqual(attached, [id, id + '-151.525', id + '-151.950', id + '-152.400'], 'each registered with MegaNet');
   assert.deepEqual(s.channels.map(ch => s.dspCfg(c, ch.spec)).map(d => [d.deviceRate, d.channelOffsetHz, d.format]),
-    NETS.map((f, i) => [1920000, Math.round(f * 1e6) - c.centerHz, i === 2 ? 'ENHANCED_IFLOWS' : 'BINARY']));
-  assert.match(s.tunerKey(c), new RegExp('-f ' + c.centerHz + ' -s 1920000 '));
+    NETS.map((f, i) => [1440000, Math.round(f * 1e6) - c.centerHz, i === 2 ? 'ENHANCED_IFLOWS' : 'BINARY']));
+  assert.match(s.tunerKey(c), new RegExp('-f ' + c.centerHz + ' -s 1440000 '));
   assert.equal(s.status().channels.length, 4);
-  assert.deepEqual(s.channels[2].detail(), { via: 'USB', freq_mhz: 151.95, format: 'ENHANCED_IFLOWS', sample_rate: 1920000, channel: 3, channels: 4,
+  assert.deepEqual(s.channels[2].detail(), { via: 'USB', freq_mhz: 151.95, format: 'ENHANCED_IFLOWS', sample_rate: 1440000, channel: 3, channels: 4,
     center_mhz: +(c.centerHz / 1e6).toFixed(4), serial: '00000001', usb_port: '1-1.3' });
   // A format changed is the decoder's business, not the tuner's.
   const tuned = s.tunerKey(c), kept = s.channels.slice();
@@ -296,8 +327,11 @@ test('one stick, four channels at once: each decoded on its own channel and post
   assert.ok(await until(async () => { const h = await heard(); return want.every(w => h.includes(w)); }, 60000), 'all four, each on its own channel:\n' + (await heard()).join(' ') + '\n' + log.slice(-3000));
   for (const h of await heard()) assert.ok(want.includes(h), 'each heard on its own channel only, and nothing else: ' + h);
   let d = await stick();
-  assert.deepEqual([d.state, d.sampleRate, d.channels.length, d.channels.every(c => c.state === 'running')], ['running', 1920000, 4, true]);
-  assert.match(log, /4 channels: 151\.500 ABF, 151\.525 ABF, 151\.950 EIF, 152\.400 ABF MHz; 1920 ksps to hold them all/);
+  assert.deepEqual([d.state, d.sampleRate, d.channels.length, d.channels.every(c => c.state === 'running')], ['running', 1440000, 4, true]);
+  assert.match(log, /4 channels: 151\.500 ABF, 151\.525 ABF, 151\.950 EIF, 152\.400 ABF MHz; 1\.44 MHz, the narrowest window that holds them/);
+  // How busy each decoder is — what the stick costs this Pi, in cores.
+  assert.ok(await until(async () => { const s = await stick(); return s.load && s.load.decoders === 4 && s.load.cores > 0 && s.channels.every(c => c.busy > 0 && c.busy < 1); }, 10000),
+    'each decoder\'s load: ' + JSON.stringify((await stick()).load));
   assert.ok(await until(() => ['2088@sdr1', '2443@sdr1-151.525', '4079@sdr1-151.950', '6129@sdr1-152.400'].every(x => posted().includes(x)), 20000), 'MegaNet has each by its receiver: ' + posted().join(' '));
   // …each saying the frequency its channel heard it on, and its level and SNR
   // (MegaNet 0050) — the stick's own channel too, whose receiver id has no
@@ -340,4 +374,25 @@ test('one stick, four channels at once: each decoded on its own channel and post
   r = await put({ receivers: { sdr: { moreChannels: [{ freqHz: 154000000 }] } } });
   assert.equal(r.status, 400);
   assert.match(r.body.error, /2\.50 MHz apart/);
+});
+
+test('a narrow window hears a channel as well as a wide one: the decoder works at 240 ksps whatever the window', () => {
+  // The same bursts — each a new reading — at 10 dB over the noise, in the
+  // lightest window and a wider one, at the offset the plan gives the channel.
+  const chans = MHz(151.5, 151.525);
+  const heard = {};
+  for (const rate of [240000, 960000]) {
+    const off = P.plan(chans, { sampleRate: rate }).channels[0].offsetHz;
+    const bursts = Array.from({ length: 6 }, (_, k) => ({ startSec: 1 + k * 1.6, frames: [AlertDsp.encodeFrame(AlertDsp.BINARY, 2000 + k, 100 + k)], cfoHz: off + 300, amp: 40, polarity: 'NEG' }));
+    const u8 = AlertDsp.synthIq({ fs: rate, seconds: 11, snrDb: 10, seed: 3, bursts });
+    const got = new Set();
+    const pipe = new AlertDsp.Pipeline((m) => { if (m.type === 'decode') for (const r of m.readings) got.add(r.sensorId + '=' + r.value); });
+    pipe.configure({ deviceRate: rate, channelOffsetHz: off, specHz: 1, scopeHz: 1 });
+    const chunk = rate >= 900000 ? 65536 : 16384;
+    for (let i = 0; i < u8.length; i += chunk) pipe.feed(u8.subarray(i, i + chunk));
+    pipe.feed(new Uint8Array(rate * 2).fill(127));
+    heard[rate] = [...got].sort();
+  }
+  assert.equal(heard[240000].length, 6, 'every burst in 240 kHz: ' + heard[240000]);
+  assert.deepEqual(heard[240000], heard[960000], 'the same readings in 960 kHz');
 });

@@ -39,7 +39,7 @@ request_token = yes
 
 # ── RTL-SDR ─────────────────────────────────────────────────────────────────
 # For every stick. With several sticks, each can have channels of its own once
-# it has been plugged in: the web page (Settings → RTL-SDR → Each stick), or
+# it has been plugged in: the web page (Settings → RTL-SDR), or
 # `rpi-alert sdr 2 freq 151.525` over SSH.
 #sdr_frequency_mhz = 151.5
 # One stick hears several channels at once when they are within about 1.9 MHz
@@ -53,6 +53,10 @@ request_token = yes
 # A number in dB, or auto
 #sdr_gain_db = 29.7
 #sdr_ppm = 0
+# The window a stick takes: auto (the narrowest that holds its channels — every
+# channel's decoder works through the whole of it), or exactly 240000, 960000,
+# 1200000, 1440000, 1920000 or 2400000 (a channel outside it is not decoded)
+#sdr_sample_rate = auto
 # 4.5 V on the antenna socket, for an LNA that wants it
 #sdr_bias_tee = no
 

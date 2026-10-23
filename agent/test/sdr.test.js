@@ -197,3 +197,12 @@ test('a stick\'s settings: its own over the shared ones; only tuner changes rest
   assert.deepEqual([a.cfg().freqHz, b.cfg().freqHz, b.cfg().ppm], [151525000, 151500000, 4]);
   assert.deepEqual(b.status().own, ['ppm']);
 });
+
+test('what a channel costs this Pi at each window: measured, and more the wider the window', async () => {
+  const { measure } = require('../lib/devices/sdr-bench');
+  const r = await measure([240000, 960000, 2400000]);
+  const c = r.perChannel;
+  assert.deepEqual(Object.keys(c).map(Number), [240000, 960000, 2400000]);
+  assert.ok(c[240000] > 0 && c[240000] < c[960000] && c[960000] < c[2400000], JSON.stringify(c));
+  assert.ok(r.ms > 0 && r.at <= Date.now());
+});

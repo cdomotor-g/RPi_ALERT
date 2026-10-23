@@ -18,7 +18,8 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const logm = require('../log');
-const { hashPassword, checkPassword } = require('../config');
+const { hashPassword, checkPassword, ALERT_CHANNELS_HZ } = require('../config');
+const { NEAR_KM } = require('../stations');
 const webpw = require('../web-password');
 const system = require('../system');
 
@@ -201,6 +202,12 @@ class WebServer {
     if (needAuth()) return;
 
     if (p === '/api/config' && req.method === 'GET') return this.json(res, 200, { config: a.config.redacted(), board: a.board });
+    // The channels to offer a stick: the frequencies MegaNet's stations use,
+    // those near this receiver first; and MegaNet's four, should the station
+    // register not have come yet.
+    if (p === '/api/sdr/frequencies' && req.method === 'GET') {
+      return this.json(res, 200, { frequencies: a.stations.frequencies(a.location()), register: a.stations.status(), standard: ALERT_CHANNELS_HZ, nearKm: NEAR_KM });
+    }
     if (p === '/api/config' && (req.method === 'PUT' || req.method === 'POST')) return this.saveConfig(req, res, body);
     if (p === '/api/log') return this.json(res, 200, { lines: logm.recent(Number(url.searchParams.get('n')) || 200) });
     // Bursts kept as IQ (lib/recorder.js): the list, one file to download, and deleting them.

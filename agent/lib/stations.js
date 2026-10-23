@@ -11,11 +11,18 @@
 // ALERT addresses are unique only within a region — hundreds are carried by
 // more than one station — so a lookup returns every candidate, nearest first
 // when the receiver's location is known.
+//
+// And the frequencies the stations use — each repeater's own RX/TX pair, and
+// every other pair a station lists (its `frequencies`, MegaNet 0033) — for the
+// settings page to offer a stick's channels from: which stations transmit on
+// each and which listen on it (a field station transmits on its repeater's
+// RX), what it is for, and how near.
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const REFRESH_MS = 24 * 60 * 60 * 1000;
+const NEAR_KM = 150;         // "near" a receiver, for the frequencies it is offered: a long VHF path
 
 function kindOf(type) {
   const t = String(type || '').toLowerCase();
@@ -32,11 +39,23 @@ function km(aLat, aLon, bLat, bLon) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 
-// stations.json → { byAid: { aid: [[stationIndex, kind], …] }, stations: [{ id, name, number, lat, lon }] }
+// The index's shape: an older one is fetched again at once.
+const INDEX_V = 2;
+
+// stations.json → { v, byAid: { aid: [[stationIndex, kind], …] }, stations: [{ id, name, number, lat, lon }],
+//   freqs: [[hz, [tx stationIndex…], [rx stationIndex…], [label…]]] }
 function buildIndex(doc) {
   const list = Array.isArray(doc && doc.stations) ? doc.stations : [];
   const stations = [];
   const byAid = {};
+  const freqs = new Map();
+  const use = (mhz, side, idx, label) => {
+    const hz = Math.round(Number(mhz) * 1e6);
+    if (!(hz >= 24e6 && hz <= 1766e6)) return;
+    const f = freqs.get(hz) || freqs.set(hz, { tx: new Set(), rx: new Set(), labels: new Set() }).get(hz);
+    f[side].add(idx);
+    if (label) f.labels.add(String(label).slice(0, 60));
+  };
   list.forEach(st => {
     const kinds = new Map();
     for (const s of st.sensors || []) if (Number.isInteger(s.alert_id) && s.alert_id > 0) {
@@ -50,8 +69,17 @@ function buildIndex(doc) {
     const idx = stations.length;
     stations.push({ id: st.id, name: st.name || st.id, number: st.station_number || '', lat: st.lat ?? null, lon: st.lon ?? null });
     for (const [aid, k] of kinds) (byAid[aid] = byAid[aid] || []).push([idx, k]);
+    const pairs = (st.repeater ? [st.repeater] : []).concat(Array.isArray(st.frequencies) ? st.frequencies : []);
+    for (const p of pairs) {
+      if (!p || typeof p !== 'object') continue;
+      // A pair's label says what it is for when something is sent on it; on a
+      // pair only listened to it is a note about the listening.
+      if (p.tx_mhz != null) use(p.tx_mhz, 'tx', idx, p.label);
+      if (p.rx_mhz != null) use(p.rx_mhz, 'rx', idx, p.tx_mhz != null ? p.label : null);
+    }
   });
-  return { byAid, stations, builtAt: new Date().toISOString(), count: stations.length };
+  const fl = [...freqs].sort((a, b) => a[0] - b[0]).map(([hz, f]) => [hz, [...f.tx], [...f.rx], [...f.labels]]);
+  return { v: INDEX_V, byAid, stations, freqs: fl, builtAt: new Date().toISOString(), count: stations.length };
 }
 
 class Stations {
@@ -68,7 +96,8 @@ class Stations {
   load() {
     try {
       const j = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (j && j.byAid && Array.isArray(j.stations)) { this.index = j; this.fetchedAt = Date.parse(j.builtAt) || 0; }
+      // An index from before it held the frequencies is used, and fetched again at once.
+      if (j && j.byAid && Array.isArray(j.stations)) { this.index = j; this.fetchedAt = j.v === INDEX_V ? Date.parse(j.builtAt) || 0 : 0; }
     } catch (_) {}
     return this;
   }
@@ -127,7 +156,28 @@ class Stations {
 
   byId(id) { return this.index ? this.index.stations.find(x => x.id === id || x.number === id) || null : null; }
 
+  // The frequencies the stations use, the most used first — or, given where
+  // this receiver is, the most used within NEAR_KM — each with how many
+  // stations transmit and listen on it, what for, and the nearest that do.
+  // → [{ freqHz, tx, rx, near (within NEAR_KM; null with no location), km
+  //      (the nearest; null), labels, stations: [{ name, km, tx, rx }] }]
+  frequencies(near) {
+    const fl = this.index && Array.isArray(this.index.freqs) ? this.index.freqs : [];
+    const here = near && Number.isFinite(near.lat) && Number.isFinite(near.lon) ? near : null;
+    const st = this.index ? this.index.stations : [];
+    const out = fl.map(([hz, tx, rx, labels]) => {
+      const who = [...new Set(tx.concat(rx))].map(i => {
+        const s = st[i] || {};
+        const km1 = here && s.lat != null && s.lon != null ? Math.round(km(here.lat, here.lon, s.lat, s.lon)) : null;
+        return { name: s.name || s.id, km: km1, tx: tx.includes(i), rx: rx.includes(i) };
+      }).sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9) || String(a.name).localeCompare(String(b.name)));
+      return { freqHz: hz, tx: tx.length, rx: rx.length, near: here ? who.filter(w => w.km != null && w.km <= NEAR_KM).length : null,
+        km: who.length && who[0].km != null ? who[0].km : null, labels: labels.slice(0, 4), stations: who.slice(0, 5) };
+    });
+    return out.sort((a, b) => (here ? (b.near - a.near) || ((a.km ?? 1e9) - (b.km ?? 1e9)) : 0) || (b.tx + b.rx) - (a.tx + a.rx) || a.freqHz - b.freqHz);
+  }
+
   status() { return { count: this.index ? this.index.count : 0, builtAt: this.index ? this.index.builtAt : null, error: this.error || null }; }
 }
 
-module.exports = { Stations, buildIndex, kindOf, km };
+module.exports = { Stations, buildIndex, kindOf, km, NEAR_KM };

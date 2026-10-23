@@ -7,8 +7,8 @@
 // channel in that slice is a receiver of its own (SdrChannel): its own worker
 // thread running MegaNet's AlertDsp pipeline on the stick's stream at that
 // channel's offset, its own counts and its own MegaNet receiver id. One
-// rtl_sdr, one stream, a decoder per channel. sdr-plan.js picks where to tune
-// and how fast to sample so that every channel fits, and so that the DC spike
+// rtl_sdr, one stream, a decoder per channel. web/sdr-plan.js picks where to
+// tune, and the narrowest window that holds every channel, so that the DC spike
 // every RTL2832U has (worst on a zero-IF tuner like the V2's FC0013) — and a
 // zero-IF tuner's mirror images — stay off all of them. One channel is tuned
 // as it always was: a quarter of the sample rate above the tuner's centre.
@@ -58,7 +58,7 @@ const { Worker } = require('node:worker_threads');
 const { EventEmitter } = require('node:events');
 const { STICK_FIELDS, channelsOf } = require('../config');
 const { openedUsb } = require('./rtl-index');
-const { plan, reach } = require('./sdr-plan');
+const { plan, reach, width } = require('../../web/sdr-plan');
 const { TuneHelp } = require('./tune-help');
 const { Alert2Reader } = require('./alert2-readings');
 const { mhz } = require('../../web/channels');
@@ -97,6 +97,8 @@ class SdrChannel {
     this.worker = null;
     this.backlog = 0;
     this.attached = false;      // its MegaNet receiver is registered
+    this.busy = null;           // how busy its decoder is: 0–1 of its thread's time (sampleBusy)
+    this.elu = null;
     this.moved = false;         // its offset changed since its decoder was last told
     this.blank();
   }
@@ -140,7 +142,22 @@ class SdrChannel {
     if (!this.worker) return;
     const w = this.worker;
     this.worker = null;
+    this.busy = null; this.elu = null;
     w.terminate();
+  }
+
+  // How busy its decoder is: the share of its thread's time spent working,
+  // over the last half minute or so — what this channel costs the Pi, in
+  // cores, bursts and all. Near 1 it cannot keep up, and drops samples.
+  sampleBusy() {
+    const w = this.worker;
+    if (!w || !w.performance) { this.busy = null; this.elu = null; return; }
+    const now = w.performance.eventLoopUtilization();
+    if (this.elu && this.elu.of === w) {
+      const u = w.performance.eventLoopUtilization(now, this.elu.at).utilization;
+      if (Number.isFinite(u)) this.busy = this.busy == null ? u : this.busy + 0.15 * (u - this.busy);
+    }
+    this.elu = { of: w, at: now };
   }
 
   post(m, transfer) { if (this.worker) this.worker.postMessage(m, transfer); }
@@ -152,12 +169,12 @@ class SdrChannel {
     if (this.backlog > limit) {
       this.counts.dropped += buf.length;
       if (this.counts.dropped === buf.length) {
-        const rate = this.stick.cfg().sampleRate;
-        this.log.warn('the decoder is falling behind; dropping samples (' + (this.stick.channels.length > 1
-          ? 'too many channels for this Pi at ' + rate / 1000 + ' ksps — fewer, or closer together'
-            // A channel's work goes with the rate: a stick whose channels are this close needs only 960 ksps.
-            + (rate > 960000 ? ': channels within about ' + (2 * reach(960000) / 1e6).toFixed(2) + ' MHz of each other take 960 ksps, half the work each — give the far ones another stick' : '')
-          : 'try a 240 ksps sample rate') + ')');
+        const rate = this.stick.cfg().sampleRate, n = this.stick.channels.filter(ch => ch.worker).length;
+        // A channel's work goes with the window: channels within 162 kHz of
+        // each other fit the lightest, a third of a 960 kHz window's work each.
+        this.log.warn('the decoder is falling behind; dropping samples — this Pi cannot keep up with ' + (n > 1 ? n + ' channels' : 'a channel')
+          + ' in a ' + width(rate) + ' window' + (rate > 240000 ? ': a narrower window (channels within ' + Math.round(2 * reach(240000) / 1000)
+            + ' kHz of each other fit 240 kHz), or fewer channels — give the far ones another stick' : n > 1 ? ': fewer channels' : ''));
       }
       return;
     }
@@ -277,8 +294,9 @@ class SdrChannel {
     const lv = this.level, s = this.spec;
     return {
       k: this.k, id: this.id, key: this.key, name: this.name(), pointId: this.point.pointId, state: this.state(),
-      freqHz: s.freqHz, format: s.format, offsetHz: s.offsetHz, inBand: s.inBand, recording: s.inBand && this.stick.recording(s),
+      freqHz: s.freqHz, format: s.format, offsetHz: s.offsetHz, inBand: s.inBand, why: s.why || null, recording: s.inBand && this.stick.recording(s),
       level: lv && plugged && s.inBand ? { chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
+      busy: this.busy != null && plugged ? round(this.busy, 3) : null,
       counts: this.counts, lastDecode: this.lastDecode, lastBurst: this.lastBurst,
       alert2: this.counts.alert2 || this.counts.alert2Bad ? this.alert2.status() : null,
     };
@@ -325,6 +343,7 @@ class SdrSession extends EventEmitter {
     this.reopen = null;         // why rtl_sdr is being closed to be opened again at once
     this.retargets = 0;
     this.tuned = '';            // the tuner settings rtl_sdr runs with
+    this.at = null;             // where it is tuned: { sampleRate, centerHz }, kept while it holds the channels
     this.bias = null;           // the bias tee as rtl_biast last left it: true, false; null: never switched
     this.biasing = null;        // the rtl_biast running
     this.biasLater = false;     // to switch once this stick's device number is known
@@ -340,19 +359,15 @@ class SdrSession extends EventEmitter {
   }
 
   // The settings for this stick: the shared SDR block, then its own; and the
-  // plan for its channels (sdr-plan.js): the sample rate, where to tune, and
-  // each channel's offset from there.
+  // plan for its channels (web/sdr-plan.js): the window — the narrowest that
+  // holds them, or the one set — where to tune, and each channel's offset
+  // from there.
   cfg() {
     const all = this.agent.config.get().receivers;
     const own = this.own() || {};
     const c = Object.assign({}, all.sdr);
     for (const f of STICK_FIELDS) if (own[f] !== undefined) c[f] = own[f];
-    const b = this.agent.board;
-    // 960 ksps (cleaner channel filtering) on a 4-core Pi with 1 GB+; 240 ksps
-    // (a quarter of the work) on a Zero 2 W, Pi 1/2 or Zero — unless its
-    // channels need more.
-    const base = b.cores >= 4 && (!b.memMb || b.memMb >= 900) ? 960000 : 240000;
-    c.tune = plan(channelsOf(c, null), { sampleRate: c.sampleRate, baseRate: base, offsetHz: c.offsetHz });
+    c.tune = plan(channelsOf(c, null), { sampleRate: c.sampleRate, offsetHz: c.offsetHz, prefer: this.at });
     c.sampleRate = c.tune.sampleRate;
     c.centerHz = c.tune.centerHz;
     if (!c.offsetHz) c.offsetHz = c.sampleRate / 4;
@@ -405,7 +420,7 @@ class SdrSession extends EventEmitter {
     });
     if (changed) {
       for (const ch of next) {
-        if (!ch.spec.inBand) ch.log.warn(mhz(ch.spec.freqHz) + ' MHz does not fit beside this stick\'s other channels — not decoded; give it a stick of its own');
+        if (!ch.spec.inBand) ch.log.warn(mhz(ch.spec.freqHz) + ' MHz is not decoded: ' + whyNot(ch.spec, c.tune));
       }
     }
     return changed;
@@ -473,7 +488,7 @@ class SdrSession extends EventEmitter {
     if (this.proc) this.reopen = 'restart';
     this.launch();
     clearInterval(this.watch);
-    this.watch = setInterval(() => this.checkStall(), 2000);
+    this.watch = setInterval(() => { this.checkStall(); for (const ch of this.channels) ch.sampleBusy(); }, 2000);
   }
 
   args(c, dev) {
@@ -538,6 +553,7 @@ class SdrSession extends EventEmitter {
   open(c) {
     const args = this.args(c, this.sel.arg);
     this.tuned = this.tunerKey(c);
+    this.at = { sampleRate: c.sampleRate, centerHz: c.centerHz };
     this.bytesPerSec = c.sampleRate * 2;
     this.stderr = [];
     this.listing = null; this.usingIndex = null; this.openFailed = false; this.checked = null;
@@ -558,7 +574,8 @@ class SdrSession extends EventEmitter {
     this.log.info('rtl_sdr ' + args.join(' ') + '  (' + (heard.length > 1
       ? heard.length + ' channels: ' + heard.map(ch => mhz(ch.freqHz) + ' ' + FORMAT_SHORT[ch.format]).join(', ') + ' MHz'
       : 'channel ' + (c.freqHz / 1e6).toFixed(4) + ' MHz, ' + c.format)
-      + (c.tune.raised ? '; ' + c.sampleRate / 1000 + ' ksps to hold them all' : '')
+      + (c.tune.auto ? '; ' + width(c.sampleRate) + ', the narrowest window that holds ' + (heard.length > 1 ? 'them' : 'it')
+        : '; a ' + width(c.sampleRate) + ' window, as set' + (heard.length < c.tune.channels.length ? ' — ' + (c.tune.channels.length - heard.length) + ' not in it' : ''))
       + (c.biasTee ? '; bias tee ' + (this.bias ? 'on' : this.biasLater ? 'on once this stick is known' : 'NOT on') : '')
       + (this.sel.how === 'only' ? '' : '; the stick in USB port ' + this.stick.busPath) + ')');
     p.stdout.on('data', (buf) => this.onIq(buf));
@@ -760,6 +777,11 @@ class SdrSession extends EventEmitter {
     }
   }
 
+  loadNow(plugged) {
+    const b = this.channels.map(ch => ch.busy).filter(v => v != null);
+    return plugged && b.length ? { cores: round(b.reduce((a, v) => a + v, 0), 3), most: round(Math.max(...b), 3), decoders: b.length } : null;
+  }
+
   // The Restart button: rtl_sdr closed and opened again now.
   restart() {
     if (this.state === 'unplugged') return;
@@ -799,17 +821,28 @@ class SdrSession extends EventEmitter {
       tuner: this.tuner, model: this.model,
       freqHz: c.freqHz, sampleRate: c.sampleRate, centerHz: c.centerHz, gainDb: c.gainDb, squelchDb: c.squelchDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
       biasOn: plugged && this.bias === true, error: plugged ? this.biasError : null,
-      tune: { raised: c.tune.raised, dcHz: c.tune.dcHz, mirrorHz: c.tune.mirrorHz },
+      tune: { auto: c.tune.auto, needs: c.tune.needs, lowHz: c.tune.lowHz, highHz: c.tune.highHz, dcHz: c.tune.dcHz, mirrorHz: c.tune.mirrorHz },
       channels: this.channels.map(ch => ch.status(plugged)),
       level: lv && plugged ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
       spectrum: this.spectrum && plugged ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: c.centerHz, channelHz: c.freqHz,
         channelsHz: this.channels.filter(ch => ch.spec.inBand).map(ch => ch.spec.freqHz) } : null,
       counts, lastDecode: latest('lastDecode'), lastBurst: latest('lastBurst'), stderr: this.stderr.slice(-5),
       tuneHelp: plugged ? this.tuneHelp.status(c, lv) : null,
+      // Its decoders together, in cores of this Pi; and the busiest of them.
+      load: this.loadNow(plugged),
       rateKsps: this.startedAt && this.state === 'running' ? Math.round(this.bytesIn / 2 / Math.max(1, (Date.now() - this.startedAt) / 1000) / 1000) : 0,
       startedAt: this.startedAt || null,
     };
   }
+}
+
+// Why a channel is not decoded, for the log: its plan's reason (web/sdr-plan.js).
+function whyNot(spec, tune) {
+  const what = { outside: 'it is outside this stick\'s ' + width(tune.sampleRate) + ' window (' + mhz(tune.lowHz) + '–' + mhz(tune.highHz) + ' MHz)',
+    spike: 'beside this stick\'s other channels it would sit on the DC spike', mirror: 'beside this stick\'s other channels another\'s mirror image would land on it' }[spec.why]
+    || 'it does not fit beside this stick\'s other channels';
+  return what + (tune.needs && tune.needs > tune.sampleRate ? ' — a ' + width(tune.needs) + ' window holds them all' : tune.needs ? '' : ' — no window holds them all')
+    + '; or give it a stick of its own';
 }
 
 function round(v, d) { if (v == null || !Number.isFinite(v)) return null; const k = Math.pow(10, d == null ? 1 : d); return Math.round(v * k) / k; }

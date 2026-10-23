@@ -77,13 +77,24 @@ badly each one strands somebody:
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
 - **A channeliser shared by a stick's channels** — each channel's decoder thread converts and
   filters the stick's whole stream on its own (one stick, several channels, is done: see
-  [hardware.md](hardware.md#several-channels-on-one-stick)). CPU is what limits it: at 18 Bateson
+  [hardware.md](hardware.md#several-channels-on-one-stick)). Since 0.15 a stick takes the
+  narrowest window its channels allow, 1.44 MHz joins the windows (MegaNet's four channels: a fifth
+  less work than 1.92), and the settings say what each stick will cost the Pi before it is saved —
+  but in a wide window the first filter is still most of a channel's work (two thirds of it at
+  960 kHz, measured on a PC). CPU is what limits it: at 18 Bateson
   (a Pi 4 with its kiosk on), a fifth channel on a 1.92 Msps stick put every decoder on the Pi into
   dropping samples — and the stick with the better aerial was the one that needed it (it heard
   ALERT2 on 151.5375 5–15 dB better, and decoded half as many frames again), so a channel had to go
   to the other stick instead. One thread per stick could convert the samples and cut out every
   channel once (a polyphase filter bank), handing each decoder its own 240 ksps stream — a change to
-  MegaNet's `alert-dsp.js` first, so the website gains it too.
+  MegaNet's `alert-dsp.js` first, so the website gains it too. A smaller step there: that first
+  filter keeps ±60 kHz flat where the decoder uses ±20 kHz, and a half-band cascade cut to what the
+  decoder reads would take roughly a third off a wide window's channel.
+- **Strong neighbours in a 240 kHz window** — in its lightest window a stick leans on the
+  RTL2832U's own filter, which lets a strong signal 120–300 kHz from the centre fold into the
+  window more than the software filter of a wider one would. The planner could keep every known
+  frequency (the station register's, the other sticks') from folding onto a channel, as it keeps
+  mirror images off them — once a bench capture shows it happening.
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
   frames the radio heard but did not report, as MegaNet's Serial Monitor does.
 - **Upload MegaNet's station table to a Quansheng radio** from the Overview

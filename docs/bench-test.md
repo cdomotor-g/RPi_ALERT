@@ -32,7 +32,7 @@ the token's label, the clock **ok (ntp)**, and the location.
 ## 2. The V2 stick (known good)
 
 1. Plug it in with its antenna. Within a few seconds: the Overview's **Receivers** shows the RTL-SDR, state *receiving*,
-   tuner *Fitipower FC0013*, samples arriving at ~960 ksps (Pi 4).
+   tuner *Fitipower FC0013*, samples arriving at ~240 ksps (one channel: the lightest window).
 2. Wait for traffic on 151.5 MHz. The Overview's burst plot shows bursts; decoded ones turn green and
    readings appear with station names. Compare a few with MegaNet's Message Log.
 3. If bursts are heard but not decoded: check the frame format (ALERT Binary for the live network),
@@ -66,17 +66,19 @@ the token's label, the clock **ok (ntp)**, and the location.
 
 ## 3b. Several channels on one stick
 
-1. **Settings → RTL-SDR → More channels on the same stick**: a new install already has
-   `151.525, 151.95, 152.4` there (MegaNet's channels besides 151.5); on one set up before that,
-   type them (or whichever of the networks' channels the bench can hear) and save. Expect the stick at
-   1.92 Msps, tuned to about 151.85 MHz: its Receivers card lists four channels, each with its own
+1. **Settings → RTL-SDR**, the stick's *Channels*: a new install already has 151.5, 151.525, 151.95
+   and 152.4 there (MegaNet's channels); on one set up before that, tap them in the list under them
+   (or whichever of the networks' channels the bench can hear) and save. Expect the stick in a
+   1.44 MHz window, tuned to about 151.85 MHz: its Receivers card lists four channels, each with its own
    receiver id (`…-sdr1`, `…-sdr1-151.525`, `…-sdr1-151.950`, `…-sdr1-152.400`), and the spectrum
    has a green line for each.
 2. Readings now come from every channel — the dashboard names each *RTL-SDR · 151.500* and so on.
    Compare with MegaNet's Message Log, or a Quansheng radio on each channel in turn.
-3. Load: `top` while they run. A Pi 4 should keep up with four channels at 1.92 Msps; a *dropping
-   samples* warning in the log means too many for this Pi (fewer, or closer together). Note the
-   CPU per decoder thread in the report — it sets how many channels a Pi 4 and a Zero 2 W can take.
+3. Load: each channel's *Decoder busy* on the Overview, and the stick's in Settings → RTL-SDR (with
+   what the agent measured a channel costs this Pi at each window: its log says so a couple of
+   minutes after it starts). A Pi 4 should keep up with four channels in 1.44 MHz; a *dropping
+   samples* warning means too many for this Pi (fewer, or closer together, or a narrower window).
+   Note them in the report — they set how many channels a Pi 4 and a Zero 2 W can take.
 4. With the V2 (a zero-IF FC0013): does a strong burst on one channel show up as an *undecoded*
    burst on another? The agent tunes so that no channel sits on another's mirror image, so it
    should not; report it if it does.

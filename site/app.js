@@ -9,8 +9,8 @@ const REPO_URL = new URL('os_list.json', location.href).href;
 const PI = {
   pi5: { arch: 'arm64', note: 'Fastest choice: the RTL-SDR decoder has CPU to spare and the screen dashboard is smooth. <b>No 3.5 mm audio jack</b> — chirps play over HDMI or a USB sound card. Use the official 27 W (5 V 5 A) supply.' },
   pi4: { arch: 'arm64', note: 'The recommended base station: plenty for the RTL-SDR decoder, the screen dashboard, and the audio jack for the chirps. Use the official 15 W (5 V 3 A) supply — a weak supply makes USB receivers drop out.' },
-  pi3: { arch: 'arm64', note: 'Works well for radios, ERT-A2s and an RTL-SDR (if the decoder ever falls behind, choose 240 ksps under Settings → RTL-SDR). Audio jack for the chirps. 1 GB is just enough for the screen dashboard.' },
-  z2w: { arch: 'arm64', note: '512 MB of RAM: the full-screen dashboard is left off (the web page and console still work). Fine for a Quansheng radio or ERT-A2; an RTL-SDR runs at 240 ksps. No audio jack (use a USB sound card); Wi-Fi only unless you add a USB Ethernet adapter.' },
+  pi3: { arch: 'arm64', note: 'Works well for radios, ERT-A2s and an RTL-SDR (if the decoder ever falls behind, Settings → RTL-SDR says which channel widens a stick). Audio jack for the chirps. 1 GB is just enough for the screen dashboard.' },
+  z2w: { arch: 'arm64', note: '512 MB of RAM: the full-screen dashboard is left off (the web page and console still work). Fine for a Quansheng radio or ERT-A2; an RTL-SDR hears a few channels, close together. No audio jack (use a USB sound card); Wi-Fi only unless you add a USB Ethernet adapter.' },
   old: { arch: 'armhf', note: 'The 32-bit image. These Pis are too slow for the RTL-SDR decoder; use a Quansheng radio or an ERT-A2. No screen dashboard (text console only).' },
 };
 

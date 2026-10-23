@@ -163,11 +163,45 @@ button:disabled { opacity: .5; cursor: default; }
 .port-row .who { font-size: .88em; word-break: break-all; }
 @media (max-width: 640px) { .port-row { grid-template-columns: 1fr 1fr; } .port-row .who { grid-column: 1 / 3; } }
 .form h3 { margin: 18px 0 6px; font-size: .95em; font-weight: 650; }
-.stick-row { padding: 10px 0 4px; border-top: 1px solid var(--line); }
-.stick-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+/* Settings → RTL-SDR sticks (sdr-settings.js): a block a stick, in its colour. */
+.stick-row { margin: 12px 0; padding: 10px 12px 6px; border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 8px; background: var(--panel2); }
+.stick-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 6px; }
 .stick-head .who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
-.stick-row details { margin: 0 0 2px; }
-.stick-row summary { cursor: pointer; color: var(--dim); font-size: .88em; padding: 2px 0; }
+.stick-ed details { margin: 2px 0; }
+.stick-ed summary { cursor: pointer; color: var(--dim); font-size: .88em; padding: 2px 0; }
+.ed-label { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; }
+.chips-ed { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.ch-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 11px; border-radius: 999px; background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 60%, var(--line)); font-variant-numeric: tabular-nums; font-weight: 600; }
+.ch-chip small { font-weight: 500; color: var(--dim); }
+.ch-chip.out { border-style: dashed; border-color: var(--warn); color: var(--warn); }
+.ch-chip button { background: transparent; border: 0; color: var(--dim); padding: 0 7px; font-size: 1.1em; line-height: 1; border-radius: 999px; }
+.ch-chip button:hover { color: var(--bad); }
+.ed-add { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.ed-add input { flex: 1; }
+.suggest .sg-head { margin: 2px 0 4px; }
+.sg-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.sg { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 11px; border-radius: 8px; background: transparent;
+  color: var(--text); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.sg small { font-weight: 500; color: var(--dim); font-size: .78em; }
+.sg small.eff { color: var(--warn); }
+.sg.on { background: color-mix(in srgb, var(--c, var(--accent)) 20%, transparent); border-color: var(--c, var(--accent)); }
+.fld { margin: 8px 0; min-width: 0; }
+.fl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.fl-head .src { font-size: .8em; }
+.fld > input, .fld > select { display: block; width: 100%; margin-top: 4px; }
+.src-def { color: var(--dim); font-style: italic; }
+.src-own { background: transparent; border: 0; padding: 0; color: var(--accent); font-weight: 500; font-size: 1em; }
+.ed-label .src { font-size: .82em; }
+.ed-plan { display: grid; gap: 2px; padding: 8px 10px; margin: 4px 0 6px; border-radius: 8px; background: var(--bg); font-size: .9em; }
+.ed-plan:empty { display: none; }
+.ed-plan .warn, .sdr-budget .warn { color: var(--warn); }
+.ed-plan .note { color: var(--text); }
+.sdr-budget { margin: 0 0 6px; font-size: .92em; }
+.sdr-budget .bad { color: var(--bad); font-weight: 600; }
+.sdr-budget:empty { display: none; }
+.sdr-defaults { margin: 12px 0; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.sdr-defaults > summary { cursor: pointer; font-weight: 600; }
 .wifi { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); align-items: center; }
 pre.log { max-height: 70vh; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .82em; }
 pre.log .warn { color: var(--warn); } pre.log .error { color: var(--bad); }

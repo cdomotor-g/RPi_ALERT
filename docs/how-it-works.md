@@ -73,9 +73,13 @@ their USB ids from sysfs and their `/dev/serial/by-id` names, and the RTL2832U s
   from where the stick is tuned. So one stick decodes every channel in its slice of the band at
   once, each a receiver of its own (its own MegaNet receiver id, counts, gate, squelch and format),
   and a burst on one channel never waits for a decode on another: they run on separate cores.
-  [`sdr-plan.js`](../agent/lib/devices/sdr-plan.js) picks the sample rate and the centre — the
-  lowest of the decoder's rates that holds the channels, and the centre that keeps the DC spike and
-  every mirror image furthest from all of them. Ten seconds with no samples kills `rtl_sdr`; any exit
+  [`sdr-plan.js`](../agent/web/sdr-plan.js) picks the window (the sample rate) and the centre — the
+  narrowest window that holds the channels, or the one set, and the centre that keeps the DC spike
+  and every mirror image furthest from all of them (or where the stick is tuned now, while that
+  still holds them, so a channel added or taken away retunes nothing). Every channel's decoder works
+  through the whole window, so its width is the stick's cost: the agent measures a channel's cost at
+  each window on its own Pi ([`sdr-bench.js`](../agent/lib/devices/sdr-bench.js)) and each decoder
+  thread's load as it runs, and the settings page plans with both. Ten seconds with no samples kills `rtl_sdr`; any exit
   restarts it (2 s doubling to 30 s) while the stick is present. A decoder that falls behind drops
   input rather than memory.
 - **Which stick is which** ([`state.js`](../agent/lib/state.js)): every stick seen is remembered in

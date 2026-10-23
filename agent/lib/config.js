@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { MAX_CHANNELS, MAX_SPAN_HZ } = require('./devices/sdr-plan');
+const { MAX_CHANNELS, MAX_SPAN_HZ, RATES } = require('../web/sdr-plan');
 const { mhz } = require('../web/channels');
 
 const CONFIG_PATH = process.env.RPI_ALERT_CONFIG || '/etc/rpi-alert/config.json';
@@ -30,8 +30,8 @@ const MEGANET_APIKEY = 'sb_publishable_PV9VjCM8NQeGAJMuwa5TKA_yX9GWacY';
 // in its stations.json is one of these four (151.500 by far the most) — so a
 // fresh base station listens on all of them: 151.5 as the stick's own
 // channel, the other three as more channels on the same stick. They span
-// 900 kHz, well inside what one stick hears (sdr-plan.js: 1.92 Msps around
-// 151.85 MHz). A base station given a list of channels (the card, the set-up
+// 900 kHz, well inside what one stick hears (web/sdr-plan.js: a 1.44 MHz
+// window around 151.85 MHz). A base station given a list of channels (the card, the set-up
 // page, rpi-alert setup, the web page) hears that list instead.
 const ALERT_CHANNELS_HZ = [151500000, 151525000, 151950000, 152400000];
 // They are 25 kHz apart at the closest: one nearer than that to a stick's own
@@ -41,7 +41,7 @@ const ALERT_SPACING_HZ = 25000;
 const SDR_FORMATS = ['BINARY', 'ENHANCED_IFLOWS', 'ASCII'];
 const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 // What one stick can set for itself (receivers.sdrDevices[]), besides its name.
-const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'moreChannels', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
+const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'moreChannels', 'sampleRate', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
 const PORT_TYPES = ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'];
 const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
@@ -52,7 +52,10 @@ const HOTSPOT_SSID = /^[A-Za-z0-9._ -]{1,32}$/, HOTSPOT_PASSWORD = /^[\x21-\x7e]
 
 function defaults() {
   return {
-    version: 1,
+    // 2 (0.15): a window set by hand (receivers.sdr.sampleRate) is exactly
+    // that window; in 1 it was raised for channels that needed more. load()
+    // carries a version-1 file over.
+    version: 2,
     // What this base station is called in MegaNet. Each receiver on it reports
     // as "<name> — <receiver>". Empty: "RPi ALERT <hostname>".
     name: '',
@@ -95,9 +98,13 @@ function defaults() {
         // More channels for the same stick to hear at once, each a receiver of
         // its own (rpi-<host>-sdr<n>-<MHz>): [{ freqHz, format }] (format: the
         // one below when left out). One stick hears channels up to 1.89 MHz
-        // apart (sdr-plan.js). By default the rest of MegaNet's channels.
+        // apart (web/sdr-plan.js). By default the rest of MegaNet's channels.
         moreChannels: standardMore(ALERT_CHANNELS_HZ[0]),
-        sampleRate: 0,         // 0: 960 ksps on a 4-core Pi with 1 GB+, 240 ksps otherwise — or what the channels need
+        // The window a stick takes, in samples a second: 0, the narrowest that
+        // holds its channels (each channel's decoder takes in the whole window,
+        // so a wider one costs more and hears no channel better); or exactly
+        // one of web/sdr-plan.js's RATES — channels outside it are not decoded.
+        sampleRate: 0,
         offsetHz: 0,           // 0: tune off-centre by a quarter of the rate, away from the DC spike (one channel)
         gainDb: 29.7,          // null: tuner AGC
         ppm: 0,
@@ -112,7 +119,7 @@ function defaults() {
         alert2: true,
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
-      //   { key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }
+      //   { key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }
       // Anything left out is the shared setting above. (0.4 matched them by
       // { serial } alone, which every stick with that serial shares; still read.)
       sdrDevices: [],
@@ -216,6 +223,7 @@ function followChannels(prev, next) {
   });
 }
 
+const RATE_RULE = '0 (the narrowest window that holds the channels), or ' + RATES.join(', ').replace(/, (\d+)$/, ' or $1');
 const MORE_RULE = 'a list of up to ' + (MAX_CHANNELS - 1) + ' more channels, each { freqHz: 24–1766 MHz, format: '
   + SDR_FORMATS.join(' | ') + ' (or left out: the stick\'s own) }';
 
@@ -232,6 +240,7 @@ function stickErrors(d) {
   need(d.freqHz === undefined || isNum(d.freqHz, 24e6, 1766e6), 'freqHz: 24–1766 MHz');
   need(d.format === undefined || SDR_FORMATS.includes(d.format), 'format: one of ' + SDR_FORMATS.join(', '));
   need(d.moreChannels === undefined || moreOk(d.moreChannels), 'moreChannels: ' + MORE_RULE);
+  need(d.sampleRate === undefined || d.sampleRate === 0 || RATES.includes(d.sampleRate), 'sampleRate: ' + RATE_RULE);
   need(d.gainDb === undefined || d.gainDb === null || isNum(d.gainDb, 0, 60), 'gainDb: 0–60 dB, or null for AGC');
   need(d.ppm === undefined || isNum(d.ppm, -200, 200), 'ppm: -200…200');
   need(d.biasTee === undefined || typeof d.biasTee === 'boolean', 'biasTee: true or false');
@@ -267,7 +276,7 @@ function validate(c) {
   const s = r.sdr || {};
   need(num(s.freqHz, 24e6, 1766e6) !== undefined, 'receivers.sdr.freqHz: 24–1766 MHz');
   need(moreOk(s.moreChannels), 'receivers.sdr.moreChannels: ' + MORE_RULE);
-  need(s.sampleRate === 0 || [240000, 960000, 1200000, 1920000, 2400000].includes(s.sampleRate), 'receivers.sdr.sampleRate: 0 (auto), 240000, 960000, 1200000, 1920000 or 2400000');
+  need(s.sampleRate === 0 || RATES.includes(s.sampleRate), 'receivers.sdr.sampleRate: ' + RATE_RULE);
   need(num(s.offsetHz, -1e6, 1e6) !== undefined, 'receivers.sdr.offsetHz: within ±1 MHz');
   need(s.gainDb === null || num(s.gainDb, 0, 60) !== undefined, 'receivers.sdr.gainDb: 0–60 dB, or null for AGC');
   need(num(s.ppm, -200, 200) !== undefined, 'receivers.sdr.ppm: -200…200');
@@ -338,6 +347,20 @@ function channelErrors(c) {
   return errs;
 }
 
+// A version-1 settings file, as version 2 reads it. Its window set by hand
+// was raised for channels that needed more; now it is kept exactly. The only
+// one ever set by hand, 240 ksps, was set to mean "as light as the channels
+// allow" — automatic, now that automatic is the narrowest window that holds
+// them — so it becomes automatic, and every stick keeps the window it had.
+// Any other is kept, and is exact from now on. → true: the file is written
+// back as version 2.
+function carryOver(c) {
+  c.version = 2;
+  const s = c.receivers && c.receivers.sdr;
+  if (isObj(s) && s.sampleRate === 240000) s.sampleRate = 0;
+  return true;
+}
+
 function maskToken(t) {
   if (!t) return '';
   return t.length <= 12 ? '…' + t.slice(-2) : t.slice(0, 6) + '…' + t.slice(-4);
@@ -375,6 +398,7 @@ class Config extends EventEmitter {
       try {
         const parsed = JSON.parse(raw);
         const merged = merge(defaults(), parsed);
+        const older = !(parsed && parsed.version >= 2) && carryOver(merged);
         // Lists replace rather than merge, and a missing endpoint list means the default.
         if (!Array.isArray(merged.meganet.endpoints) || !merged.meganet.endpoints.length) merged.meganet.endpoints = MEGANET_ENDPOINTS.slice();
         const errs = validate(merged);
@@ -382,6 +406,7 @@ class Config extends EventEmitter {
         this.data = errs.length ? repair(merged) : merged;
         const ch = channelErrors(this.data);
         if (ch.length) this.loadError = (this.loadError ? this.loadError + '; ' : '') + 'channels one stick cannot hear together (only those that fit are decoded): ' + ch.join('; ');
+        if (older) { try { this.save(); } catch (_) {} }
       } catch (e) {
         this.loadError = 'settings file is not valid JSON (' + e.message + '); starting from defaults, the file is kept as .bad';
         try { fs.copyFileSync(this.file, this.file + '.bad'); } catch (_) {}

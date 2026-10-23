@@ -46,6 +46,10 @@ function start(opts) {
     { id: 'loudoun_br_al', name: 'Loudoun Br AL', station_number: '541155', lat: -27.3278, lon: 150.9218,
       sensors: [{ alert_id: 6128, type: 'Rainfall' }, { alert_id: 6129, type: 'Water Level' }, { alert_id: 6130, type: 'Battery' }] },
     { id: 'marburg_al', name: 'Marburg AL', station_number: '540000', lat: -27.56, lon: 152.59, alert_ids: { battery: 2088, rainfall: 2089 } },
+    // Repeaters, with the frequencies a stick's channels are offered from.
+    { id: 'mt_glorious_al_rptr', name: 'Mt Glorious AL RPTR', station_number: '540900', lat: -27.33, lon: 152.76,
+      repeater: { rx_mhz: 151.5, tx_mhz: 151.5 }, frequencies: [{ rx_mhz: 151.5375, tx_mhz: 151.5375, label: 'Link to Ipswich and Brisbane' }] },
+    { id: 'radar_hill_al', name: 'Radar Hill AL', station_number: '540901', lat: -27.9, lon: 152.3, repeater: { rx_mhz: 151.5, tx_mhz: 151.95 } },
   ] };
   const server = http.createServer((req, res) => {
     let body = '';

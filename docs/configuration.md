@@ -23,31 +23,44 @@ mode 0600 because it holds the ingest token):
   firmware, battery and noise floor (Quansheng), wire format and receiver clock (ERT-A2), tuner,
   USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
   that is unplugged.
-- **Settings** — MegaNet, location, RTL-SDR (the settings every stick shares, and each stick's
-  own), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), the hotspot (the
+- **Settings** — MegaNet, location, RTL-SDR sticks (each stick's channels, window and tuner, with
+  what they will cost the Pi as they are typed; and the defaults), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), the hotspot (the
   Pi's own Wi-Fi network for a phone where there is no other: auto / on / off, its name and
   password), web password,
   remote management (what MegaNet's Base Stations tab may do, and what it last asked), SSH access
   (the `alert` account, its keys and where each came from, password login, MegaNet's team keys),
   time zone, restart/reboot/shut down, update check.
 
-**Several channels on one stick.** One stick decodes every channel in a stretch of the band about
-1.9 MHz wide, all at the same time. Under **Settings → RTL-SDR**, *Frequency* is the stick's own
-channel and *More channels on the same stick* the others — `151.525, 151.95, 152.4`, with a format
-after any channel sent in another one (`152.4 EIF`). Each channel is a receiver of its own: named for
+**Several channels on one stick.** One stick decodes every channel in its *window* — a stretch of
+the band up to 2.4 MHz wide — all at the same time. Under **Settings → RTL-SDR** each stick's
+*Channels* are chips: × takes one away; type a frequency (a format after one sent in another:
+`152.4 EIF`) or tap one of the frequencies MegaNet's stations use — from the station register the
+Pi fetches each day, those used within 150 km of it first, each saying what it would do to the
+window — to add it. The first is the stick's own receiver; each is a receiver of its own: named for
 its frequency (*RTL-SDR · 151.525*), with its own MegaNet receiver id (`rpi-<host>-sdr1-151.525`; the
-stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and counts. The stick's
-sample rate goes up by itself to hold them (the setting is the least it uses), and it is tuned so the
-DC spike and any mirror image stay off every channel — the Overview's Receivers section shows where it is tuned and
-a row for each channel. Adding or removing a channel leaves the others alone: they keep their
-receiver ids, and are restarted only if the stick had to be tuned elsewhere. Channels too far apart
-for one stick are refused, saying which. More: [hardware.md](hardware.md#several-channels-on-one-stick).
+stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and counts.
+
+**The window.** Every channel's decoder takes in a stick's whole window, so the window is what a
+stick costs the Pi, and a wider one hears no channel better. *Automatic* is the narrowest that holds
+the stick's channels: 240 kHz for channels within 162 kHz of each other, then 960 kHz, 1.2, 1.44,
+1.92 and 2.4 MHz. A window chosen by hand is exactly that one — wider to see more of the band on the
+waterfall, narrow to keep a stick light whatever it is given; a channel outside it is not decoded,
+and the stick says so. As channels are typed, the card shows the window each stick will take, where,
+and what that costs this Pi in cores (each choice in the *Window* list with its cost), which channel
+is the one that widens a stick, whether saving retunes it, and the whole Pi's decoding against its
+cores — from what the agent measured a channel costs this Pi at each window, and how busy each
+decoder is now. Adding or taking away a channel leaves the others alone: they keep their receiver
+ids, and are restarted only if the stick has to be tuned elsewhere (it keeps where it is tuned when
+that still holds them all). Channels too far apart for any one window are refused, saying which.
+More: [hardware.md](hardware.md#several-channels-on-one-stick).
 
 **Several RTL-SDR sticks.** Each stick is a receiver of its own, with its own MegaNet receiver id
 (`rpi-<host>-sdr1`, `-sdr2`, …) and name (*RTL-SDR*, *RTL-SDR 2*, …, numbered in USB port order).
-Under **Settings → RTL-SDR → Each stick**, any stick can have its own name, frequency, more channels,
-frame format, gain, ppm, squelch and bias tee, or be turned off; a blank field is the shared setting
-above it, and `none` in *More channels* leaves a stick with only its own frequency. So one Pi can
+Under **Settings → RTL-SDR**, each stick has a block of its own: its channels, window, frame
+format, gain, ppm, squelch, bias tee and name, or it can be turned off. Each field shows the value
+the stick has, marked *default* (it follows **Defaults**, further down, which a new stick starts
+with) or *this stick's* — change a field and it is the stick's own; ↺ gives it back to the default.
+So one Pi can
 listen to networks further apart than one stick hears. Changing one stick's channels, gain, ppm or
 bias tee restarts only that stick's `rtl_sdr` (and only if where it is tuned changes); a format or
 squelch change does not restart anything.
@@ -177,7 +190,8 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `sdr_more_channels_mhz` | e.g. `151.525, 152.4`, or none | `receivers.sdr.moreChannels` alone |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
-| `sdr_ppm`, `sdr_sample_rate`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
+| `sdr_sample_rate` | auto, or 240000, 960000, 1200000, 1440000, 1920000, 2400000 | `receivers.sdr.sampleRate`: the window (auto: the narrowest that holds the channels) |
+| `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
 | `auto_detect` | yes / no | `receivers.autoDetect` |
 | `extra_ports` | e.g. /dev/serial0 | `receivers.extraPorts` (a GPIO-UART GPS, say) |
 | `audio` | auto / live / synth / beep / off | `audio.mode` |
@@ -224,15 +238,15 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.extraPorts[]` | — | Non-USB ports to scan too |
 | `receivers.sdr.enabled` | true | Use RTL-SDR sticks |
 | `receivers.sdr.freqHz` | 151500000 | The ALERT channel (a stick's own) |
-| `receivers.sdr.moreChannels` | 151.525, 151.95 and 152.4 MHz | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz`; none listed twice. By default the rest of the channels MegaNet's stations use, so a new base station hears all four. While they are those, a change to `freqHz` alone (MegaNet's Base Stations tab, `rpi-alert config set`) keeps them: the channel moved to stops being a more channel, the one left becomes one, and any too far from the new one to share the stick are dropped. More channels anyone chose stay as they are |
+| `receivers.sdr.moreChannels` | 151.525, 151.95 and 152.4 MHz | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz` (the widest window); none listed twice. By default the rest of the channels MegaNet's stations use, so a new base station hears all four. While they are those, a change to `freqHz` alone (MegaNet's Base Stations tab, `rpi-alert config set`) keeps them: the channel moved to stops being a more channel, the one left becomes one, and any too far from the new one to share the stick are dropped. More channels anyone chose stay as they are |
 | `receivers.sdr.format` | BINARY | BINARY · ENHANCED_IFLOWS · ASCII (one per channel: alert-dsp.js explains why) |
-| `receivers.sdr.sampleRate` | 0 (auto) | 0: 960000 on a 4-core Pi with ≥ 1 GB, else 240000 — raised as far as a stick's channels need for clean room from the DC spike. Set by hand (e.g. 240000), it is kept whenever the stick's channels fit it at all (20 kHz from the spike, clear of each other's mirror images) and raised only when they do not: every channel's decoder takes in the whole slice, so 240000 is about a quarter of 960000's work — the setting for a Pi whose CPU load is high |
+| `receivers.sdr.sampleRate` | 0 (auto) | A stick's window, in samples a second. 0: the narrowest that holds its channels — 20 kHz or more from the DC spike, clear of each other's mirror images. Or exactly one of 240000, 960000, 1200000, 1440000, 1920000, 2400000; a channel that does not fit in it is not decoded, and says so. Every channel's decoder takes in the whole window: 960000 is about three times 240000's work a channel, 1920000 five. Settings from before 0.15 (version 1), where a rate set by hand was raised for channels that needed more, are carried over: 240000 — set to mean as light as the channels allow — becomes 0, which now means that; any other is kept, exactly |
 | `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
 | `receivers.sdr.alert2` | true | Also try every burst the legacy decoder reads nothing in as ALERT2 (AirLink, 4800 bps) — on every channel of every stick; its readings go as protocol `alert2`: [ALERT2 off the air](#alert2-off-the-air) |
 | `receivers.record` | `{ freqHz: [], maxMb: 256 }` | Channels whose every burst is kept as IQ, and how much of the card they may take (16–8192 MB): [Recordings](#recordings) |
-| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
+| `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |
