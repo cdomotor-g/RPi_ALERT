@@ -68,7 +68,9 @@ badly each one strands somebody:
   into MegaNet, so the website's SDR card hears ALERT2 too — it is self-contained (`alert2-air.js`,
   `alert2-fec.js`) and would sit beside `alert-dsp.js`; (2) a channel that only ever carries ALERT2
   still pays for the legacy decode first (45 tries a burst) — learning that, per channel, would
-  halve its CPU; (3) frames longer than the burst gate's 3 s are cut off (none seen yet: the
+  halve its CPU (measured 2026-10-24 on a PC, the fixture's burst: the legacy decode 288 ms, the
+  ALERT2 one 54 ms; at 18 Bateson the 151.5375 decoder was 53% busy in 240 kHz where a quiet
+  channel is 6%, and its legacy decodes read 96 of 1,131 bursts — the rest are the ALERT2 frames); (3) frames longer than the burst gate's 3 s are cut off (none seen yet: the
   longest heard is 349 bytes, 1.9 s); (4) self-reporting stations — 62721 and 62725 send their own
   sensors on 151.500, each report twice 2 s apart — are receptions only: their sensors become
   readings once MegaNet's register maps (station, sensor number) to an ALERT id.
@@ -89,12 +91,22 @@ badly each one strands somebody:
   channel once (a polyphase filter bank), handing each decoder its own 240 ksps stream — a change to
   MegaNet's `alert-dsp.js` first, so the website gains it too. A smaller step there: that first
   filter keeps ±60 kHz flat where the decoder uses ±20 kHz, and a half-band cascade cut to what the
-  decoder reads would take roughly a third off a wide window's channel.
+  decoder reads would take roughly a third off a wide window's channel. Measured 2026-10-24 (a PC,
+  `AlertDsp.Pipeline` fed noise): a channel in 1.2 MHz costs 5.7% of a core, 2.7% with the first
+  FIR taken out, 1.5% in 240 kHz — the FIR is half of it and the per-sample conversion, histogram,
+  spectrum ring and mixing every channel repeats are the other half. On 18 Bateson's Pi 4 the
+  bench says 240 kHz 6%, 1.2 MHz 27%, 1.44 MHz 31% a channel; under load each decoder's busy
+  share ran about 1.6 times that (152.400 alone, quiet, 0.44 in 1.2 MHz).
 - **Strong neighbours in a 240 kHz window** — in its lightest window a stick leans on the
   RTL2832U's own filter, which lets a strong signal 120–300 kHz from the centre fold into the
   window more than the software filter of a wider one would. The planner could keep every known
   frequency (the station register's, the other sticks') from folding onto a channel, as it keeps
-  mirror images off them — once a bench capture shows it happening.
+  mirror images off them — once a bench capture shows it happening. The same for a zero-IF stick's
+  mirror images: the planner keeps a stick's own channels' images off each other, not those of a
+  strong signal it does not decode — at 18 Bateson in 1.2 MHz around 151.935, Brisbane City
+  Council's 151.475 (up to 40 dB over the floor, a quarter of the minutes) images onto 152.395, 5 kHz
+  from 152.400. MegaNet's Channel by channel (0081) lists what a station hears and the ACMA's
+  licences near it: the frequencies to keep clear.
 - **Quansheng "rejected" receptions** — re-decode each `BST` line's bits (`Quansheng.scanBurst`) and log
   frames the radio heard but did not report, as MegaNet's Serial Monitor does.
 - **Upload MegaNet's station table to a Quansheng radio** from the Overview
