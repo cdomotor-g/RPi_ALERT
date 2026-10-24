@@ -8,6 +8,30 @@ const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '
 const KIOSK = new URLSearchParams(location.search).has('kiosk');
 if (KIOSK) document.documentElement.classList.add('kiosk');
 
+// How often the page draws what arrives. A busy stick sends bursts and
+// readings several a second (an ALERT2 link alone, about one a second), and
+// each used to redraw every chart and the readings table there and then: on
+// the Pi's own screen that drawing cost about two of a Pi 4's four cores
+// (18 Bateson, October 2026) — more than all its decoders together. Now what
+// arrives is drawn at most once a DRAW_MS, together: a second in a browser,
+// two on the kiosk, where nobody is pointing at anything. What someone does
+// (a window chosen, a tab, a resize, the pointer) still draws at once.
+const DRAW_MS = KIOSK ? 2000 : 1000;
+
+// fn, at most once every ms — the last call's arguments, in the next frame
+// after the wait; .now() draws at once, and what was waiting with it.
+function paced(fn, ms) {
+  let queued = null, at = 0;
+  const run = () => { if (!queued) return; const a = queued; queued = null; at = Date.now(); fn(...a); };
+  const p = (...a) => {
+    const waiting = !!queued;
+    queued = a;
+    if (!waiting) setTimeout(() => requestAnimationFrame(run), Math.max(0, at + ms - Date.now()));
+  };
+  p.now = (...a) => { queued = null; at = Date.now(); fn(...a); };
+  return p;
+}
+
 const S = { status: null, config: null, readings: [], bursts: [], logLines: [], tab: 'dash', sse: null };
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -341,6 +365,7 @@ function renderReadings(freshOne) {
   $('#read-count').textContent = S.readings.length ? '(' + S.readings.length + ' this session)' : '';
   renderTopHeard();
 }
+const readingsPaced = paced(renderReadings, DRAW_MS);
 
 // ── charts: the time shown, and the last day a minute at a time ─────────────
 // One choice of time for every chart (remembered in this browser): the last
@@ -455,12 +480,9 @@ function liveChart(c, d, t0, t1) {
   return { bursts: bursts.length, readings: reads.length };
 }
 
-let chartsQueued = false;
+const chartsPaced = paced(() => drawCharts(), DRAW_MS);
 function renderCharts(now) {
-  if (now) { chartsQueued = false; drawCharts(); return; }
-  if (chartsQueued) return;
-  chartsQueued = true;
-  requestAnimationFrame(() => { if (chartsQueued) { chartsQueued = false; drawCharts(); } });
+  if (now) chartsPaced.now(); else chartsPaced();
 }
 
 function drawCharts() {
@@ -1496,6 +1518,10 @@ function wireSurvey() {
 async function refresh() {
   try {
     S.status = await api('/api/status');
+    // The kiosk is left open for months: a new version, installed from
+    // Flood-Net or overnight, is its page too once the agent is back.
+    if (KIOSK && S.version && S.status.version && S.status.version !== S.version) { location.reload(); return; }
+    S.version = S.version || S.status.version;
     collectSpectra();
     renderHeader(); renderStats();
     renderCharts();
@@ -1510,7 +1536,7 @@ function connectEvents() {
   if (S.sse) S.sse.close();
   const es = new EventSource('/api/events');
   S.sse = es;
-  es.addEventListener('reading', (e) => { S.readings.unshift(JSON.parse(e.data)); if (S.readings.length > 500) S.readings.length = 500; renderReadings(true); renderCharts(); });
+  es.addEventListener('reading', (e) => { S.readings.unshift(JSON.parse(e.data)); if (S.readings.length > 500) S.readings.length = 500; readingsPaced(true); renderCharts(); });
   es.addEventListener('burst', (e) => { S.bursts.unshift(JSON.parse(e.data)); if (S.bursts.length > 2000) S.bursts.length = 2000; renderCharts(); });
   es.addEventListener('tick', () => refresh());
   es.addEventListener('devices', () => refresh());

@@ -102,7 +102,14 @@ stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 
   channels in two 1.92 MHz windows were more than it had — load 9, every channel dropping samples,
   most bursts lost; the same eight split low and high over two sticks (151.425–151.5375 on one,
   151.95–152.4625 on the other) in 960 kHz each brought it to about 4.5: keep each stick's channels
-  close together, and list only channels worth hearing. A channel that hears bursts it cannot decode
+  close together, and list only channels worth hearing. The kiosk was the rest of it: with the screen
+  off the same Pi went from load 4.7 to 2.8. Before 0.15.1 the dashboard flashed each new reading,
+  and with a reading every second or so the flash never ended, so Chromium repainted the whole
+  screen every frame; now the kiosk tints the newest row and draws what arrives at most every two
+  seconds (a fifth of the browser's CPU, measured against `simulate.sh` at that site's ALERT2 rate).
+  And two sticks are seldom equally good: at 18 Bateson one heard the same bursts 9–19 dB weaker
+  than the other (compare their SNR on a channel both hear), and on it 152.400 MHz went silent — put
+  the weak channels on the better stick, the strong ones on the other. A channel that hears bursts it cannot decode
   costs a decode attempt (a second or so) for each. A Zero 2 W manages a few channels in 240 kHz,
   fewer in 960 kHz. At most 8 channels a stick; each uses ~30 MB.
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can

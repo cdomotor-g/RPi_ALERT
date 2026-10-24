@@ -58,6 +58,10 @@ td.num, th.num { text-align: right; }
 td.wrap { white-space: normal; }
 tr.fresh td { animation: flash 2s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
+/* On the Pi's own screen the newest reading is tinted, not flashed: with a
+   reading every second or so the flash never stops, and the whole page is
+   repainted every frame for it — most of what the kiosk cost the Pi. */
+.kiosk tr.fresh td { animation: none; background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .proto { font-size: .78em; font-weight: 650; padding: 2px 7px; border-radius: 6px; border: 1px solid; }
 .proto.alert { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 50%, transparent); }
 .proto.alert2 { color: var(--alert2); border-color: color-mix(in srgb, var(--alert2) 50%, transparent); }
