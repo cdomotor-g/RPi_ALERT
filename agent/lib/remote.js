@@ -41,7 +41,7 @@ const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const logm = require('./log');
 const system = require('./system');
-const { defaults } = require('./config');
+const { defaults, merge } = require('./config');
 const pkg = require('../package.json');
 
 const FULL_MS = 15 * 60 * 1000;      // the whole status, at least this often
@@ -84,6 +84,44 @@ function checkPatch(patch) {
   return null;
 }
 
+// A stick's own frequency correction is the one setting nothing shows the
+// loss of: the stick goes on decoding, and every carrier it measures — the
+// fingerprints MegaNet tells transmitters apart by — is that many ppm out. A
+// patch's receivers.sdrDevices replaces the list whole (config.js merge()), so
+// an entry sent without its ppm, a list that leaves a stick out, or a stick's
+// own entry added beside the 0.4 one by serial that held its ppm, would hand
+// the stick another correction without a word. From MegaNet that is refused:
+// each stick's correction, before and after, resolved as devices/sdr.js own()
+// resolves it (its entry by key; else a 0.4 entry by its serial; else the
+// shared one), may change only as the patch says — a ppm in that stick's
+// entry, or a new shared one the stick already followed.
+// sticks: [{ key, serial, name }], the ones plugged in. → what would be lost,
+// as "RTL-SDR, sdr-port:1-1.3 (−19 ppm)", or [].
+function ppmOf(c, stick) {
+  const r = (c && c.receivers) || {}, list = Array.isArray(r.sdrDevices) ? r.sdrDevices : [];
+  const own = (stick.key && list.find(d => isObj(d) && d.key === stick.key))
+    || (stick.serial && list.find(d => isObj(d) && !d.key && d.serial === stick.serial)) || null;
+  return own && typeof own.ppm === 'number' ? { ppm: own.ppm, own: true } : { ppm: (isObj(r.sdr) && r.sdr.ppm) || 0, own: false };
+}
+function droppedPpm(cur, patch, sticks) {
+  if (!isObj(patch) || !isObj(patch.receivers) || !Array.isArray(patch.receivers.sdrDevices)) return [];
+  const next = merge(cur, patch);
+  // Every stick there is: those plugged in, and those with settings of their own here.
+  const all = (sticks || []).filter(x => x && (x.key || x.serial)).slice();
+  for (const e of ((cur && cur.receivers && cur.receivers.sdrDevices) || [])) {
+    if (!isObj(e)) continue;
+    if (e.key && !all.some(x => x.key === e.key)) all.push({ key: e.key, serial: /^sdr-serial:/.test(e.key) ? e.key.slice(11) : null, name: e.name });
+    else if (!e.key && e.serial && !all.some(x => x.serial === e.serial)) all.push({ key: null, serial: e.serial });
+  }
+  const sign = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+  return all.filter((st) => {
+    const was = ppmOf(cur, st), now = ppmOf(next, st);
+    // Unchanged; or set in the patch's own entry for it; or the shared one it followed, changed.
+    return now.ppm !== was.ppm && !now.own && was.own;
+  }).map(st => (st.name && st.name !== st.key ? st.name + ', ' : '') + (st.key || 'the sticks with serial ' + st.serial)
+    + ' (' + sign(ppmOf(cur, st).ppm) + ' ppm)');
+}
+
 // Every path a patch touches, for the log: "receivers.sdr.freqHz, audio.volume".
 function paths(o, pre) {
   const out = [];
@@ -92,6 +130,14 @@ function paths(o, pre) {
     if (isObj(o[k])) out.push(...paths(o[k], p)); else out.push(p);
   }
   return out;
+}
+
+// The RTL-SDR sticks plugged in: [{ key, serial, name }].
+function sticksOf(agent) {
+  return agent.devices.all().filter(s => s.kind === 'sdr').map((s) => {
+    const dev = s.stick || (typeof s.status === 'function' ? s.status().device : null) || {};
+    return { key: s.key, serial: dev.serial || null, name: typeof s.name === 'function' ? s.name() : null };
+  });
 }
 
 function deviceOf(agent, key) {
@@ -119,6 +165,12 @@ const VERBS = {
   'config.set': { label: 'change settings', run: async (r, a) => {
     const why = checkPatch(a.patch);
     if (why) throw new Error(why);
+    const lost = droppedPpm(r.agent.config.get(), a.patch, sticksOf(r.agent));
+    if (lost.length) {
+      throw new Error('not saved: it would take away the frequency correction of ' + lost.join(' and ') + '. The settings may have changed since '
+        + 'they were shown — load them again and make the change again; a patch written by hand gives ppm in that stick\'s receivers.sdrDevices '
+        + 'entry (the same to keep it, another to change it)');
+    }
     const u = r.agent.config.update(a.patch);
     if (!u.ok) throw new Error('not saved: ' + u.errors.join('; '));
     r.wantFull = true;
@@ -530,4 +582,4 @@ class Remote extends EventEmitter {
   }
 }
 
-module.exports = { Remote, VERBS, checkPatch, remoteConfig, fit, LOCAL_ONLY, MEGANET_REMOTE };
+module.exports = { Remote, VERBS, checkPatch, droppedPpm, remoteConfig, fit, LOCAL_ONLY, MEGANET_REMOTE };

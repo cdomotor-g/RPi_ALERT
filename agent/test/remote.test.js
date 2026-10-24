@@ -17,7 +17,7 @@ const stub = require('./helpers/meganet-stub');
 const system = require('../lib/system');
 const { Config, merge } = require('../lib/config');
 const { Uplink } = require('../lib/uplink');
-const { Remote, checkPatch } = require('../lib/remote');
+const { Remote, checkPatch, droppedPpm } = require('../lib/remote');
 
 const quiet = { debug() {}, info() {}, warn() {}, error() {}, child() { return quiet; } };
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -157,6 +157,60 @@ test('remote: a settings patch is checked before it is tried', () => {
   assert.match(checkPatch([]), /object/);
   assert.match(checkPatch({}), /object/);
   assert.match(checkPatch(JSON.parse('{"__proto__": {"x": 1}}')), /object|no setting/);
+});
+
+test('remote: a patch never changes a stick\'s frequency correction without saying what it becomes', () => {
+  // Sticks plugged in, and settings that include one that is not (sdr-port:1-1.2) and a 0.4 entry by serial.
+  const sticks = [{ key: 'sdr-serial:7777', serial: '7777', name: 'Roof' }, { key: 'sdr-port:1-1.3', serial: '00000001' }, { key: 'sdr-port:1-1.4', serial: '0001' }];
+  const cur = { receivers: { sdr: { ppm: 0 }, sdrDevices: [
+    { key: 'sdr-serial:7777', ppm: -14, gainDb: 49.6 }, { key: 'sdr-port:1-1.3', ppm: -19 }, { key: 'sdr-port:1-1.2', ppm: 5 }, { serial: '0001', ppm: 3 }] } };
+  const keep = [{ key: 'sdr-serial:7777', ppm: -14 }, { key: 'sdr-port:1-1.3', ppm: -19 }, { key: 'sdr-port:1-1.2', ppm: 5 }, { serial: '0001', ppm: 3 }];
+  const dp = (patch, c) => droppedPpm(c || cur, patch, sticks);
+  assert.deepEqual(dp({ audio: { volume: 50 } }), [], 'a patch that leaves the sticks alone');
+  assert.deepEqual(dp({ receivers: { sdr: { gainDb: 30 } } }), [], 'or changes only the shared settings');
+  assert.deepEqual(dp({ receivers: { sdrDevices: keep } }), [], 'every correction sent again: kept');
+  assert.deepEqual(dp({ receivers: { sdrDevices: [{ key: 'sdr-serial:7777', ppm: -13 }, { key: 'sdr-port:1-1.3', ppm: 0 }, { key: 'sdr-port:1-1.2', ppm: 5 }, { serial: '0001', ppm: 3 }] } }), [],
+    'a new value, 0 included, is a change asked for');
+  assert.deepEqual(dp({ receivers: { sdrDevices: keep.map(e => (e.key === 'sdr-port:1-1.3' ? { key: e.key, gainDb: 40 } : e)) } }),
+    ['sdr-port:1-1.3 (−19 ppm)'], 'an entry sent without its ppm');
+  assert.deepEqual(dp({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', ppm: -19 }] } }),
+    ['Roof, sdr-serial:7777 (−14 ppm)', 'sdr-port:1-1.4 (+3 ppm)', 'sdr-port:1-1.2 (+5 ppm)'],
+    'a list that leaves sticks out — one held by a 0.4 entry by its serial, one not plugged in');
+  // The 0.4 entry by serial: its stick's own entry beside it hides it.
+  assert.deepEqual(dp({ receivers: { sdrDevices: keep.concat([{ key: 'sdr-port:1-1.4', name: 'West' }]) } }), ['sdr-port:1-1.4 (+3 ppm)'],
+    'a stick\'s own entry added without the ppm its serial entry gave it');
+  assert.deepEqual(dp({ receivers: { sdrDevices: keep.filter(e => e.serial !== '0001').concat([{ key: 'sdr-port:1-1.4', ppm: 3, name: 'West' }]) } }), [],
+    'the serial entry carried into the stick\'s own, ppm and all: nothing changes');
+  // What a stick follows when it has no correction of its own.
+  assert.deepEqual(dp({ receivers: { sdr: { ppm: -19 }, sdrDevices: keep.filter(e => e.key !== 'sdr-port:1-1.3') } }), [],
+    'its own −19 gone, the shared −19 in the same patch: the stick runs as it did');
+  assert.deepEqual(dp({ receivers: { sdr: { ppm: -18 }, sdrDevices: keep.filter(e => e.key !== 'sdr-port:1-1.3') } }), ['sdr-port:1-1.3 (−19 ppm)'],
+    '…but a different shared one does not stand in for it');
+  const plain = { receivers: { sdr: { ppm: 0 }, sdrDevices: [{ key: 'sdr-port:1-1.3', gainDb: 40 }] } };
+  assert.deepEqual(dp({ receivers: { sdr: { ppm: 4 }, sdrDevices: [{ key: 'sdr-port:1-1.3' }] } }, plain), [],
+    'a stick that followed the shared correction follows the new one: that is the change asked for');
+  assert.deepEqual(dp({ receivers: { sdrDevices: 'all' } }), [], 'not a list: config.js refuses it, with its own reason');
+});
+
+test('remote: from MegaNet, a list of sticks that would drop a correction is refused and nothing changes', async (t) => {
+  const m = await stand(t);
+  const { cfg } = started(t, rig(m, { receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', ppm: -19 }, { key: 'sdr-port:1-1.4', ppm: -14, gainDb: 49.6 }] } }));
+  assert.ok(await until(() => m.station.checkins >= 1));
+  const before = JSON.stringify(cfg.get().receivers.sdrDevices);
+  const left = m.ask('config.set', { patch: { receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', ppm: -19, freqHz: 151575000 }, { key: 'sdr-port:1-1.4', gainDb: 49.6 }] } } });
+  const out = m.ask('config.set', { patch: { receivers: { sdrDevices: [{ key: 'sdr-port:1-1.4', ppm: -14, gainDb: 49.6 }] } } });
+  assert.ok(await until(() => [left, out].every(c => c.status === 'done' || c.status === 'failed'), 8000));
+  assert.equal(left.status, 'failed');
+  assert.match(left.error, /take away the frequency correction of sdr-port:1-1\.4 \(−14 ppm\)\. The settings may have changed.*gives ppm in that stick/);
+  assert.equal(out.status, 'failed');
+  assert.match(out.error, /RTL-SDR, sdr-port:1-1\.3 \(−19 ppm\)/, 'a stick plugged in, by its name and key');
+  assert.equal(JSON.stringify(cfg.get().receivers.sdrDevices), before, 'refused whole: not the other changes in it either');
+  const ok = m.ask('config.set', { patch: { receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', ppm: -19, freqHz: 151575000 }, { key: 'sdr-port:1-1.4', ppm: -14, gainDb: 49.6 }] } } });
+  assert.ok(await until(() => ok.status === 'done' || ok.status === 'failed', 8000));
+  assert.equal(ok.status, 'done', ok.error);
+  assert.deepEqual(cfg.get().receivers.sdrDevices.map(e => [e.key, e.ppm]), [['sdr-port:1-1.3', -19], ['sdr-port:1-1.4', -14]]);
+  // On the Pi itself, its owner may still send a stick back to the shared correction.
+  assert.ok(cfg.update({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.4', ppm: -14 }] } }).ok);
 });
 
 test('remote: report mode refuses on the Pi as well as in MegaNet; off is one last word, then silence', async (t) => {
