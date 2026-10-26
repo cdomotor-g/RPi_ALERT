@@ -118,6 +118,15 @@ badly each one strands somebody:
   MegaNet with its reception (`cfo_hz`) — only when the burst was one steady carrier — and a
   repeater's copy of a reading is kept as a reception (`duplicate`, `copy`) rather than dropped, so
   MegaNet can put each burst down to the station or the repeater that sent it (MegaNet's `0077`).
+- **Shade a window's outer edges on the waterfall.** The planner keeps channels in the middle 80%
+  of a stick's window (`USABLE`, `web/sdr-plan.js`) because beyond it the RTL2832U's filter rolls
+  off and what lies past the edge folds back in — but the waterfall, the Pi's and MegaNet's, draws
+  the whole window alike. At 18 Bateson (2026-10-26; stick 1 at 151.4565 MHz in 240 kHz), 151.575's
+  bursts straddle the window's top edge and wrap round onto its bottom edge, and the waterfall shows
+  "packets" on 151.337 that are 151.575's: lit in 2,848 of 2,866 minutes and in none of the minutes
+  151.575 was quiet, only the two bins at the very edge where a station's ±5 kHz would light ten,
+  and nothing on 151.337 when the same stick had a 960 kHz window around 151.237. Shading the outer
+  tenth each side, and saying why on hover, would keep a fold from being read as a station.
 - **Record the next N seconds.** A button (and a CLI verb) that saves a stick's IQ or demodulated
   audio for a bad station, without stopping the agent and running `rtl_sdr` by hand as
   [bench-test.md](bench-test.md) does.
