@@ -43,7 +43,7 @@ class MegaNet {
     for (const ep of this.endpoints()) {
       let res, text;
       try {
-        res = await fetch(ep.url + '/rpc/' + name, { method: 'POST', headers, body, signal: AbortSignal.timeout(TIMEOUT_MS) });
+        res = await fetch(ep.url + '/rpc/' + name, { method: 'POST', headers, body, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
         text = await res.text();
       } catch (e) {
         lastErr = new Error(ep.url + ': ' + ((e && e.cause && e.cause.code) || (e && e.name === 'TimeoutError' ? 'timed out' : (e && e.message) || e)));
