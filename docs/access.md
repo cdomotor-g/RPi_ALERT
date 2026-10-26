@@ -33,8 +33,10 @@ The account Raspberry Pi Imager made is left exactly as it was: its password and
 | **GitHub accounts** | `ssh_github = alice, bob` on the card, or `sudo rpi-alert access github alice bob`. Their public keys (`github.com/<name>.keys`) are fetched every hour. | private networks |
 | **MegaNet's team keys** | `ssh_meganet_keys = yes` on the card, or *Settings → SSH access* on the Pi's page. MegaNet's administrators keep the list (public keys only) on its Base Stations tab; a Pi that takes it fetches it hourly, and within a minute of a change while it is checking in. | private networks |
 
-"Private networks" means 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 (carrier-grade
-NAT, which Tailscale uses), link-local and loopback, and their IPv6 counterparts. `ssh_from = any`
+"Private networks" means 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, link-local and loopback, and their IPv6
+counterparts. Carrier-grade NAT (100.64.0.0/10, which Tailscale uses) is left out on purpose, because a Pi
+on a 4G modem shares that range with the carrier's other subscribers: a Pi reached only over Tailscale
+needs `ssh_from = any`. `ssh_from = any`
 on the card (or *Settings → SSH access*) lets fetched keys work from anywhere.
 
 **Keys never arrive through the web page or a MegaNet request.** Only root writes the list — the
