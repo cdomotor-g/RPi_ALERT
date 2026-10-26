@@ -871,6 +871,13 @@ function channelTable(d) {
 // short looks a second (alert-dsp.js), which a short burst can fall between,
 // so every burst a channel heard is marked on its row too: its SNR across its
 // channel.
+//
+// A stick's outer tenth either side is the edge of its window: the RTL2832U's
+// filter rolls off there, and a signal just past one edge folds back in at
+// the other (SdrPlan.USABLE keeps channels out of it). So where a stick hears
+// a frequency in its middle, that is what is drawn; another stick's edge only
+// where no middle reaches, and hatched — at 18 Bateson (October 2026), 151.575
+// just past the top of a 240 kHz window showed as "packets" on 151.337.
 
 const WF_ROWS = 120, WF_COLS = 720;
 S.radio = { sig: '', rows: [], times: [], span: null, hi: 30, last: '', burstT: Date.now() };
@@ -882,9 +889,38 @@ function radioSticks() {
     const sp = d.spectrum;
     if (!sp || !sp.db || !sp.db.length || d.state === 'unplugged') continue;
     const sorted = Array.from(sp.db).sort((a, b) => a - b);
-    out.push({ d, sp, color: stickColor(d), floor: sorted[Math.floor(sorted.length * 0.2)], lo: sp.centerHz - sp.rate / 2, hi: sp.centerHz + sp.rate / 2 });
+    const mid = SdrPlan.USABLE * sp.rate / 2;
+    out.push({ d, sp, color: stickColor(d), floor: sorted[Math.floor(sorted.length * 0.2)], lo: sp.centerHz - sp.rate / 2, hi: sp.centerHz + sp.rate / 2,
+      mlo: sp.centerHz - mid, mhi: sp.centerHz + mid });
   }
   return out;
+}
+
+// Whether hz is in a stick's middle rather than at its window's edge.
+function inMiddle(st, hz) { return hz >= st.mlo && hz <= st.mhi; }
+
+// The stretches of lo–hi only a window's edge reaches, [loHz, hiHz] each, at
+// the waterfall's columns.
+function edgeSpans(sticks, lo, hi) {
+  const out = [], w = (hi - lo) / WF_COLS;
+  let from = null;
+  for (let i = 0; i <= WF_COLS; i++) {
+    const hz = lo + (i + 0.5) * w;
+    const edge = i < WF_COLS && !sticks.some(s => inMiddle(s, hz)) && sticks.some(s => hz >= s.lo && hz <= s.hi);
+    if (edge && from == null) from = lo + i * w;
+    else if (!edge && from != null) { out.push([from, lo + i * w]); from = null; }
+  }
+  return out;
+}
+
+// Diagonal lines across x0–x1, y0–y1, on one grid however many stretches.
+function hatch(g, x0, x1, y0, y1, style, step, width) {
+  g.save();
+  g.beginPath(); g.rect(x0, y0, x1 - x0, y1 - y0); g.clip();
+  g.strokeStyle = style; g.lineWidth = width; g.beginPath();
+  for (let x = Math.floor((x0 - (y1 - y0)) / step) * step; x < x1; x += step) { g.moveTo(x, y1); g.lineTo(x + (y1 - y0), y0); }
+  g.stroke();
+  g.restore();
 }
 
 // dB over a stick's floor at hz; null outside its slice.
@@ -906,8 +942,13 @@ function collectSpectra() {
   let top = 20;
   for (let i = 0; i < WF_COLS; i++) {
     const hz = lo + (i + 0.5) / WF_COLS * (hi - lo);
-    let v = NaN;
-    for (const s of sticks) { const x = levelAt(s, hz); if (x != null && !(x <= v)) v = x; }
+    let v = NaN, edge = NaN;
+    for (const s of sticks) {
+      const x = levelAt(s, hz);
+      if (x == null) continue;
+      if (inMiddle(s, hz)) { if (!(x <= v)) v = x; } else if (!(x <= edge)) edge = x;
+    }
+    if (v !== v) v = edge;
     row[i] = v;
     if (v > top) top = v;
   }
@@ -953,16 +994,22 @@ function drawRadio() {
   setHtml($('#radio-legend'), sticks.map(st => '<span class="lg" style="--c: var(' + st.color + ')"><i></i>' + esc(st.d.name)
     + ' <span class="dim">' + (st.lo / 1e6).toFixed(2) + '–' + (st.hi / 1e6).toFixed(2) + ' MHz</span></span>').join(''));
   $('#radio-note').textContent = '— every stick\'s slice; dB over each stick\'s own noise floor';
-  const span = Math.round((R.times[0] - R.times[R.times.length - 1]) / 1000);
+  const span = Math.round((R.times[0] - R.times[R.times.length - 1]) / 1000), edges = edgeSpans(sticks, R.span[0], R.span[1]);
   $('#radio-foot').textContent = 'Spectrum: a look every 2 s. Waterfall: ' + (span >= 60 ? 'the last ' + Math.round(span / 60) + ' min' : 'filling in')
-    + ' while this page is open, newest at the top, every burst marked on its channel. Point at either for the frequency, the level and the channel.';
-  drawSpec($('#spec-c'), sticks, R);
+    + ' while this page is open, newest at the top, every burst marked on its channel. Point at either for the frequency, the level and the channel.'
+    + (edges.length ? ' Hatched: the edge of a stick\'s window, where a signal just beyond it folds back in — not a station of its own.' : '');
+  drawSpec($('#spec-c'), sticks, R, edges);
   const wc = $('#wf-c'), hv = S.hover && S.hover.key === 'radio' ? S.hover : null;
   wc.dataset.rows = WF_ROWS;
   if (R.rows.length) {
     Charts.waterfall(wc, R.rows, 0, Math.max(20, R.hi), hv ? { x: (hv.hz - R.span[0]) / (R.span[1] - R.span[0]), row: hv.row } : null);
     // Each channel a tick along the top, in its stick's colour.
     const g = wc.getContext('2d'), k = wc.width / (R.span[1] - R.span[0]), dpr = window.devicePixelRatio || 1;
+    for (const [a, b] of edges) {
+      const x0 = Math.round((a - R.span[0]) * k), x1 = Math.round((b - R.span[0]) * k);
+      g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x0, 0, x1 - x0, wc.height);
+      hatch(g, x0, x1, 0, wc.height, 'rgba(255,255,255,0.16)', 7 * dpr, dpr);
+    }
     for (const c of radioChannels(sticks)) {
       g.fillStyle = Charts.alpha(c.st.color, 0.95);
       g.fillRect(Math.round((c.hz - R.span[0]) * k) - dpr, 0, 2 * dpr, 7 * dpr);
@@ -971,9 +1018,10 @@ function drawRadio() {
   wireRadioHover();
 }
 
-// The spectrum: each stick's slice faintly, its trace in its colour, its
-// channels labelled along the top (in rows, where they would collide).
-function drawSpec(c, sticks, R) {
+// The spectrum: each stick's slice faintly, its trace in its colour (faint at
+// its window's edges), its channels labelled along the top (in rows, where
+// they would collide); edges: what only a window's edge reaches, hatched.
+function drawSpec(c, sticks, R, edges) {
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
   if (!w || !h) return;
   c.width = w * dpr; c.height = h * dpr;
@@ -998,6 +1046,7 @@ function drawSpec(c, sticks, R) {
   const ymax = Math.ceil(peak / 10) * 10, ymin = -5, Y = (v) => top + ph - (v - ymin) / (ymax - ymin) * ph;
   // Slices.
   for (const st of sticks) { g.fillStyle = Charts.alpha(st.color, 0.07); g.fillRect(X(st.lo), top, X(st.hi) - X(st.lo), ph); }
+  for (const [a, b] of edges) hatch(g, X(a), X(b), top, top + ph, Charts.alpha('--dim', 0.3), 6, 1);
   // dB lines, and the frequency along the bottom at round steps.
   g.strokeStyle = col('--line'); g.fillStyle = col('--dim'); g.lineWidth = 1;
   g.textAlign = 'left';
@@ -1022,13 +1071,14 @@ function drawSpec(c, sticks, R) {
   }
   // The traces.
   for (const st of sticks) {
-    const db = st.sp.db, n = db.length;
-    g.strokeStyle = col(st.color); g.lineWidth = 1.4; g.lineJoin = 'round'; g.beginPath();
+    const db = st.sp.db, n = db.length, path = new Path2D();
     for (let i = 0; i < n; i++) {
       const x = X(st.lo + i / (n - 1) * (st.hi - st.lo)), y = Y(Math.max(ymin, db[i] - st.floor));
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+      i ? path.lineTo(x, y) : path.moveTo(x, y);
     }
-    g.stroke();
+    g.strokeStyle = col(st.color); g.lineWidth = 1.4; g.lineJoin = 'round';
+    g.globalAlpha = 0.35; g.stroke(path); g.globalAlpha = 1;
+    g.save(); g.beginPath(); g.rect(X(st.mlo), 0, X(st.mhi) - X(st.mlo), h); g.clip(); g.stroke(path); g.restore();
   }
   // Where the pointer is, here or on the waterfall.
   const hv = S.hover && S.hover.key === 'radio' ? S.hover : null;
@@ -1066,9 +1116,11 @@ function wireRadioHover() {
       lines[0] += v === v ? ' · ' + v.toFixed(1) + ' dB over the floor' : ' · no stick hears it';
       lines.push(ago(Date.now() - R.times[row]) + ' (' + new Date(R.times[row]).toLocaleTimeString() + ')');
     } else {
-      for (const st of sticks) { const v = levelAt(st, hz); if (v != null) lines.push(st.d.name + ': ' + v.toFixed(1) + ' dB over its floor'); }
+      for (const st of sticks) { const v = levelAt(st, hz); if (v != null) lines.push(st.d.name + ': ' + v.toFixed(1) + ' dB over its floor' + (inMiddle(st, hz) ? '' : ' (its window\'s edge)')); }
       if (lines.length === 1) lines.push('no stick hears it');
     }
+    const edgeOf = sticks.filter(st => hz >= st.lo && hz <= st.hi && !inMiddle(st, hz));
+    if (edgeOf.length && !sticks.some(st => inMiddle(st, hz))) lines.push('The edge of ' + edgeOf.map(st => st.d.name).join(' and ') + '\'s window: what shows here can be a signal just beyond it, folded back in');
     const ch = nearestChannel(sticks, hz);
     if (ch) {
       const off = (hz - ch.hz) / 1000, n = ch.ch.counts || {};
