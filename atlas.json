@@ -1,0 +1,419 @@
+{
+  "$schema": "https://cdomotor-g.github.io/atlas/schema/atlas.schema.json",
+  "atlas": 1,
+  "id": "rpi-alert",
+  "repo": "cdomotor-g/RPi_ALERT",
+  "name": "RPi ALERT",
+  "tagline": "A Raspberry Pi OS for ALERT flood-warning base stations: hears ALERT and ALERT2, decodes every burst, posts it to Flood-Net.",
+  "about": "Turns a Raspberry Pi into an ALERT and ALERT2 base station. Its Node agent finds RTL-SDR sticks, Quansheng ALERT radios, ELPRO ERT-A2 receivers and a GPS by itself, decodes every burst with Flood-Net's own decoders, keeps readings in a queue on disk and posts them to Flood-Net's ingest. It checks in with Flood-Net's Base Stations tab once a minute, so an administrator can see its health, change its settings and update it from there. A set-up page on GitHub Pages picks the image and writes the SD card's settings, for whoever puts a base station on a site.",
+  "kind": "base-station OS",
+  "logo": "site/icon.svg",
+  "site": "https://cdomotor-g.github.io/RPi_ALERT/",
+  "docs": {
+    "readme": "README.md",
+    "roadmap": "docs/roadmap.md",
+    "agents": "CLAUDE.md",
+    "install": "docs/install.md",
+    "configuration": "docs/configuration.md",
+    "remote_management": "docs/remote-management.md",
+    "access": "docs/access.md",
+    "hardware": "docs/hardware.md",
+    "how_it_works": "docs/how-it-works.md",
+    "bench_test": "docs/bench-test.md",
+    "survey": "docs/survey.md",
+    "release_signing": "docs/release-signing.md",
+    "research": "docs/research.md"
+  },
+  "version": {
+    "file": "agent/package.json",
+    "pattern": "\"version\":\\s*\"([^\"]+)\"",
+    "releases": true
+  },
+  "status": {
+    "phase": "beta",
+    "updated": "2026-10-31",
+    "summary": "Version 0.15.3 is on main (latest release v0.15.2) and runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "now": [
+      "0.15.x: each stick's narrowest window and its CPU cost, tuned on the live station",
+      "0.15.3 (waterfall window edges hatched) on main, waiting for its release"
+    ],
+    "next": [
+      "Re-sync the vendored decoders: Flood-Net's alert2.js changed on 2026-10-28",
+      "Close #1: the ERT-A2 field fix shipped in 0.14.1",
+      "Headless first run: status file on the boot partition, captive portal on the hotspot",
+      "Dashboard falls back to polling when its event stream fails; reloads after an update",
+      "Show the health it already sends: disk, load, memory, throttling, network in words",
+      "A support bundle: journal, status and settings with secrets taken out",
+      "Confirm actions that can cut you off; Wi-Fi password in a password field",
+      "Set-up page writes the card file's advanced keys and edits an existing one"
+    ],
+    "later": [
+      "ALERT2-only channels skip the legacy decode first, halving their CPU",
+      "A channeliser shared by a stick's channels, built first in Flood-Net's alert-dsp.js",
+      "Updates you can see coming: release notes, roll back, staged fleet roll-out",
+      "Settings backup, and a host id that survives a new SD card",
+      "Read-only root file system; GPS-disciplined time with chrony",
+      "Record the next N seconds; a searchable readings table; listen from a phone",
+      "Upload Flood-Net's station table to a Quansheng radio from the Overview",
+      "Cellular backhaul, UPS HAT status, HTTPS for the web page"
+    ],
+    "blocked": [
+      {
+        "what": "First run on the bench Pi: V2 and V4 sticks, a Quansheng radio, an ERT-A2, power cuts, kiosk, audio jack (docs/bench-test.md)",
+        "on": "human"
+      },
+      {
+        "what": "RTL-SDR Blog V4 confirmed on Trixie's librtlsdr and Bookworm's rtl-sdr-blog build",
+        "on": "human"
+      },
+      {
+        "what": "A second off-air test vector: a good 151.5 MHz ALERT Binary burst captured on the bench",
+        "on": "human"
+      },
+      {
+        "what": "How-it-works and survey docs on a burst heard by two receivers wait for Flood-Net to measure duplicates",
+        "on": "flood-net#232"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "agent-core",
+      "name": "Agent daemon and command line",
+      "what": "The rpi-alert daemon and CLI (status, top, setup, request-token, config, remote, access): settings, the SD card's rpi-alert.conf, the clock, the hotspot, the speaker.",
+      "paths": [
+        "agent/bin/",
+        "agent/lib/agent.js",
+        "agent/lib/config.js",
+        "agent/lib/bootconf.js",
+        "agent/lib/state.js",
+        "agent/lib/clock.js",
+        "agent/lib/hotspot.js",
+        "agent/lib/audio.js",
+        "agent/lib/system.js",
+        "agent/package.json"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "sdr",
+      "name": "RTL-SDR receiver",
+      "what": "Several channels per stick, each with its own decoder thread; the window planner, tuning help (ppm, gain, carrier offsets), IQ recordings, and the Pi's own ALERT2 AirLink off-air decoder.",
+      "paths": [
+        "agent/lib/devices/sdr.js",
+        "agent/lib/devices/sdr-worker.js",
+        "agent/lib/devices/sdr-bench.js",
+        "agent/lib/devices/rtl-index.js",
+        "agent/lib/devices/carrier.js",
+        "agent/lib/devices/tune-help.js",
+        "agent/lib/devices/alert2-air.js",
+        "agent/lib/devices/alert2-fec.js",
+        "agent/lib/devices/alert2-readings.js",
+        "agent/web/sdr-plan.js",
+        "agent/lib/recorder.js"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "serial-drivers",
+      "name": "Serial receivers: Quansheng, ERT-A2, GPS",
+      "what": "Finds serial devices by what they send (sniff), then drives Quansheng radios on the v3 or v1 ALERT firmware, ELPRO ERT-A2 receivers and NMEA GPS; reopens them after an unplug.",
+      "paths": [
+        "agent/lib/devices/manager.js",
+        "agent/lib/devices/sniff.js",
+        "agent/lib/devices/quansheng.js",
+        "agent/lib/devices/ert.js",
+        "agent/lib/devices/gps.js",
+        "agent/lib/serial/"
+      ],
+      "status": "beta"
+    },
+    {
+      "id": "vendored-decoders",
+      "name": "Flood-Net's decoders, vendored",
+      "what": "alert-dsp.js, quansheng.js, alert2.js and serial-gps.js copied verbatim from Flood-Net and pinned in SOURCE, so the Pi decodes exactly what the website does.",
+      "paths": [
+        "agent/vendor/meganet/",
+        "agent/lib/meganet-codecs.js",
+        "agent/scripts/sync-meganet.sh"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "flood-net-link",
+      "name": "Flood-Net uplink and queue",
+      "what": "Posts readings, receivers and every frame heard to Flood-Net's ingest with the Pi's own token, from a disk queue that survives power cuts; requests its token; keeps the station register.",
+      "paths": [
+        "agent/lib/meganet.js",
+        "agent/lib/uplink.js",
+        "agent/lib/spool.js",
+        "agent/lib/token-request.js",
+        "agent/lib/stations.js"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "remote",
+      "name": "Remote management and SSH access",
+      "what": "Checks in with Flood-Net's Base Stations tab once a minute and does only the listed verbs it hands back; the alert account's SSH keys from the card, GitHub or Flood-Net's team keys.",
+      "paths": [
+        "agent/lib/remote.js",
+        "agent/lib/access.js",
+        "agent/bin/rpi-alert-access",
+        "os/libexec/rpi-alert-priv",
+        "docs/remote-management.md",
+        "docs/access.md"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "dashboard",
+      "name": "Dashboard and settings page",
+      "what": "The Pi's web page and kiosk: one spectrum and waterfall for every stick, a chart per receiver, a day of history, the Survey page, and every setting.",
+      "paths": [
+        "agent/web/",
+        "agent/lib/web/server.js",
+        "agent/lib/history.js",
+        "agent/lib/survey.js",
+        "agent/lib/web-password.js"
+      ],
+      "url": "http://rpi-alert.local/",
+      "status": "live"
+    },
+    {
+      "id": "os",
+      "name": "OS layer",
+      "what": "install.sh and the one-line bootstrap for an existing Pi; systemd units, udev rules, sudoers, the root helper, the kiosk, the signed-release updater and the boot-partition files.",
+      "paths": [
+        "os/"
+      ],
+      "status": "live"
+    },
+    {
+      "id": "image-build",
+      "name": "Image build and releases",
+      "what": "Builds Raspberry Pi OS Lite images with RPi ALERT installed (arm64, armhf) in a qemu chroot and publishes them, signed, as a GitHub release on a v<version> tag.",
+      "paths": [
+        "build/build-image.sh",
+        ".github/workflows/build-image.yml",
+        "os/libexec/sign-release.js",
+        "os/libexec/verify-release.js",
+        "os/release-signing-key.pem",
+        "docs/release-signing.md"
+      ],
+      "url": "https://github.com/cdomotor-g/RPi_ALERT/releases",
+      "status": "live"
+    },
+    {
+      "id": "setup-site",
+      "name": "Set-up site",
+      "what": "GitHub Pages page that picks the Pi, starts Raspberry Pi Imager with this repository and writes the card's settings file; serves os_list.json from the latest release.",
+      "paths": [
+        "site/",
+        ".github/workflows/pages.yml"
+      ],
+      "url": "https://cdomotor-g.github.io/RPi_ALERT/",
+      "status": "live"
+    },
+    {
+      "id": "tests",
+      "name": "Tests and simulator",
+      "what": "node --test suite with a real off-air burst, protocol vectors, a Flood-Net stand-in, pty receivers and a fake rtl_sdr; simulate.sh runs a base station with no hardware.",
+      "paths": [
+        "agent/test/",
+        "agent/scripts/simulate.sh",
+        ".github/workflows/test.yml"
+      ],
+      "status": "live"
+    }
+  ],
+  "provides": [
+    {
+      "id": "release",
+      "name": "RPi ALERT release",
+      "what": "A GitHub release per v<version> tag: SD-card images, Imager entries and a signed agent-and-OS tarball the Pis' updater installs. Flood-Net's Base Stations tab reads the latest tag to offer 'Install the latest release'.",
+      "component": "image-build",
+      "paths": [
+        "agent/package.json",
+        ".github/workflows/build-image.yml",
+        "os/libexec/rpi-alert-update"
+      ],
+      "url": "https://api.github.com/repos/cdomotor-g/RPi_ALERT/releases/latest",
+      "contract": "docs/release-signing.md"
+    },
+    {
+      "id": "checkin-protocol",
+      "name": "Base-station check-in: heartbeat, status and verbs",
+      "what": "What a Pi sends Flood-Net's base_station_checkin each minute (heartbeat, spectrum rows, whole status, settings without secrets) and the only requests it accepts back: status, log, config.set, device.*, send-now, update.*, agent.restart, reboot, access.sync, recordings.",
+      "component": "remote",
+      "paths": [
+        "agent/lib/remote.js",
+        "agent/lib/config.js",
+        "docs/remote-management.md",
+        "docs/configuration.md"
+      ],
+      "contract": "docs/remote-management.md"
+    },
+    {
+      "id": "channel-planner",
+      "name": "SDR channel planner rules",
+      "what": "How a stick's window and centre are chosen for its channels: the sample rates (RATES), the usable middle 80% (USABLE), clearance from the DC spike and mirror images. Flood-Net's sdr-pi.js and Base Stations waterfall follow the same rules.",
+      "component": "sdr",
+      "paths": [
+        "agent/web/sdr-plan.js"
+      ],
+      "contract": "docs/hardware.md"
+    },
+    {
+      "id": "alert2-airlink-decoder",
+      "name": "ALERT2 AirLink off-air decoder",
+      "what": "Decodes ALERT2 AirLink frames (4800 bps, with FEC) from an SDR channel. Self-contained, and meant to move into Flood-Net beside alert-dsp.js so the website's SDR card hears ALERT2 too.",
+      "component": "sdr",
+      "paths": [
+        "agent/lib/devices/alert2-air.js",
+        "agent/lib/devices/alert2-fec.js"
+      ],
+      "contract": "docs/how-it-works.md"
+    },
+    {
+      "id": "setup-site",
+      "name": "Set-up site and Imager repository",
+      "what": "The page that sets up a new base station and writes its rpi-alert.conf, and os_list.json for rpi-imager --repo, built from the latest release.",
+      "component": "setup-site",
+      "paths": [
+        "site/",
+        ".github/workflows/pages.yml",
+        "os/boot/rpi-alert.conf.example"
+      ],
+      "url": "https://cdomotor-g.github.io/RPi_ALERT/"
+    }
+  ],
+  "consumes": [
+    {
+      "id": "vendored-decoders",
+      "from": "flood-net",
+      "provider": "decoders",
+      "into": "vendored-decoders",
+      "what": "Flood-Net's off-air ALERT decoder, Quansheng serial codec, ERT-A2 ALERT2 parser and NMEA parser, copied verbatim with the off-air test burst.",
+      "how": "vendored",
+      "watch": [
+        "alert-dsp.js",
+        "quansheng.js",
+        "alert2.js",
+        "serial-gps.js",
+        "test/fixtures/sdr/testrig_burst_240k.iq8"
+      ],
+      "since": {
+        "file": "agent/vendor/meganet/SOURCE",
+        "pattern": "commit:\\s+([0-9a-f]{7,40})"
+      },
+      "on_change": "Run agent/scripts/sync-meganet.sh (copies the files from Flood-Net's main and records the commit in SOURCE), then the agent tests: cd agent && node --test test/*.test.js. Follow any changed shape in the drivers (ert.js, quansheng.js, sdr.js), bump agent/package.json and release.",
+      "drift_issue": true
+    },
+    {
+      "id": "ingest",
+      "from": "flood-net",
+      "provider": "https-ingest",
+      "into": "flood-net-link",
+      "what": "Flood-Net's HTTPS ingest: ingest_http (readings), report_ingest_point (receivers), report_receptions (every frame heard) and the token request, as RPCs with the X-Ingest-Token header through floodwarning.net's /api/db proxy, or Supabase directly.",
+      "how": "protocol",
+      "watch": [
+        "docs/ingest-http.md",
+        "docs/ingest-serial-monitor.md",
+        "worker/index.js",
+        "db/migrations/*ingest*",
+        "db/migrations/*reception*"
+      ],
+      "since": {
+        "date": "2026-10-26"
+      },
+      "on_change": "Check agent/lib/meganet.js, uplink.js and token-request.js against the change, update the stand-in agent/test/helpers/meganet-stub.js, then cd agent && node --test test/*.test.js."
+    },
+    {
+      "id": "base-station-checkin",
+      "from": "flood-net",
+      "provider": "base-station-checkin",
+      "into": "remote",
+      "what": "Flood-Net's side of the check-in: the base_station_checkin and base_station_keys RPCs, what they keep (a 16 KB status, a 2 KB heartbeat, spectrum rows) and the config.set patches the Base Stations tab writes.",
+      "how": "protocol",
+      "watch": [
+        "docs/base-stations.md",
+        "db/migrations/*base_station*",
+        "base-stations.js"
+      ],
+      "since": {
+        "date": "2026-10-25"
+      },
+      "on_change": "Check agent/lib/remote.js (verbs, status and heartbeat limits, the config.set guards) and docs/remote-management.md against it, then cd agent && node --test test/*.test.js."
+    },
+    {
+      "id": "station-register",
+      "from": "flood-net",
+      "provider": "station-list",
+      "into": "flood-net-link",
+      "what": "Flood-Net's public station register, fetched daily and kept on disk: names what each address is, and offers a stick's channels from the frequencies stations near the Pi use. The set-up page reads it too.",
+      "how": "live",
+      "url": "https://floodwarning.net/stations.json",
+      "on_change": "If the document's shape changes, update agent/lib/stations.js and site/app.js, then cd agent && node --test test/stations.test.js."
+    },
+    {
+      "id": "quansheng-v3-serial",
+      "from": "quansheng-v3",
+      "provider": "serial-protocol",
+      "into": "serial-drivers",
+      "what": "The ALERT receiver firmware's USB serial interface, schema 2: DEC, BST, STA and EVT lines, DTR, TIME and the console. The line codec is Flood-Net's quansheng.js (vendored); the driver adds DTR toggling, clock setting and one command at a time.",
+      "how": "protocol",
+      "watch": [
+        "docs/ALERT_SERIAL.md",
+        "tools/alert/V2_SPEC.md",
+        "App/app/alert_console.c"
+      ],
+      "since": {
+        "date": "2026-10-06"
+      },
+      "on_change": "A record-format change goes into Flood-Net's quansheng.js first and comes here with agent/scripts/sync-meganet.sh; DTR, clock or console changes go in agent/lib/devices/quansheng.js. Then cd agent && node --test test/*.test.js."
+    },
+    {
+      "id": "quansheng-v1-serial",
+      "from": "quansheng-v1",
+      "provider": "uart-line",
+      "into": "serial-drivers",
+      "what": "The older DP32G030 ALERT firmware's UART line, ALERT,<id>,<value>,<ABF|EIF>,<rssi>,<name> at 38400 over the programming cable: recognised by sniff.js, read by the Quansheng driver's legacy path.",
+      "how": "protocol",
+      "watch": [
+        "app/alert.c",
+        "README.md"
+      ],
+      "since": {
+        "date": "2026-10-06"
+      },
+      "on_change": "Update the LEGACY pattern in agent/lib/devices/quansheng.js and the sniff in agent/lib/devices/sniff.js, then cd agent && node --test test/devices.test.js."
+    }
+  ],
+  "asks": [
+    {
+      "to": "flood-net",
+      "what": "Take the ALERT2 AirLink decoder (agent/lib/devices/alert2-air.js, alert2-fec.js) beside alert-dsp.js, so the website's SDR card hears ALERT2 and the Pi can vendor it back.",
+      "issue": null,
+      "since": "2026-10-19"
+    },
+    {
+      "to": "flood-net",
+      "what": "Map an ALERT2 station's (station, sensor number) to an ALERT id in the register, so self-reporting stations' sensors become readings rather than receptions only.",
+      "issue": null,
+      "since": "2026-10-19"
+    },
+    {
+      "to": "flood-net",
+      "what": "A channeliser shared by a stick's channels (one filter bank per stick) in alert-dsp.js, or at least a lighter first filter, so a Pi can take a fifth channel.",
+      "issue": null,
+      "since": "2026-10-24"
+    },
+    {
+      "to": "flood-net",
+      "what": "Measure whether one burst heard by two receivers is stored twice, so both repositories' docs say the same true thing.",
+      "issue": "cdomotor-g/MegaNet#232",
+      "since": "2026-10-07"
+    }
+  ]
+}
