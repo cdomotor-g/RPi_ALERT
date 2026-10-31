@@ -59,20 +59,156 @@
     ],
     "blocked": [
       {
+        "id": "bench-first-run",
         "what": "First run on the bench Pi: V2 and V4 sticks, a Quansheng radio, an ERT-A2, power cuts, kiosk, audio jack (docs/bench-test.md)",
-        "on": "human"
+        "on": "human",
+        "kind": "hardware",
+        "since": "2026-10-02",
+        "holds": [
+          "the RTL-SDR Blog V4 confirmed on hardware (bench-test.md §3)",
+          "a Quansheng radio on USB-C at a Pi (§4)",
+          "an ERT-A2 at a Pi (§5)",
+          "unplug, power-cut and network-loss recovery proven (§6)",
+          "the audio jack's burst chirp"
+        ],
+        "options": [
+          {
+            "what": "Cut docs/bench-test.md down to what the live station has not shown. 18 Bateson (a Pi 4 on Trixie, kiosk on a monitor) has checked in since 6 October and runs two sticks with several channels each, which covers most of §1–3b and the kiosk; what is left is the V4, the Quansheng radio, the ERT-A2, §6's unplug, power and network pulls, and the audio jack. A second Pi has checked in to Flood-Net since 27 October with no receivers: if that is the bench Pi, §1 is done too.",
+            "by": "agent",
+            "effort": "an hour",
+            "model": "Sonnet5/Med",
+            "pros": "shrinks the owner's part to the devices 18 Bateson lacks"
+          },
+          {
+            "what": "Run what is left with Claude Code on a laptop beside the bench (bench-test.md §7): ssh-copy-id to the Pi, point the session at bench-test.md, and plug in the V4, the radio and the ERT-A2 and pull the power and network when it asks. It reads the logs, captures IQ and pushes fixes.",
+            "by": "human",
+            "effort": "1–2 hours",
+            "pros": "you only plug and unplug; fixes land the same day",
+            "cons": "needs a laptop on the bench's network",
+            "recommended": true
+          },
+          {
+            "what": "Write scripts/bench-check.sh for the bench: it runs each section's checks (rpi-alert status --json, lsmod | grep dvb, rtl_test -t, the receivers found, the journal since boot), prompts for each plug and pull, and writes one report file to send back.",
+            "by": "agent",
+            "effort": "an hour",
+            "model": "Sonnet5/Med",
+            "pros": "no laptop or SSH needed",
+            "cons": "fixes wait for the report to come back"
+          },
+          {
+            "what": "Work through docs/bench-test.md alone, start to finish, and send back sudo journalctl -u rpi-alert --since today.",
+            "by": "human",
+            "effort": "an afternoon",
+            "cons": "the longest route"
+          }
+        ]
       },
       {
+        "id": "v4-confirmed",
         "what": "RTL-SDR Blog V4 confirmed on Trixie's librtlsdr and Bookworm's rtl-sdr-blog build",
-        "on": "human"
+        "on": "human",
+        "kind": "hardware",
+        "since": "2026-10-02",
+        "holds": [
+          "hardware.md's \"Not yet seen on hardware here\" against the V4",
+          "bench-test.md §3 and §3a",
+          "open-alert's V4 entry, which cites RPi ALERT's driver notes"
+        ],
+        "options": [
+          {
+            "what": "Plug the V4 into a Pi already on Trixie and checking in to Flood-Net (18 Bateson in place of one of its sticks, or the second Pi) and look at its Receivers card: model RTL-SDR Blog V4, tuner Rafael Micro R828D, bursts decoding on 151.5. An agent can read the same model from the Pi's status in Flood-Net and update hardware.md.",
+            "by": "human",
+            "effort": "15 min",
+            "pros": "no bench needed; Trixie is what the image ships",
+            "cons": "leaves the Bookworm build untried",
+            "recommended": true
+          },
+          {
+            "what": "Stop waiting on the Bookworm half: the image is built on Trixie and only an install over an older Pi meets Bookworm, so say in hardware.md and install.md that the rtl-sdr-blog build is untried.",
+            "by": "agent",
+            "effort": "15 min",
+            "model": "Sonnet5/Low",
+            "cons": "a Bookworm Pi with a V4 stays unproven"
+          },
+          {
+            "what": "Try Bookworm too: flash a spare card with Raspberry Pi OS Lite (Bookworm), run the one-line installer (it builds rtlsdrblog/rtl-sdr-blog), plug in the V4 and repeat bench-test.md §3.",
+            "by": "human",
+            "effort": "an hour"
+          },
+          {
+            "what": "Let the V4 go: open-alert lists it as end of life (the V4L replaces it, and the V3 is RTL-SDR Blog's default), so confirm the stick a new site would buy instead and mark the V4 \"expected to work, not seen here\".",
+            "by": "human",
+            "effort": "10 min to decide",
+            "pros": "tests what will actually be bought",
+            "cons": "the V4 already on hand stays unproven"
+          }
+        ]
       },
       {
-        "what": "A second off-air test vector: a good 151.5 MHz ALERT Binary burst captured on the bench",
-        "on": "human"
+        "id": "binary-test-vector",
+        "what": "A second off-air test vector: a good 151.5 MHz ALERT Binary burst, for the tests beside the 4078 rig's Enhanced iFLOWS one",
+        "on": "human",
+        "kind": "hardware",
+        "since": "2026-10-02",
+        "holds": [
+          "an off-air test of ALERT Binary, the live networks' format (the only off-air burst in the tests is Enhanced iFLOWS)",
+          "Flood-Net's second SDR regression vector (its docs/serial-sdr.md asks for the same capture)",
+          "checking the planned channeliser and filter changes against a real Binary burst"
+        ],
+        "options": [
+          {
+            "what": "Record it at 18 Bateson, which decodes thousands of ALERT Binary bursts on 151.500: Settings → Recordings, add 151.5, wait for a burst whose .json says it decoded, download its .iq8 and .json from the same card, then take 151.5 off the list. An agent adds the pair to agent/test/fixtures with a codecs test, and to Flood-Net's test/fixtures/sdr.",
+            "by": "human",
+            "effort": "10 min",
+            "pros": "no bench needed; a recording is already the 240 ksps format the 4078 rig's file is in",
+            "recommended": true
+          },
+          {
+            "what": "With the owner's go-ahead, do it all from Flood-Net: a config.set request turning on recordings for 151.5 at 18 Bateson, then recordings and recording.get through the request queue (base_station_verb_check() does not offer those two yet), joining the file from its 43 kB pieces.",
+            "by": "agent",
+            "effort": "an hour",
+            "model": "Sonnet5/Med",
+            "cons": "writes to a live station's settings"
+          },
+          {
+            "what": "Capture it on the bench as bench-test.md §2 step 4 says (rtl_sdr at 960 ksps while a station transmits), during the first bench run.",
+            "by": "human",
+            "effort": "10 min, on the bench",
+            "cons": "waits on the bench run"
+          }
+        ]
       },
       {
+        "id": "duplicate-docs",
         "what": "How-it-works and survey docs on a burst heard by two receivers wait for Flood-Net to measure duplicates",
-        "on": "flood-net#232"
+        "on": "flood-net#232",
+        "kind": "upstream",
+        "since": "2026-10-07",
+        "issue": "cdomotor-g/MegaNet#232",
+        "holds": [
+          "how-it-works.md's \"stored once with both paths\"",
+          "survey.md's \"no two receivers time a burst the same\" (the two docs disagree)"
+        ],
+        "options": [
+          {
+            "what": "Work #232 through in Flood-Net. Its step 1 is now done: a read-only check on 31 October found 2,039 of 69,306 ALERT readings over three days with a twin (same address and value, under 2 s apart) from another channel of 18 Bateson's first stick. Next the window in meganet.ingest() for untimed protocols, db-checks for both cases, and the docs in both repositories.",
+            "by": "agent",
+            "effort": "High",
+            "model": "Opus5/High",
+            "issue": "cdomotor-g/MegaNet#232",
+            "pros": "fixes the duplicates, not only the docs; 0053–0055 are live, so nothing it waits on is left",
+            "cons": "unprioritised on Flood-Net's roadmap until the owner says go",
+            "recommended": true
+          },
+          {
+            "what": "Make the two docs true today: say that a burst decoded on two channels or sticks is stored twice for now, each with its own path, and link #232.",
+            "by": "agent",
+            "effort": "20 min",
+            "model": "Sonnet5/Low",
+            "pros": "the docs stop saying something false",
+            "cons": "they change again when #232 lands"
+          }
+        ]
       }
     ]
   },
