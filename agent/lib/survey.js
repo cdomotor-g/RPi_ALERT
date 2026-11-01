@@ -12,10 +12,11 @@
 //     meganet.receptions says, because they are the survey. Each carries
 //     where the Pi was and its signal, and MegaNet keeps them, of any age.
 //   * readings do not go to ingest_http unless the survey says so. A reading
-//     posted days late marks its station "last seen" now, and is stored as a
-//     second copy beside the one the network kept (MegaNet deduplicates on
-//     the exact time, and two receivers never time a burst the same), so the
-//     survey's evidence is its receptions.
+//     posted days late goes into its station's history at its own time
+//     (MegaNet 0052), and is counted as a copy of the network's own where a
+//     base station heard the same burst (MegaNet 0096: the same ALERT address
+//     and value within 8 s is one reading), so the survey's evidence is its
+//     receptions.
 //   * a tally of what was heard — each address's frames, good and bad, its
 //     signal and its SNR — is kept here, so the result can be read on the Pi
 //     itself (the dashboard's Survey page) before it is ever on a network.

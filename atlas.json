@@ -143,38 +143,6 @@
             "cons": "the V4 already on hand stays unproven"
           }
         ]
-      },
-      {
-        "id": "duplicate-docs",
-        "what": "How-it-works and survey docs on a burst heard by two receivers wait for Flood-Net to measure duplicates",
-        "on": "flood-net#232",
-        "kind": "upstream",
-        "since": "2026-10-07",
-        "issue": "cdomotor-g/MegaNet#232",
-        "holds": [
-          "how-it-works.md's \"stored once with both paths\"",
-          "survey.md's \"no two receivers time a burst the same\" (the two docs disagree)"
-        ],
-        "options": [
-          {
-            "what": "Work #232 through in Flood-Net. Its step 1 is now done: a read-only check on 31 October found 2,039 of 69,306 ALERT readings over three days with a twin (same address and value, under 2 s apart) from another channel of 18 Bateson's first stick. Next the window in meganet.ingest() for untimed protocols, db-checks for both cases, and the docs in both repositories.",
-            "by": "agent",
-            "effort": "High",
-            "model": "Opus5/High",
-            "issue": "cdomotor-g/MegaNet#232",
-            "pros": "fixes the duplicates, not only the docs; 0053–0055 are live, so nothing it waits on is left",
-            "cons": "unprioritised on Flood-Net's roadmap until the owner says go",
-            "recommended": true
-          },
-          {
-            "what": "Make the two docs true today: say that a burst decoded on two channels or sticks is stored twice for now, each with its own path, and link #232.",
-            "by": "agent",
-            "effort": "20 min",
-            "model": "Sonnet5/Low",
-            "pros": "the docs stop saying something false",
-            "cons": "they change again when #232 lands"
-          }
-        ]
       }
     ]
   },
@@ -427,7 +395,7 @@
         "db/migrations/*reception*"
       ],
       "since": {
-        "date": "2026-10-26"
+        "date": "2026-11-01"
       },
       "on_change": "Check agent/lib/meganet.js, uplink.js and token-request.js against the change, update the stand-in agent/test/helpers/meganet-stub.js, then cd agent && node --test test/*.test.js."
     },
@@ -510,12 +478,6 @@
       "what": "A channeliser shared by a stick's channels (one filter bank per stick) in alert-dsp.js, or at least a lighter first filter, so a Pi can take a fifth channel.",
       "issue": null,
       "since": "2026-10-24"
-    },
-    {
-      "to": "flood-net",
-      "what": "Measure whether one burst heard by two receivers is stored twice, so both repositories' docs say the same true thing.",
-      "issue": "cdomotor-g/MegaNet#232",
-      "since": "2026-10-07"
     }
   ]
 }

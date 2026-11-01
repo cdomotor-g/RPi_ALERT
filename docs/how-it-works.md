@@ -176,9 +176,12 @@ longer than the burst gate's 3 s is cut off and not read.
    `level_dbfs` from an RTL-SDR, which is not calibrated in dBm; and `snr_db`, the signal over the
    receiver's noise floor, from both. A field the receiver did not give is left out, never sent as
    null, and MegaNet never refuses a reading over one.
-   MegaNet deduplicates on address + time + raw value, so retrying is always safe, and a reading heard
-   by two receivers is stored once with both paths — and with the frequency and signal of the copy
-   stored first. 200 → done. 401/403 → the token is refused:
+   MegaNet deduplicates on address + time + raw value, so retrying is always safe. An ALERT frame
+   carries no time, so each receiver times it on arrival and the copies of one burst — direct, through
+   a repeater, through an ALERT2 concentrator, at another base station — land seconds apart; for an
+   ALERT address MegaNet takes the same address and value within 8 s either side as the same reading
+   (its migration 0096). So a reading heard by two receivers, or on two channels, is stored once with
+   every path — and with the frequency and signal of the copy stored first. 200 → done. 401/403 → the token is refused:
    stop, keep everything, say so, resume the moment a new token is saved. 400 → this agent misread
    the contract: drop the batch, log it. Anything else or no answer → keep, back off 10 s doubling
    to 5 min. Endpoints: the floodwarning.net `/api/db` proxy first (it gets through networks that block

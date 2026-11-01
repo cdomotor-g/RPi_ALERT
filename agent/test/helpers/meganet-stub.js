@@ -2,8 +2,10 @@
 // A stand-in for MegaNet's PostgREST RPCs, holding the agent to the same
 // contract the real database does (docs/ingest-http.md): the four headers, the
 // body nested under "payload", 401 for a bad token, the 1,000-row limit, and
-// an { accepted, duplicates, rejected } answer deduplicated on address + time
-// + raw value. Also serves a small stations.json.
+// an { accepted, duplicates, rejected } answer deduplicated on address + raw
+// value within 8 s either side — MegaNet 0096's window for an ALERT address,
+// whose frame carries no time (the exact time is the 0 s case). Also serves a
+// small stations.json.
 //
 // And the token requests (MegaNet 0048), as tools/check_ingest_token_requests.sql
 // holds the real ones: request_ingest_token() takes the device's own token
@@ -21,12 +23,16 @@
 
 const http = require('node:http');
 
+// MegaNet's app_meta alert_copy_window_s (0096): copies of one ALERT reading
+// within this of each other are that reading heard again.
+const COPY_WINDOW_MS = 8000;
+
 function start(opts) {
   opts = opts || {};
   const goodToken = opts.token || 'mgn_test_token';
   const tokens = new Set([goodToken]);
   const requests = [];                 // { id, code, label, status, token, payload }
-  const seen = new Set();
+  const seen = new Map();              // alert id | raw value -> the times stored
   const rxSeen = new Set();
   const stored = { receptions: [] };   // every reception stored, once (0047's identity)
   const calls = [];
@@ -136,8 +142,10 @@ function start(opts) {
           if (!(r.alert_id >= 1 && r.alert_id <= 65535)) return rejected.push({ i, why: 'alert_id ' + r.alert_id + ' is outside 1-65535' });
           const ts = typeof r.reading_ts === 'number' ? (r.reading_ts > 1e12 ? r.reading_ts : r.reading_ts * 1000) : Date.parse(r.reading_ts);
           if (!(ts > Date.UTC(1990, 0, 1))) return rejected.push({ i, why: 'reading_ts is before 1990 — a dead clock, not a reading' });
-          const k = r.alert_id + '|' + ts + '|' + r.value_raw;
-          if (seen.has(k)) duplicates++; else { seen.add(k); accepted++; }
+          const k = r.alert_id + '|' + r.value_raw;
+          const times = seen.get(k) || [];
+          if (times.some(t => Math.abs(t - ts) <= COPY_WINDOW_MS)) duplicates++;
+          else { times.push(ts); seen.set(k, times); accepted++; }
         });
         return send(200, { accepted, duplicates, rejected, raw_id: calls.length });
       }

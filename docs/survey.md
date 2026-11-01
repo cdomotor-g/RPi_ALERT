@@ -47,9 +47,10 @@ memory, how a phone reaches it on site (its hotspot's name and password), token.
   its SNR, the channel and where the Pi was — and goes to MegaNet as a *reception*
   (`report_receptions`), tagged with the survey, whatever *Also send every frame heard* says.
 - **Readings stay on the Pi** unless the survey was started with *Also send its readings*. A reading
-  posted days late marks its station "last seen" now on MegaNet, and is stored as a second copy beside
-  the one the network already has (MegaNet deduplicates on the exact time, and no two receivers time
-  a burst the same); the receptions carry everything the survey needs.
+  posted days late goes into its station's history at its own time (MegaNet's 0052: it does not make
+  the station look heard now), and where a base station heard the same burst it is counted as a copy
+  of the network's reading — MegaNet takes the same ALERT address and value within 8 s as one reading
+  (0096) — rather than stored again; the receptions carry everything the survey needs.
 - **The tally on the Pi** — the Survey page's *Heard at this site*: each address, its station, good
   and bad frames, when last heard, its median signal and spread, its SNR, the channel. Readable on site
   with no network; kept across restarts.
