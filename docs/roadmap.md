@@ -10,8 +10,6 @@ What is done is in the [README](../README.md). Next, roughly in order of value:
 - **RTL-SDR Blog V4 confirmed** on Trixie's librtlsdr (and on Bookworm with the rtl-sdr-blog build).
   If it needs more than that, the fallback is MegaNet's own `rtlsdr.js` driven through node-usb,
   which already opens the V4 in Chrome.
-- **A second off-air regression vector**: capture a good 151.5 MHz ALERT Binary burst on the bench
-  (`rtl_sdr -f 151.26e6 -s 960000 …`) and add it to the tests beside the 4078 rig's.
 
 ## First run, the dashboard and the command line
 

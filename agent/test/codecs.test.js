@@ -28,6 +28,22 @@ test('off-air: one format at a time — the rig burst read as ALERT Binary is no
   assert.equal(r.readings.filter(x => [4079, 4080].includes(x.sensorId)).length, 0);
 });
 
+// Two ALERT Binary bursts recorded at 18 Bateson on 151.500 MHz with this agent's own
+// Recordings (240 ksps, the channel centred, the burst and 0.4 s either side) and
+// fetched through Flood-Net's request queue: 1957 = 29 (2026-10-19, ~16 dB over the
+// noise) and 5304 = 41 (2026-11-01, ~9 dB, the one a filter change that costs
+// sensitivity would lose). The live networks send Binary; the rig's burst is Enhanced
+// iFLOWS. Flood-Net holds the same two in test/fixtures/sdr.
+for (const [file, id, value] of [['binary_151.500_1957.iq8', 1957, 29], ['binary_151.500_5304_weak.iq8', 5304, 41]]) {
+  test(`off-air: ${file} decodes as ALERT Binary ${id} = ${value}, and as Enhanced iFLOWS nothing`, () => {
+    const iq = new Uint8Array(fs.readFileSync(path.join(__dirname, 'fixtures', file)));
+    assert.equal(iq.length, 240000 * 2 * 1.25);
+    const r = AlertDsp.decodeU8(iq, { format: AlertDsp.BINARY });
+    assert.deepEqual(r.readings.map(x => [x.sensorId, x.value]), [[id, value]]);
+    assert.equal(AlertDsp.decodeU8(iq, { format: AlertDsp.ENHANCED_IFLOWS }).readings.length, 0);
+  });
+}
+
 test('off-air: a synthesised Binary burst 200 kHz off centre at 960 ksps decodes through the live pipeline', () => {
   const rate = 960000, off = 240000;
   const got = [];

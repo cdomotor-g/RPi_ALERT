@@ -31,7 +31,7 @@
   },
   "status": {
     "phase": "beta",
-    "updated": "2026-10-31",
+    "updated": "2026-11-01",
     "summary": "Version 0.15.3 is on main (latest release v0.15.2) and runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
       "0.15.x: each stick's narrowest window and its CPU cost, tuned on the live station",
@@ -141,40 +141,6 @@
             "effort": "10 min to decide",
             "pros": "tests what will actually be bought",
             "cons": "the V4 already on hand stays unproven"
-          }
-        ]
-      },
-      {
-        "id": "binary-test-vector",
-        "what": "A second off-air test vector: a good 151.5 MHz ALERT Binary burst, for the tests beside the 4078 rig's Enhanced iFLOWS one",
-        "on": "human",
-        "kind": "hardware",
-        "since": "2026-10-02",
-        "holds": [
-          "an off-air test of ALERT Binary, the live networks' format (the only off-air burst in the tests is Enhanced iFLOWS)",
-          "Flood-Net's second SDR regression vector (its docs/serial-sdr.md asks for the same capture)",
-          "checking the planned channeliser and filter changes against a real Binary burst"
-        ],
-        "options": [
-          {
-            "what": "Record it at 18 Bateson, which decodes thousands of ALERT Binary bursts on 151.500: Settings → Recordings, add 151.5, wait for a burst whose .json says it decoded, download its .iq8 and .json from the same card, then take 151.5 off the list. An agent adds the pair to agent/test/fixtures with a codecs test, and to Flood-Net's test/fixtures/sdr.",
-            "by": "human",
-            "effort": "10 min",
-            "pros": "no bench needed; a recording is already the 240 ksps format the 4078 rig's file is in",
-            "recommended": true
-          },
-          {
-            "what": "With the owner's go-ahead, do it all from Flood-Net: a config.set request turning on recordings for 151.5 at 18 Bateson, then recordings and recording.get through the request queue (base_station_verb_check() does not offer those two yet), joining the file from its 43 kB pieces.",
-            "by": "agent",
-            "effort": "an hour",
-            "model": "Sonnet5/Med",
-            "cons": "writes to a live station's settings"
-          },
-          {
-            "what": "Capture it on the bench as bench-test.md §2 step 4 says (rtl_sdr at 960 ksps while a station transmits), during the first bench run.",
-            "by": "human",
-            "effort": "10 min, on the bench",
-            "cons": "waits on the bench run"
           }
         ]
       },
