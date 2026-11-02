@@ -22,3 +22,10 @@
 - Everything above the marker is working notes; everything below it is the report. Use the marker once per reply, only at the start of that closing report, and put nothing after the report but the report.
 - Under it, use these bold labels in this order, leaving out any that would be empty: **What changed**, **Checks run**, **What you need to do**, **Open questions**.
 - Short replies that are only an answer (no work done) don't need the marker and don't use up a run number.
+
+## Releases — cut them by default (until v1.0.0)
+- When a piece of work bumps `agent/package.json`'s version, cut the release in the same piece of work: push the tag `v<version>` on the commit that carries it (`git tag v0.16.0 && git push origin v0.16.0`). Don't ask first. A Pi's update check, Flood-Net's Base Stations tab and *Install new releases automatically* only ever see releases, so a version left on `main` reaches no Pi.
+- The tag starts `build-image.yml`. It builds the images, signs `rpi-alert-<tag>-src.tar.gz` with the `RELEASE_SIGNING_KEY` secret ([docs/release-signing.md](docs/release-signing.md)) and publishes the GitHub release. Check that run finishes and the release carries the tarball and its `.sig`. If it fails, fix it and re-tag, or say so in the run summary.
+- Bump the version for anything a Pi would notice: a feature or setting is a minor (0.16.0 → 0.17.0), a fix a patch. Run the whole suite (`cd agent && npm test`) before tagging.
+- Updates roll back on their own (`rpi-alert-update` puts the previous version back if the new one doesn't answer within two minutes), and new behaviour ships behind a setting that defaults to what was there before — the way 0.16's decoder setting defaults to *Full*.
+- This holds until v1.0.0. From then, ask the owner before a release.
