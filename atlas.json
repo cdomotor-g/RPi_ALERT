@@ -32,9 +32,9 @@
   "status": {
     "phase": "beta",
     "updated": "2026-11-02",
-    "summary": "Version 0.16.0 is on main (latest release v0.15.2). It adds the lean decoder beside the full one (Settings → RTL-SDR → Decoder: full, lean or compare; MegaNet #259) and runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "summary": "Version 0.16.0 is released (v0.16.0, signed, 2 Nov 2026). It adds the lean decoder beside the full one (Settings → RTL-SDR → Decoder: full, lean or compare; MegaNet #259) and runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
-      "0.16.0 on main: the decoder setting (full / lean / compare) — run Compare at 18 Bateson for a week, then make Lean the default",
+      "v0.16.0 released: the decoder setting (full / lean / compare) — run Compare at 18 Bateson for a week, then make Lean the default",
       "0.15.x: each stick's narrowest window and its CPU cost, tuned on the live station"
     ],
     "next": [
