@@ -72,13 +72,12 @@ badly each one strands somebody:
   longest heard is 349 bytes, 1.9 s); (4) self-reporting stations — 62721 and 62725 send their own
   sensors on 151.500, each report twice 2 s apart — are receptions only: their sensors become
   readings once MegaNet's register maps (station, sensor number) to an ALERT id.
-- **A lighter burst decode** — in 0.16: *Settings → RTL-SDR → Decoder*, `receivers.sdr.decoder`
-  ([configuration.md](configuration.md#lean-decoder), MegaNet #259). *Lean* filters a burst once per
-  carrier guess (9 times) instead of once per guess and nudge (45): the same readings in about 45%
-  of the time, held to the full decoder by MegaNet's tests. *Compare* sends the full decoder's
-  readings and checks lean on every burst, counting on each stick's card. Left: run *Compare* at
-  18 Bateson for a week; if it agrees, *Lean* becomes the default here and in MegaNet. Then the
-  between-bursts half (#3, below).
+- ~~**A lighter burst decode**~~ — done in 0.16 (*Settings → RTL-SDR → Decoder*) and the default
+  in 0.17 ([configuration.md](configuration.md#lean-decoder), MegaNet #259). *Compare* ran overnight
+  at 18 Bateson: 14 of 11,628 live bursts read differently (0.12%), lean in 33–34% of the full
+  decoder's time. 0.17 also fills the rings a block at a time (a quarter less work between bursts,
+  every message the same) and works out a stick's spectrum on its first channel only (another
+  sixth on the rest).
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.

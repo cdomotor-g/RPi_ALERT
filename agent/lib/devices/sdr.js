@@ -447,18 +447,25 @@ class SdrSession extends EventEmitter {
     const audio = this.audioOn();
     for (const ch of this.channels) {
       if (!ch.spec.inBand || ch.worker) continue;
-      ch.spawn(this.dspCfg(c, ch.spec), audio);
+      ch.spawn(this.dspCfg(c, ch.spec, ch), audio);
       ch.moved = false;
     }
   }
 
   audioOn() { return !!(this.agent.audio && ['auto', 'live'].includes(this.agent.audio.mode())); }
 
-  dspCfg(c, spec) {
+  // ch: the channel it is for. Only the stick's spectrum source works out a
+  // spectrum (specHz 0 for the rest: the same slice, a sixth of a channel's
+  // work between bursts); spectrumSource() moves it if that channel goes.
+  dspCfg(c, spec, ch) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
       squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false,
-      lean: c.decoder === 'lean', compare: c.decoder === 'compare' };
+      lean: c.decoder !== 'full' && c.decoder !== 'compare', compare: c.decoder === 'compare',
+      specHz: !ch || ch === this.spectrumSource() ? 1 : 0 };
   }
+
+  // The channel whose spectrum is the stick's: the first in band.
+  spectrumSource() { return this.channels.find(x => x.spec && x.spec.inBand) || null; }
 
   // Its bursts kept as IQ (lib/recorder.js, receivers.record)?
   recording(spec) { return !!(this.agent.recorder && this.agent.recorder.wants(spec.freqHz)); }
@@ -579,7 +586,7 @@ class SdrSession extends EventEmitter {
     for (const ch of this.channels) {
       if (!ch.worker) continue;
       ch.post({ type: 'reset' });
-      ch.post({ type: 'config', cfg: Object.assign(this.dspCfg(c, ch.spec), { audio }) });
+      ch.post({ type: 'config', cfg: Object.assign(this.dspCfg(c, ch.spec, ch), { audio }) });
       ch.moved = false;
     }
     let p;
@@ -721,7 +728,7 @@ class SdrSession extends EventEmitter {
     if (m.type === 'fed') { ch.backlog = Math.max(0, ch.backlog - m.bytes); return; }
     if (m.type === 'level') { ch.level = m.level; return; }
     // The whole slice is the same for every channel: drawn from the first.
-    if (m.type === 'spectrum') { if (ch === this.channels.find(x => x.worker)) { this.spectrum = m; this.holdSpectrum(m); } return; }
+    if (m.type === 'spectrum') { if (ch === this.spectrumSource()) { this.spectrum = m; this.holdSpectrum(m); } return; }
     if (m.type === 'audio') { this.agent.audio && this.agent.audio.live(m.pcm, m.rate); return; }
     if (m.type === 'error') { ch.log.error('decoder: ' + m.message); return; }
     if (m.type === 'recording') { if (this.agent.recorder) this.agent.recorder.save(ch, m); return; }
@@ -788,7 +795,7 @@ class SdrSession extends EventEmitter {
       // A channel moved under a running rtl_sdr: what its decoder holds is another frequency's.
       if (ch.moved) ch.post({ type: 'reset' });
       ch.moved = false;
-      ch.post({ type: 'config', cfg: Object.assign(this.dspCfg(c, ch.spec), { audio }) });
+      ch.post({ type: 'config', cfg: Object.assign(this.dspCfg(c, ch.spec, ch), { audio }) });
     }
   }
 

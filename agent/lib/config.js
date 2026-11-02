@@ -56,7 +56,7 @@ function defaults() {
     // 2 (0.15): a window set by hand (receivers.sdr.sampleRate) is exactly
     // that window; in 1 it was raised for channels that needed more. load()
     // carries a version-1 file over.
-    version: 2,
+    version: 3,
     // What this base station is called in MegaNet. Each receiver on it reports
     // as "<name> — <receiver>". Empty: "RPi ALERT <hostname>".
     name: '',
@@ -118,12 +118,13 @@ function defaults() {
         // A burst none of the legacy formats reads is tried as ALERT2
         // (AirLink, 4800 bps): its readings go to MegaNet as protocol "alert2".
         alert2: true,
-        // How a burst is decoded (MegaNet's alert-dsp.js, #259): 'full', as
-        // floodwarning.net does; 'lean', the same readings in under half the
-        // time (filtered once per carrier guess); or 'compare' — full, posted
-        // as always, and each burst decoded lean too, its agreement counted on
-        // the stick's card. Lean becomes the default once compare agrees.
-        decoder: 'full',
+        // How a burst is decoded (MegaNet's alert-dsp.js, #259): 'lean', filtered
+        // once per carrier guess, in a third of the time (the default since
+        // 0.17, as on floodwarning.net: 14 of 11,628 live bursts read differently
+        // from the full decoder at the first base station to compare them);
+        // 'full', the 45-guess decoder; or 'compare' — full, posted as always,
+        // and each burst decoded lean too, its agreement counted on the card.
+        decoder: 'lean',
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
       //   { key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }
@@ -362,10 +363,17 @@ function channelErrors(c) {
 // them — so it becomes automatic, and every stick keeps the window it had.
 // Any other is kept, and is exact from now on. → true: the file is written
 // back as version 2.
-function carryOver(c) {
-  c.version = 2;
+//
+// Version 3 (0.17): lean decoding is the default. 0.16 wrote the decoder's
+// default, 'full', into every settings file it saved, so a 'full' from a
+// version-2 file is that default and becomes 'lean'; 'compare' was chosen by
+// someone, and is kept.
+function carryOver(c, parsed) {
+  const was = parsed && parsed.version;
   const s = c.receivers && c.receivers.sdr;
-  if (isObj(s) && s.sampleRate === 240000) s.sampleRate = 0;
+  if (!(was >= 2) && isObj(s) && s.sampleRate === 240000) s.sampleRate = 0;
+  if (isObj(s) && s.decoder === 'full') s.decoder = 'lean';
+  c.version = 3;
   return true;
 }
 
@@ -406,7 +414,7 @@ class Config extends EventEmitter {
       try {
         const parsed = JSON.parse(raw);
         const merged = merge(defaults(), parsed);
-        const older = !(parsed && parsed.version >= 2) && carryOver(merged);
+        const older = !(parsed && parsed.version >= 3) && carryOver(merged, parsed);
         // Lists replace rather than merge, and a missing endpoint list means the default.
         if (!Array.isArray(merged.meganet.endpoints) || !merged.meganet.endpoints.length) merged.meganet.endpoints = MEGANET_ENDPOINTS.slice();
         const errs = validate(merged);

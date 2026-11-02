@@ -345,7 +345,7 @@ function sdrFillCard() {
   const f = $('#f-sdr'), sd = S.config.receivers.sdr;
   f.enabled.checked = sd.enabled;
   f.alert2.checked = sd.alert2 !== false;
-  f.decoder.value = sd.decoder || 'full';
+  f.decoder.value = sd.decoder || 'lean';
   const dEd = $('#sdr-default-ed');
   if (!dEd.innerHTML) dEd.innerHTML = sdrEdHtml(false);
   sdrFill(dEd, null);

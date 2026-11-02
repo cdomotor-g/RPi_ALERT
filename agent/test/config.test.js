@@ -33,8 +33,8 @@ test('settings: a stick\'s window, its own or the shared one; a 0.14 file\'s 240
   // one ever set, 240 ksps, meant "as light as they allow": automatic now.
   fs.writeFileSync(c.file, JSON.stringify({ version: 1, name: 'Old', receivers: { sdr: { sampleRate: 240000 } } }));
   let d = new Config(c.file).load();
-  assert.deepEqual([d.loadError, d.get().version, d.get().receivers.sdr.sampleRate, d.get().name], [null, 2, 0, 'Old']);
-  assert.equal(JSON.parse(fs.readFileSync(c.file, 'utf8')).version, 2, 'written back as version 2');
+  assert.deepEqual([d.loadError, d.get().version, d.get().receivers.sdr.sampleRate, d.get().name], [null, 3, 0, 'Old']);
+  assert.equal(JSON.parse(fs.readFileSync(c.file, 'utf8')).version, 3, 'written back as version 3');
   fs.writeFileSync(c.file, JSON.stringify({ name: 'Older', receivers: { sdr: { sampleRate: 960000 } } }));
   assert.equal(new Config(c.file).load().get().receivers.sdr.sampleRate, 960000, 'any other is kept — exact from now on');
   fs.writeFileSync(c.file, JSON.stringify({ version: 2, receivers: { sdr: { sampleRate: 240000 } } }));
