@@ -267,7 +267,10 @@ function receiverOf(d) {
       // to drop, and how busy they are (cores of the Pi; the busiest one, 0–1).
       rate_ksps: d.rateKsps || 0, dropped_mb: mb(d.counts && d.counts.dropped),
       window: d.tune ? { auto: d.tune.auto, needs: d.tune.needs || null } : null,
-      load: d.load ? { cores: d.load.cores, most: d.load.most } : null });
+      load: d.load ? { cores: d.load.cores, most: d.load.most } : null,
+      // receivers.sdr.decoder 'compare': how the lean decoder has done (MegaNet #259).
+      lean_check: d.counts && d.counts.compared ? { compared: d.counts.compared, differ: d.counts.differ,
+        time_pct: d.counts.msFull ? Math.round(d.counts.msLean / d.counts.msFull * 100) : null } : undefined });
     // A stick hearing more than one channel: each, its own first.
     if (Array.isArray(d.channels) && d.channels.length > 1) {
       r.channels = d.channels.map(ch => {

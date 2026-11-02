@@ -86,6 +86,24 @@ reading by. A channel's line on the Overview counts its ALERT2 frames
 stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
 costs a few tenths of a second on a Pi 4, and only bursts nothing else decoded are tried.
 
+<a id="lean-decoder"></a>**The lean decoder.** Under **Settings → RTL-SDR**, *Decoder* chooses how a burst is
+decoded, using MegaNet's own `alert-dsp.js` either way (MegaNet #259):
+
+- **Full** (the default): as floodwarning.net decodes.
+- **Lean**: filters the burst once for each of its 9 carrier guesses rather than once for each of
+  45 guesses. It reads the same in under half the time. MegaNet's tests hold it to the full
+  decoder: the rig, both real Binary bursts, 24 synthesised bursts from 3 to 25 dB and the demo band.
+- **Compare**: decodes with the full decoder and sends those readings, as always, then decodes
+  each burst lean too. Each stick's card on the Receivers page shows *Lean decoder: n bursts
+  decoded both ways: all read the same · lean took 45% of the full decoder's time*. The first 20
+  bursts that read differently are logged, both readings side by side. It costs about half as
+  much again per burst, and is skipped whenever bursts are waiting to be decoded, so it never
+  makes the stick fall behind. Run it for a week on a busy base station, then choose *Lean* if
+  it agreed.
+
+The same choice is `receivers.sdr.decoder` (`full`, `lean`, `compare`), or `sdr_decoder = compare`
+on the SD card.
+
 <a id="recordings"></a>**Recordings.** Under **Settings → Recordings**, list channels (MHz) to keep the IQ of every
 burst heard on them — to see what is on a channel nothing here decodes yet (another format,
 another protocol), and to build the decoder that will — as ALERT2's was. Each burst is two files in
@@ -191,7 +209,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
 | `sdr_sample_rate` | auto, or 240000, 960000, 1200000, 1440000, 1920000, 2400000 | `receivers.sdr.sampleRate`: the window (auto: the narrowest that holds the channels) |
-| `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
+| `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr_decoder` (`full`/`lean`/`compare`), `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
 | `auto_detect` | yes / no | `receivers.autoDetect` |
 | `extra_ports` | e.g. /dev/serial0 | `receivers.extraPorts` (a GPIO-UART GPS, say) |
 | `audio` | auto / live / synth / beep / off | `audio.mode` |
@@ -245,6 +263,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |
 | `receivers.sdr.ppm`, `biasTee`, `gate`, `squelchDb`, `minVotes`, `minVotesCrc` | 0, false, true, 8, 4, 4 | Tuner correction, bias tee, burst gate and decoder vote bars |
 | `receivers.sdr.alert2` | true | Also try every burst the legacy decoder reads nothing in as ALERT2 (AirLink, 4800 bps) — on every channel of every stick; its readings go as protocol `alert2`: [ALERT2 off the air](#alert2-off-the-air) |
+| `receivers.sdr.decoder` | `full` | `full`, `lean` (the same readings in under half the time) or `compare` (full sent, lean checked against it on every burst): [The lean decoder](#lean-decoder) |
 | `receivers.record` | `{ freqHz: [], maxMb: 256 }` | Channels whose every burst is kept as IQ, and how much of the card they may take (16–8192 MB): [Recordings](#recordings) |
 | `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |

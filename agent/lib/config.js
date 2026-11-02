@@ -13,6 +13,7 @@ const { EventEmitter } = require('node:events');
 const { MAX_CHANNELS, MAX_SPAN_HZ, RATES } = require('../web/sdr-plan');
 const { mhz } = require('../web/channels');
 
+const DECODERS = ['full', 'lean', 'compare'];
 const CONFIG_PATH = process.env.RPI_ALERT_CONFIG || '/etc/rpi-alert/config.json';
 
 // MegaNet's public project (docs/ingest-http.md in cdomotor-g/MegaNet). The
@@ -117,6 +118,12 @@ function defaults() {
         // A burst none of the legacy formats reads is tried as ALERT2
         // (AirLink, 4800 bps): its readings go to MegaNet as protocol "alert2".
         alert2: true,
+        // How a burst is decoded (MegaNet's alert-dsp.js, #259): 'full', as
+        // floodwarning.net does; 'lean', the same readings in under half the
+        // time (filtered once per carrier guess); or 'compare' — full, posted
+        // as always, and each burst decoded lean too, its agreement counted on
+        // the stick's card. Lean becomes the default once compare agrees.
+        decoder: 'full',
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
       //   { key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }
@@ -284,6 +291,7 @@ function validate(c) {
   need(num(s.squelchDb, 2, 40) !== undefined, 'receivers.sdr.squelchDb: 2–40 dB');
   need(num(s.minVotes, 1, 45) !== undefined && num(s.minVotesCrc, 1, 45) !== undefined, 'receivers.sdr.minVotes: 1–45');
   need(typeof s.alert2 === 'boolean', 'receivers.sdr.alert2: true or false');
+  need(s.decoder === undefined || DECODERS.includes(s.decoder), 'receivers.sdr.decoder: one of ' + DECODERS.join(', '));
   const rec = r.record || {};
   need(Array.isArray(rec.freqHz) && rec.freqHz.length <= 16 && rec.freqHz.every(f => isNum(f, 24e6, 1766e6)), 'receivers.record.freqHz: up to 16 frequencies, 24–1766 MHz');
   need(Number.isInteger(rec.maxMb) && rec.maxMb >= 16 && rec.maxMb <= 8192, 'receivers.record.maxMb: 16–8192 MB');
@@ -493,5 +501,5 @@ function changedPaths(a, b) {
 
 module.exports = {
   Config, defaults, validate, stickErrors, channelsOf, channelErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
-  CONFIG_PATH, MEGANET_ENDPOINTS, MEGANET_APIKEY, ALERT_CHANNELS_HZ, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
+  CONFIG_PATH, DECODERS, MEGANET_ENDPOINTS, MEGANET_APIKEY, ALERT_CHANNELS_HZ, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
 };

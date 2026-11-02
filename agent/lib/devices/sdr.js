@@ -106,7 +106,7 @@ class SdrChannel {
   // What it has heard so far — from scratch when it is moved to another frequency.
   blank() {
     this.level = null;
-    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0 };
+    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
     this.lastDecode = null;
     this.lastBurst = null;
     this.alert2 = new Alert2Reader();
@@ -194,6 +194,7 @@ class SdrChannel {
 
   onDecode(m) {
     const fmt = FORMAT_SHORT[m.format] || m.format;
+    if (m.compare) this.onCompare(m.compare, fmt);
     const ts = this.heardAt();
     const freq = +(this.spec.freqHz / 1e6).toFixed(4);
     const level = m.burst ? Math.round(m.burst.peakDb * 10) / 10 : null;
@@ -249,6 +250,19 @@ class SdrChannel {
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: null, ok: false, fault: 'undecoded', level_dbfs: level, ts,
         detail: { fmt, burst_ms: m.burst.ms, nf_dbfs: nf, freq_mhz: freq } });
     }
+  }
+
+  // receivers.sdr.decoder 'compare': the pipeline decoded this burst both ways
+  // (MegaNet #259). Counted for the card; a difference is logged, the first
+  // few in full, so it can be looked at. Ingest has the full decoder's readings.
+  onCompare(c, fmt) {
+    this.counts.compared++;
+    this.counts.msFull += c.msFull || 0;
+    this.counts.msLean += c.msLean || 0;
+    if (c.same) return;
+    this.counts.differ++;
+    if (this.counts.differ <= 20) this.log.warn('lean decoder differs (' + fmt + ', ' + (this.spec.freqHz / 1e6).toFixed(4) + ' MHz): full read '
+      + (c.full.join(' ') || 'nothing') + ', lean read ' + (c.lean.join(' ') || 'nothing') + (this.counts.differ === 20 ? ' — no more of these logged' : ''));
   }
 
   // A burst's ALERT2 frames (the worker's alert2-air.js plain()) → readings
@@ -442,7 +456,8 @@ class SdrSession extends EventEmitter {
 
   dspCfg(c, spec) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
-      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false };
+      squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false,
+      lean: c.decoder === 'lean', compare: c.decoder === 'compare' };
   }
 
   // Its bursts kept as IQ (lib/recorder.js, receivers.record)?
@@ -809,8 +824,8 @@ class SdrSession extends EventEmitter {
     const first = this.channels[0];
     const lv = first && first.level;
     // The stick's counts are its channels' together.
-    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0 };
-    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies']) counts[k] += ch.counts[k] || 0;
+    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
+    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies', 'compared', 'differ', 'msFull', 'msLean']) counts[k] += ch.counts[k] || 0;
     const latest = (f) => this.channels.map(ch => ch[f]).filter(Boolean).sort((a, b) => b.t - a.t)[0] || null;
     return {
       key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',

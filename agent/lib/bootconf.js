@@ -151,6 +151,7 @@ function toPatch(kv) {
       case 'sdr_sample_rate': set('receivers.sdr.sampleRate', /^auto$/i.test(v) ? 0 : n(v)); break;
       case 'sdr_bias_tee': case 'bias_tee': set('receivers.sdr.biasTee', yes(v)); break;
       case 'sdr_squelch_db': set('receivers.sdr.squelchDb', n(v)); break;
+      case 'sdr_decoder': set('receivers.sdr.decoder', String(v).trim().toLowerCase()); break;
       case 'auto_detect': case 'receivers_auto_detect': set('receivers.autoDetect', !no(v)); break;
       case 'extra_ports': set('receivers.extraPorts', v.split(/[\s,]+/).filter(Boolean)); break;
       case 'audio': case 'audio_mode': if (no(v)) set('audio.mode', 'off'); else set('audio.mode', String(v).trim().toLowerCase()); break;

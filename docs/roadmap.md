@@ -72,10 +72,19 @@ badly each one strands somebody:
   longest heard is 349 bytes, 1.9 s); (4) self-reporting stations — 62721 and 62725 send their own
   sensors on 151.500, each report twice 2 s apart — are receptions only: their sensors become
   readings once MegaNet's register maps (station, sensor number) to an ALERT id.
+- **A lighter burst decode** — in 0.16: *Settings → RTL-SDR → Decoder*, `receivers.sdr.decoder`
+  ([configuration.md](configuration.md#lean-decoder), MegaNet #259). *Lean* filters a burst once per
+  carrier guess (9 times) instead of once per guess and nudge (45): the same readings in about 45%
+  of the time, held to the full decoder by MegaNet's tests. *Compare* sends the full decoder's
+  readings and checks lean on every burst, counting on each stick's card. Left: run *Compare* at
+  18 Bateson for a week; if it agrees, *Lean* becomes the default here and in MegaNet. Then the
+  between-bursts half (#3, below).
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
-- **A channeliser shared by a stick's channels** — each channel's decoder thread converts and
+- **A channeliser shared by a stick's channels** (#3, MegaNet #259 part 2; a prototype watched a
+  960 kHz stick with 50 FFTs a second for 6 ms of CPU a second, against 248 ms for four channels
+  filtering it all the time) — each channel's decoder thread converts and
   filters the stick's whole stream on its own (one stick, several channels, is done: see
   [hardware.md](hardware.md#several-channels-on-one-stick)). Since 0.15 a stick takes the
   narrowest window its channels allow, 1.44 MHz joins the windows (MegaNet's four channels: a fifth

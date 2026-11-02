@@ -64,6 +64,13 @@ function ago(ms) {
   if (s < 5) return 'just now';
   return s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
 }
+// receivers.sdr.decoder 'compare': how the lean decoder has done against the full one.
+function compareText(c) {
+  const pct = c.msFull ? Math.round(c.msLean / c.msFull * 100) : null;
+  return c.compared + ' burst' + (c.compared === 1 ? '' : 's') + ' decoded both ways: '
+    + (c.differ ? c.differ + ' read differently (the log has them)' : 'all read the same')
+    + (pct != null ? ' · lean took ' + pct + '% of the full decoder\'s time' : '');
+}
 function protoTag(p) { return '<span class="proto ' + (p === 'alert2' ? 'alert2' : 'alert') + '">' + (p === 'alert2' ? 'ALERT2' : 'ALERT') + '</span>'; }
 function stateLabel(s) {
   return { running: 'receiving', identifying: 'identifying…', opening: 'opening…', starting: 'starting…', disconnected: 'reconnecting…',
@@ -797,6 +804,7 @@ function rxBodyHtml(d) {
     }
     rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded'
       + (d.counts.alert2 || d.counts.alert2Bad ? ' · ALERT2: ' + alert2Text(d.counts) : ''))]);
+    if (d.counts.compared) rows.push(['Lean decoder', esc(compareText(d.counts))]);
     if (!multi && d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
     if (!multi && d.lastBurst) {
       const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;

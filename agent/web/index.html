@@ -197,6 +197,12 @@
         <div class="stick-ed" id="sdr-default-ed"></div>
       </details>
       <label class="check"><input type="checkbox" name="alert2"> Hear ALERT2 too (a burst no ALERT format reads is tried as an ALERT2 frame — a few tenths of a second of the Pi's time each)</label>
+      <label>Decoder <select name="decoder">
+        <option value="full">Full — as floodwarning.net decodes</option>
+        <option value="compare">Compare — full, and each burst decoded lean too to check they agree (more CPU)</option>
+        <option value="lean">Lean — the same readings in under half the time (being proven)</option>
+      </select></label>
+      <p class="small dim">Lean filters a burst once for each carrier guess instead of once for every small nudge around it: it read every test burst exactly as the full decoder does, in under half the time. <i>Compare</i> sends the full decoder's readings, as always, and counts on each stick's card how often lean agreed — run it for a week before choosing lean.</p>
       <div class="row-actions"><button>Save</button><span class="status small"></span></div>
     </form>
 

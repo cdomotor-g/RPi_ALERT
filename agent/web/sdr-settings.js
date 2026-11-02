@@ -345,6 +345,7 @@ function sdrFillCard() {
   const f = $('#f-sdr'), sd = S.config.receivers.sdr;
   f.enabled.checked = sd.enabled;
   f.alert2.checked = sd.alert2 !== false;
+  f.decoder.value = sd.decoder || 'full';
   const dEd = $('#sdr-default-ed');
   if (!dEd.innerHTML) dEd.innerHTML = sdrEdHtml(false);
   sdrFill(dEd, null);
@@ -409,7 +410,7 @@ function sdrPatch() {
   if (dv.errors.length) return { error: 'Defaults: ' + dv.errors[0] };
   if (!dv.chans.length) return { error: 'Defaults: at least one channel' };
   const more = (list) => list.slice(1).map(c => (c.format ? { freqHz: c.freqHz, format: c.format } : { freqHz: c.freqHz }));
-  const sdr = { enabled: f.enabled.checked, alert2: f.alert2.checked, freqHz: dv.chans[0].freqHz, moreChannels: more(dv.chans) };
+  const sdr = { enabled: f.enabled.checked, alert2: f.alert2.checked, decoder: f.decoder.value, freqHz: dv.chans[0].freqHz, moreChannels: more(dv.chans) };
   for (const k of SDR_FIELDS) sdr[SDR_KEY[k]] = dv[k];
   // A stick's entry holds only what it sets for itself. Entries for sticks
   // not listed are kept; 0.4's by-serial ones become the listed sticks' own.
