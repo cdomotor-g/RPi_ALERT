@@ -258,13 +258,17 @@ class SdrChannel {
   // (MegaNet #259). Counted for the card; a difference is logged, the first
   // few in full, so it can be looked at. Ingest has the full decoder's readings.
   onCompare(c, fmt) {
+    // Which two (MegaNet's compare.pair: 0 full, 1 lean, 2 light); before 0.19 always full and lean.
+    const pair = c.pair && c.pair[0] === 1 && c.pair[1] === 2 ? 'lean-light' : 'full-lean';
+    if (pair !== this.counts.comparePair) { this.counts.comparePair = pair; this.counts.compared = 0; this.counts.differ = 0; this.counts.msFull = 0; this.counts.msLean = 0; }
     this.counts.compared++;
     this.counts.msFull += c.msFull || 0;
     this.counts.msLean += c.msLean || 0;
     if (c.same) return;
     this.counts.differ++;
-    if (this.counts.differ <= 20) this.log.warn('lean decoder differs (' + fmt + ', ' + (this.spec.freqHz / 1e6).toFixed(4) + ' MHz): full read '
-      + (c.full.join(' ') || 'nothing') + ', lean read ' + (c.lean.join(' ') || 'nothing') + (this.counts.differ === 20 ? ' — no more of these logged' : ''));
+    const [hv, lt] = pair === 'lean-light' ? ['lean', 'light'] : ['full', 'lean'];
+    if (this.counts.differ <= 20) this.log.warn(lt + ' decoder differs (' + fmt + ', ' + (this.spec.freqHz / 1e6).toFixed(4) + ' MHz): ' + hv + ' read '
+      + (c.full.join(' ') || 'nothing') + ', ' + lt + ' read ' + (c.lean.join(' ') || 'nothing') + (this.counts.differ === 20 ? ' — no more of these logged' : ''));
   }
 
   // receivers.sdr.watch 'check': every 10 s of signal, how the watched decoder
@@ -478,7 +482,13 @@ class SdrSession extends EventEmitter {
   dspCfg(c, spec, ch) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
       squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false,
-      lean: c.decoder !== 'full' && c.decoder !== 'compare', compare: c.decoder === 'compare', watch: c.watch || 'always',
+      // The decoder (lean 2 is light) and what compare checks it against.
+      lean: c.decoder === 'full' || c.decoder === 'compare' ? false : c.decoder === 'light' ? 2 : true,
+      compare: c.decoder === 'compare' || c.decoder === 'compare-light', compareLean: c.decoder === 'compare-light' ? 2 : true,
+      watch: c.watch || 'always',
+      // 5 s of decode ring (a 3 s burst and its margins need 3.8) and no bytes
+      // for the website's "capture IQ", which nothing here asks for: 10 MB less a channel.
+      ringS: 5, capture: false,
       specHz: !ch || ch === this.spectrumSource() ? 1 : 0 };
   }
 
@@ -853,6 +863,7 @@ class SdrSession extends EventEmitter {
     const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
     for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies', 'compared', 'differ', 'msFull', 'msLean',
       'watchBoth', 'watchOnlyAlways', 'watchOnlyWatch', 'watchMsAlways', 'watchMsWatch', 'watchAwake', 'watchSamples']) counts[k] += ch.counts[k] || 0;
+    counts.comparePair = (this.channels.find(ch => ch.counts.comparePair) || { counts: {} }).counts.comparePair || null;
     const latest = (f) => this.channels.map(ch => ch[f]).filter(Boolean).sort((a, b) => b.t - a.t)[0] || null;
     return {
       key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',

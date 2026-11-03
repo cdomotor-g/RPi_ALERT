@@ -65,11 +65,13 @@ function ago(ms) {
   return s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago';
 }
 // receivers.sdr.decoder 'compare': how the lean decoder has done against the full one.
+// 'compare-light' (0.19): how the light decoder has done against lean.
 function compareText(c) {
   const pct = c.msFull ? Math.round(c.msLean / c.msFull * 100) : null;
+  const [hv, lt] = c.comparePair === 'lean-light' ? ['lean', 'light'] : ['the full decoder', 'lean'];
   return c.compared + ' burst' + (c.compared === 1 ? '' : 's') + ' decoded both ways: '
     + (c.differ ? c.differ + ' read differently (the log has them)' : 'all read the same')
-    + (pct != null ? ' · lean took ' + pct + '% of the full decoder\'s time' : '');
+    + (pct != null ? ' · ' + lt + ' took ' + pct + '% of ' + hv + '\'s time' : '');
 }
 // receivers.sdr.watch 'check': how filtering only around bursts has done beside filtering always.
 function watchText(c) {
@@ -812,7 +814,7 @@ function rxBodyHtml(d) {
     }
     rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded'
       + (d.counts.alert2 || d.counts.alert2Bad ? ' · ALERT2: ' + alert2Text(d.counts) : ''))]);
-    if (d.counts.compared) rows.push(['Lean decoder', esc(compareText(d.counts))]);
+    if (d.counts.compared) rows.push([d.counts.comparePair === 'lean-light' ? 'Light decoder' : 'Lean decoder', esc(compareText(d.counts))]);
     if (d.counts.watchSamples) rows.push(['Around bursts', esc(watchText(d.counts))]);
     if (!multi && d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
     if (!multi && d.lastBurst) {

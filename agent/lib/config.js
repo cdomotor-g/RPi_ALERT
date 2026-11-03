@@ -13,7 +13,7 @@ const { EventEmitter } = require('node:events');
 const { MAX_CHANNELS, MAX_SPAN_HZ, RATES } = require('../web/sdr-plan');
 const { mhz } = require('../web/channels');
 
-const DECODERS = ['full', 'lean', 'compare'];
+const DECODERS = ['full', 'lean', 'light', 'compare', 'compare-light'];
 const WATCHES = ['always', 'bursts', 'check'];
 const CONFIG_PATH = process.env.RPI_ALERT_CONFIG || '/etc/rpi-alert/config.json';
 
@@ -123,8 +123,10 @@ function defaults() {
         // once per carrier guess, in a third of the time (the default since
         // 0.17, as on floodwarning.net: 14 of 11,628 live bursts read differently
         // from the full decoder at the first base station to compare them);
-        // 'full', the 45-guess decoder; or 'compare' — full, posted as always,
-        // and each burst decoded lean too, its agreement counted on the card.
+        // 'full', the 45-guess decoder; 'light' (0.19), the burst filtered to
+        // 48 kHz first, about half of lean's time again; 'compare' — full,
+        // posted as always, and each burst decoded lean too, its agreement
+        // counted on the card; or 'compare-light' — lean posted, light checked.
         decoder: 'lean',
         // What each channel's decoder does between bursts (MegaNet's BurstWatch,
         // #259 part 2): 'always', filter the stick's whole window into the

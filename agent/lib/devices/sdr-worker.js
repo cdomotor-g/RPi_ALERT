@@ -181,7 +181,7 @@ function setWatch(mode) {
 // for anybody — no spectrum, no audio, no lean-against-full of its own.
 function shadowCfg(c) {
   const o = Object.assign({}, c, { specHz: 0, scopeHz: 1, audio: false, compare: false });
-  delete o.watch; delete o.record; delete o.alert2;
+  delete o.watch; delete o.record; delete o.alert2; delete o.compareLean;
   return o;
 }
 

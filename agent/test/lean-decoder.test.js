@@ -82,6 +82,27 @@ test('compare sends the full decoder\'s readings and reports lean agreeing on ev
   assert.ok(cmp.length >= 3 && cmp.every(c => c && c.same === true && c.msFull > 0 && c.msLean > 0), JSON.stringify(cmp));
 });
 
+test('light reads the demo band as lean does, and compare-light sends lean\'s readings with light agreeing', async () => {
+  const light = await run({ lean: 2 });
+  assert.equal(keys(light), '2088=143 2442=23 2443=142 4109=1290 4110=12');
+  const ds = await run({ lean: true, compare: true, compareLean: 2 });
+  assert.equal(keys(ds), keys(light));
+  const cmp = ds.filter(m => m.burst).map(m => m.compare);
+  assert.ok(cmp.length >= 3 && cmp.every(c => c && c.same === true && c.pair.join() === '1,2' && c.msLean < c.msFull), JSON.stringify(cmp));
+});
+
+test('the decoder setting takes light and compare-light (0.19), and the stick\'s pipeline keeps 5 s and no capture', () => {
+  const fs = require('node:fs'), os = require('node:os');
+  const c = new Config(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ra-')), 'config.json'));
+  c.load();
+  for (const v of ['light', 'compare-light']) assert.ok(c.update({ receivers: { sdr: { decoder: v } } }).ok, v);
+  const { SdrSession } = require('../lib/devices/sdr');
+  const dsp = d => SdrSession.prototype.dspCfg.call({ spectrumSource: () => null, recording: () => false }, Object.assign({ sampleRate: 240000, squelchDb: 8, minVotes: 4, minVotesCrc: 4 }, { decoder: d }), { offsetHz: 0, format: 'BINARY', freqHz: 151.5e6 }, null);
+  assert.deepEqual([dsp('lean').lean, dsp('light').lean, dsp('full').lean, dsp('compare').lean, dsp('compare-light').lean], [true, 2, false, false, true]);
+  assert.deepEqual([dsp('compare').compare, dsp('compare').compareLean, dsp('compare-light').compare, dsp('compare-light').compareLean, dsp('lean').compare], [true, true, true, 2, false]);
+  assert.ok(dsp('lean').ringS === 5 && dsp('lean').capture === false);
+});
+
 test('0.16\'s settings file: its default "full" becomes lean, a "compare" someone chose is kept', () => {
   const fs = require('node:fs'), os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-'));

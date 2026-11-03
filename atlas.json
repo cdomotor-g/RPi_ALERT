@@ -32,11 +32,11 @@
   "status": {
     "phase": "beta",
     "updated": "2026-11-03",
-    "summary": "Version 0.18.0 can filter each channel only around its bursts (Settings → RTL-SDR → Between bursts; off by default, with a Check mode to prove it on the live station), on top of 0.17's lean decoding. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "summary": "Version 0.19.0 adds the Light decoder (half of lean's time a burst, with Compare light to prove it) on top of 0.18's filtering only around bursts, now awake a third less: with both a Pi 3 carries a whole site and a one-core Verdin AM62 Solo one or two channels. Both are off by default until their checks at 18 Bateson. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
-      "v0.18.0: Between bursts — filter only around bursts (a sixth to a twentieth of the work between them), or Check both",
-      "Next CPU step: Check at 18 Bateson, then around bursts the default (#3; MegaNet #259 part 2)",
-      "v0.17.0: lean decoding by default, block copies between bursts, one spectrum a stick"
+      "v0.19.0: Light decoder and Compare light; filtering around bursts a third less awake; 10 MB less a channel",
+      "Next CPU step: Check and Compare light at 18 Bateson, then both the defaults (#3; MegaNet #259)",
+      "v0.18.0: Between bursts — filter only around bursts, or Check both"
     ],
     "next": [
       "Close #1: the ERT-A2 field fix shipped in 0.14.1",

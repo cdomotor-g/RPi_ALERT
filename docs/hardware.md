@@ -6,7 +6,7 @@
 |---|---|---|
 | **Pi 4 / 400 / CM4** | 64-bit | The recommended base station: CPU for several SDR channels, the screen dashboard, and a 3.5 mm audio jack. Official 15 W (5 V 3 A) supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts — for a [site survey](survey.md) with no GPS and no internet. |
 | Pi 5 / 500 / CM5 | 64-bit | Fastest. **No audio jack**: chirps over HDMI audio or a USB sound card. Official 27 W supply, or USB devices are current-limited. A Pi 5 can keep time across power cuts with its RTC battery (fitted to the J5 header). |
-| Pi 3 / 3+ / CM3 | 64-bit | Fine for every receiver; 1 GB is enough for the screen dashboard. 5 V 2.5 A supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts, as on a Pi 4. |
+| Pi 3 / 3+ / CM3 | 64-bit | Fine for every receiver, and since 0.18–0.19 a whole site: four or five SDR channels on a busy day take under a fifth of it with *Between bursts: Filter only around bursts* and the *Light* decoder ([smaller computers](#smaller-computers)); 1 GB is enough for the screen dashboard. 5 V 2.5 A supply. No RTC: an RTC board (DS3231, `dtoverlay=i2c-rtc,ds3231`) keeps time across power cuts, as on a Pi 4. |
 | Zero 2 W | 64-bit | 512 MB: no screen dashboard (web page and console only); a few SDR channels, closest in a 240 kHz window. One micro-USB OTG port — use a powered USB hub for more than one receiver. No audio jack. |
 | Pi 1 / 2 / Zero / Zero W | 32-bit | Too slow for the RTL-SDR decoder. Fine for a Quansheng radio or an ERT-A2. |
 
@@ -111,7 +111,7 @@ stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 
   than the other (compare their SNR on a channel both hear), and on it 152.400 MHz went silent — put
   the weak channels on the better stick, the strong ones on the other. A channel that hears bursts it cannot decode
   costs a decode attempt (a second or so) for each. A Zero 2 W manages a few channels in 240 kHz,
-  fewer in 960 kHz. At most 8 channels a stick; each uses ~30 MB.
+  fewer in 960 kHz. At most 8 channels a stick; each uses ~40 MB (its own decoder thread).
 - **Shared by its channels**: the gain, ppm and bias tee are the stick's. A very strong channel can
   push the ADC towards clipping for the rest — lower the gain until bursts peak below −3 dBFS.
   Each channel gates on its own power, at the stick's squelch, and has a format of its own
@@ -191,3 +191,32 @@ ERT-A2 for its cable.
 
 `aplay` on ALSA's default device (on a Pi 3/4 that is the 3.5 mm jack); choose HDMI or a USB sound
 card under **Settings → Audio**. The image keeps `dtparam=audio=on` in `config.txt`.
+
+## Smaller computers
+
+<a id="smaller-computers"></a>Three settings decide how little a base station needs, all under
+**Settings → RTL-SDR** ([configuration.md](configuration.md#between-bursts)):
+
+- **Between bursts: Filter only around bursts** (0.18). A channel filters the stick's window only
+  from 0.8 s before a burst to half a second after it; between bursts it costs a sixth to a
+  twentieth of filtering all the time.
+- **Decoder: Light** (0.19). Each burst is filtered down to 48 kHz once before its carrier guesses:
+  a burst's decode in about half of lean's time.
+- **The screen dashboard off** (*Settings → Screen*, or `kiosk = off`): Chromium is half a Pi 4 core
+  on its own, and a few hundred MB.
+
+With all three, from the base-station builder's model (RPi ALERT's measurements on a Pi 4; an
+A53 core at 1.4 GHz about half an A72's), share of the computer's CPU:
+
+| | 1–2 channels, busy | 4–5 channels, busy | 4–5 channels, heavy |
+|---|---|---|---|
+| Pi 4 | 1–2 % | 5–7 % | 11–14 % |
+| Pi 3 / 3B+ | 2–5 % | 10–15 % | 21–33 % |
+| Zero 2 W, Verdin AM62 Dual | 4–8 % | 19–25 % | 43–57 % |
+| Verdin AM62 Solo (one 1 GHz core, 512 MB) | 11–22 % | 55–70 % | over 100 % |
+
+A one-core computer is a site of one stick and one or two channels: memory (about 40 MB a channel,
+and 512 MB in all) and a heavy day's bursts both run out before four. Until *Filter only around
+bursts* and *Light* are the defaults, prove them where you are with *Check* and *Compare light* —
+each stick's card says how they did.
+

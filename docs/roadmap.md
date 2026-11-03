@@ -83,8 +83,11 @@ badly each one strands somebody:
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
 - **A channeliser shared by a stick's channels** (#3, MegaNet #259 part 2). *Filtering only around
   bursts* is in 0.18 behind a setting ([configuration.md](configuration.md#between-bursts)): a channel
-  asleep between bursts costs a sixth to a twentieth of one filtering all the time. Next: its *Check*
-  at 18 Bateson, then making it the default. Until then each channel's decoder thread converts and
+  asleep between bursts costs a sixth to a twentieth of one filtering all the time; 0.19 cuts its time
+  awake a third and adds the *Light* decoder (half of lean's time a burst) with *Compare light*.
+  Next: *Check* and *Compare light* at 18 Bateson, then making both the defaults
+  ([hardware.md](hardware.md#smaller-computers): with them a Pi 3 carries a whole site, a one-core
+  computer one or two channels). Until then each channel's decoder thread converts and
 filters the stick's whole stream on its own (one stick, several channels, is done: see
   [hardware.md](hardware.md#several-channels-on-one-stick)). Since 0.15 a stick takes the
   narrowest window its channels allow, 1.44 MHz joins the windows (MegaNet's four channels: a fifth

@@ -94,12 +94,19 @@ MegaNet's own `alert-dsp.js` either way (MegaNet #259):
   the two, 14 of 11,628 live bursts read differently (0.12%; 13 of them on one stick with a
   differently placed aerial), and lean took a third of the full decoder's time.
 - **Full**: the 45-guess decoder, as before 0.17.
+- **Light** (0.19): as lean, with each burst filtered down to 48 kHz once before its 9 carrier
+  guesses — they all lie within ±17 kHz of the channel. About half of lean's time a burst (65 ms
+  against 122 on MegaNet's bench); over 600 synthesised bursts both found the same 642 true
+  readings, and every real burst in MegaNet's tests reads the same. Not bit for bit lean: prove it
+  where you are with *Compare light* before choosing it.
 - **Compare**: decodes with the full decoder and sends those readings, then decodes each burst lean
   too. Each stick's card counts how often the two agreed, and the first 20 differences are logged
   with both readings. It costs about half as much again per burst, and is skipped whenever bursts
   are waiting.
+- **Compare light** (0.19): the same, lean against light — lean's readings sent, light's counted
+  beside them (*Light decoder* on the card; `lean_check` with `pair: lean-light` to Flood-Net).
 
-The same choice is `receivers.sdr.decoder` (`lean`, `full`, `compare`), or `sdr_decoder = full` on
+The same choice is `receivers.sdr.decoder` (`lean`, `full`, `light`, `compare`, `compare-light`), or `sdr_decoder = full` on
 the SD card. 0.16 wrote `full` into every settings file it saved, so 0.17 reads a 0.16 `full` as
 that default and makes it `lean`; a `compare` someone chose is kept.
 
@@ -109,9 +116,10 @@ decoder does while nothing is on its channel (MegaNet's `BurstWatch`, #259 part 
 - **Filter every sample** (the default, as before 0.18): the decoder filters the stick's whole
   window into its channel all the time, burst or not. Between bursts that is nearly all its work,
   and more the wider the window.
-- **Filter only around bursts**: the decoder keeps the last 1.6 s of the window as it came and looks
+- **Filter only around bursts**: the decoder keeps the last 1.4 s of the window as it came and looks
   at its channel 25 times a second. While nothing shows it filters nothing. When the channel comes
-  within 3 dB of the squelch it filters the kept second before and carries on from there, so the
+  within 3 dB of the squelch it filters the kept 0.8 s before and carries on from there (0.18: a
+  second before, and a second after; 0.19 halves the hang-over and a third of the time awake), so the
   squelch and the decoder see the same samples they always did: in MegaNet's tests, the same
   readings and the same bursts, each the same length, every time. A quiet channel then costs this
   Pi from 2½ times less at 240 kHz to about 20 times less at 2.4 MHz (*Settings* measures both on
@@ -125,6 +133,10 @@ decoder does while nothing is on its channel (MegaNet's `BurstWatch`, #259 part 
 
 The same choice is `receivers.sdr.watch` (`always`, `bursts`, `check`), or `sdr_watch = check` on
 the SD card. Flood-Net's Base Stations tab sets it too, and shows each stick's check.
+
+Since 0.19 each channel's decoder keeps 5 s of its channel for decode windows rather than 8 (a 3 s
+burst and its margins need 3.8) and nothing for the website's *capture IQ*, which the Pi never
+uses: about 10 MB less a channel, the same readings.
 
 Since 0.17 only a stick's first channel works out the stick's spectrum for the waterfall: the other
 channels see the same slice, and skipping it saves a sixth of a channel's work between bursts.
@@ -234,7 +246,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
 | `sdr_sample_rate` | auto, or 240000, 960000, 1200000, 1440000, 1920000, 2400000 | `receivers.sdr.sampleRate`: the window (auto: the narrowest that holds the channels) |
-| `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr_decoder` (`lean`/`full`/`compare`), `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
+| `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr_decoder` (`lean`/`full`/`light`/`compare`/`compare-light`), `sdr_watch` (`always`/`bursts`/`check`), `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
 | `auto_detect` | yes / no | `receivers.autoDetect` |
 | `extra_ports` | e.g. /dev/serial0 | `receivers.extraPorts` (a GPIO-UART GPS, say) |
 | `audio` | auto / live / synth / beep / off | `audio.mode` |
