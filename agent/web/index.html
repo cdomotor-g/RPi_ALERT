@@ -203,6 +203,12 @@
         <option value="compare">Compare — full, and each burst decoded lean too to check they agree (more CPU)</option>
       </select></label>
       <p class="small dim">Lean filters a burst once for each carrier guess instead of once for every small nudge around it. At the first base station to compare the two, 14 of 11,628 live bursts read differently (0.12%), and lean took a third of the time. <i>Full</i> goes back to the full decoder; <i>Compare</i> sends the full decoder's readings and counts on each stick's card how often lean agreed.</p>
+      <label>Between bursts <select name="watch">
+        <option value="always">Filter every sample (as before)</option>
+        <option value="bursts">Filter only around bursts</option>
+        <option value="check">Check — both, and count where they differ</option>
+      </select></label>
+      <p class="small dim">Each channel's decoder filters the stick's whole window into its channel, burst or not, and between bursts that is nearly all of its work. <i>Only around bursts</i> looks at the channel 25 times a second instead and filters only from a second before something shows, so the squelch and the decoder see the same samples: from 2½ times less work in a 240 kHz window to 20 times less at 2.4 MHz. <i>Check</i> runs both and counts, on each stick's card, readings only one of them got; the readings sent are the first's.</p>
       <div class="row-actions"><button>Save</button><span class="status small"></span></div>
     </form>
 

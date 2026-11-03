@@ -16,8 +16,18 @@
 // reading, not even a repeat or a shadow — and long enough to hold a frame is
 // tried as ALERT2 off the same window, before its decode goes out, so that
 // the decode says what it was. Off with receivers.sdr.alert2 false.
+//
+// Between bursts (receivers.sdr.watch, MegaNet #259 part 2): 'always' feeds the
+// pipeline every sample, as before 0.18. 'bursts' puts MegaNet's BurstWatch in
+// front of it: the stick's bytes kept, the channel looked at 25 times a second,
+// the pipeline fed only from a second before something shows — the same
+// readings, a fraction of the work. 'check' feeds this pipeline every sample,
+// its readings posted as ever, and a second, watched pipeline the same samples:
+// the readings each got are matched up 20 s of signal later, and how they
+// compare — and what each cost — goes to the card every 10 s ('watchCheck').
 
 const { parentPort, workerData } = require('node:worker_threads');
+const { performance } = require('node:perf_hooks');
 const { AlertDsp } = require('../meganet-codecs');
 const { CarrierMeter } = require('./carrier');
 const { toU8 } = require('../recorder');
@@ -36,10 +46,13 @@ let preroll = [];           // the last PREROLL_S of audio, for the start of a b
 let prerollN = 0;
 let closedAt = 0;
 let processed = 0;
+let watch = null;           // 'bursts': the BurstWatch in front of the pipeline
+let shadow = null;          // 'check': { pipe, watch, seen, ... } — the watched one beside it
 
 const pipe = new AlertDsp.Pipeline((m) => {
   switch (m.type) {
     case 'decode': {
+      if (shadow) for (const r of m.readings) seenBy('a', r);
       // The window just decoded ends where the samples do (within a chunk):
       // the ring's last `seconds` are that burst, as the decoder read it.
       const n = Math.min(pipe.ringR.length, pipe.total, Math.round((m.seconds + 0.05) * AlertDsp.FS_IN));
@@ -119,17 +132,31 @@ parentPort.on('message', (m) => {
   try {
     if (m.type === 'iq') {
       const u8 = new Uint8Array(m.buf);
-      pipe.feed(u8);
-      meter.after((u8.length >> 1) * AlertDsp.FS_BB / pipe.cfg.deviceRate);
+      if (watch) watch.feed(u8);
+      else {
+        const t0 = shadow ? performance.now() : 0;
+        pipe.feed(u8);
+        meter.after((u8.length >> 1) * AlertDsp.FS_BB / pipe.cfg.deviceRate);
+        if (shadow) {
+          const t1 = performance.now();
+          shadow.watch.feed(u8);
+          shadow.msA += t1 - t0; shadow.msB += performance.now() - t1;
+        }
+      }
       processed += u8.length >> 1;
+      if (shadow) checkTick();
       parentPort.postMessage({ type: 'fed', bytes: u8.length });
     } else if (m.type === 'config') {
       if ('audio' in m.cfg) audioOn = !!m.cfg.audio;
       if ('record' in m.cfg) recordOn = !!m.cfg.record;
       if ('alert2' in m.cfg) alert2On = m.cfg.alert2 !== false;
       pipe.configure(Object.assign({}, m.cfg, { audio: audioOn }));
+      if (shadow) shadow.pipe.configure(shadowCfg(m.cfg));
+      if ('watch' in m.cfg) setWatch(m.cfg.watch);
     } else if (m.type === 'reset') {
       pipe.reset(); clip = null; preroll = []; prerollN = 0; processed = 0;
+      if (watch) watch.reset();
+      if (shadow) { shadow.pipe.reset(); shadow.watch.reset(); }
       meter.cur = null; meter.ring = pipe.audio; meter.lastPos = pipe.audio ? pipe.audioPos : 0;
     }
   } catch (e) {
@@ -140,5 +167,56 @@ parentPort.on('message', (m) => {
 // Each burst's carrier offset, from the pipeline's discriminator (lib/devices/carrier.js).
 const meter = new CarrierMeter(pipe, AlertDsp.FS_BB);
 
+// ── between bursts ──────────────────────────────────────────────────────────
+
+function setWatch(mode) {
+  const want = mode === 'bursts' || mode === 'check' ? mode : 'always';
+  if (want === 'bursts') { if (!watch) watch = new AlertDsp.BurstWatch(pipe, { afterFeed: n => meter.after(n * AlertDsp.FS_BB / pipe.cfg.deviceRate) }); }
+  else watch = null;
+  if (want === 'check') { if (!shadow) shadow = makeShadow(); }
+  else shadow = null;
+}
+
+// The watched pipeline's settings: the channel's, with nothing it would post
+// for anybody — no spectrum, no audio, no lean-against-full of its own.
+function shadowCfg(c) {
+  const o = Object.assign({}, c, { specHz: 0, scopeHz: 1, audio: false, compare: false });
+  delete o.watch; delete o.record; delete o.alert2;
+  return o;
+}
+
+function makeShadow() {
+  const sh = { seen: new Map(), both: 0, onlyA: 0, onlyB: 0, msA: 0, msB: 0, lastPost: processed, awake0: 0, samples0: 0, diffs: [] };
+  sh.pipe = new AlertDsp.Pipeline((m) => { if (m.type === 'decode') for (const r of m.readings) seenBy('b', r); });
+  sh.pipe.configure(shadowCfg(pipe.cfg));
+  sh.watch = new AlertDsp.BurstWatch(sh.pipe);
+  return sh;
+}
+
+// A reading one of the two posted: matched with the other's 20 s of signal on.
+function seenBy(who, r) {
+  const k = r.sensorId + '=' + r.value, sh = shadow;
+  let e = sh.seen.get(k);
+  if (!e) { e = { a: 0, b: 0, at: processed }; sh.seen.set(k, e); }
+  e[who]++;
+}
+
+function checkTick() {
+  const sh = shadow, rate = pipe.cfg.deviceRate;
+  for (const [k, e] of sh.seen) {
+    if (processed - e.at < 20 * rate) break;          // in the order first read
+    const both = Math.min(e.a, e.b);
+    sh.both += both; sh.onlyA += e.a - both; sh.onlyB += e.b - both;
+    if (e.a !== e.b && sh.diffs.length < 5) sh.diffs.push({ reading: k, always: e.a, watched: e.b });
+    sh.seen.delete(k);
+  }
+  if (processed - sh.lastPost < 10 * rate) return;
+  const st = sh.watch.stats;
+  parentPort.postMessage({ type: 'watchCheck', both: sh.both, onlyAlways: sh.onlyA, onlyWatch: sh.onlyB, msAlways: sh.msA, msWatch: sh.msB,
+    awake: st.awake - sh.awake0, samples: st.samples - sh.samples0, diffs: sh.diffs });
+  Object.assign(sh, { both: 0, onlyA: 0, onlyB: 0, msA: 0, msB: 0, lastPost: processed, awake0: st.awake, samples0: st.samples, diffs: [] });
+}
+
 pipe.configure(Object.assign({ specHz: 1, scopeHz: 1, fftSize: 2048 }, (workerData && workerData.cfg) || {}, { audio: audioOn }));
+setWatch(workerData && workerData.cfg && workerData.cfg.watch);
 parentPort.postMessage({ type: 'ready' });

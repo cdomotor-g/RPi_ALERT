@@ -137,7 +137,10 @@ function sdrPlan(v, st, rate) {
 // steady work, plus the plan's. Without the measurements, the decoders now
 // scaled by the table's; with neither, null.
 function sdrCores(p, st) {
-  const bench = S.status && S.status.sdrCost && S.status.sdrCost.perChannel;
+  // Filtering only around bursts (receivers.sdr.watch 'bursts'): its own measurements.
+  const f = document.getElementById('f-sdr'), cost = S.status && S.status.sdrCost;
+  const watched = (f && f.watch ? f.watch.value : S.config.receivers.sdr.watch) === 'bursts';
+  const bench = cost && (watched && cost.watched ? cost.watched : cost.perChannel);
   const n = p.channels.filter(c => c.inBand).length;
   if (st && st.load && st.load.decoders && st.sampleRate) {
     const now = st.load.cores / st.load.decoders;
@@ -346,6 +349,7 @@ function sdrFillCard() {
   f.enabled.checked = sd.enabled;
   f.alert2.checked = sd.alert2 !== false;
   f.decoder.value = sd.decoder || 'lean';
+  f.watch.value = sd.watch || 'always';
   const dEd = $('#sdr-default-ed');
   if (!dEd.innerHTML) dEd.innerHTML = sdrEdHtml(false);
   sdrFill(dEd, null);
@@ -410,7 +414,7 @@ function sdrPatch() {
   if (dv.errors.length) return { error: 'Defaults: ' + dv.errors[0] };
   if (!dv.chans.length) return { error: 'Defaults: at least one channel' };
   const more = (list) => list.slice(1).map(c => (c.format ? { freqHz: c.freqHz, format: c.format } : { freqHz: c.freqHz }));
-  const sdr = { enabled: f.enabled.checked, alert2: f.alert2.checked, decoder: f.decoder.value, freqHz: dv.chans[0].freqHz, moreChannels: more(dv.chans) };
+  const sdr = { enabled: f.enabled.checked, alert2: f.alert2.checked, decoder: f.decoder.value, watch: f.watch.value, freqHz: dv.chans[0].freqHz, moreChannels: more(dv.chans) };
   for (const k of SDR_FIELDS) sdr[SDR_KEY[k]] = dv[k];
   // A stick's entry holds only what it sets for itself. Entries for sticks
   // not listed are kept; 0.4's by-serial ones become the listed sticks' own.
@@ -448,7 +452,11 @@ function sdrWire() {
     if (ed._m.key && SDR_FIELDS.includes(k)) ed._m.own.add(k);
     sdrRender();
   };
-  const each = (e) => { if (e.target.name === 'enabled') sdrBudget(); else if (e.target.name !== 'add') changed(e); };
+  const each = (e) => {
+    if (e.target.name === 'enabled') sdrBudget();
+    else if (e.target.name === 'watch') sdrRender();          // what the plan costs follows it
+    else if (e.target.name !== 'add') changed(e);
+  };
   f.addEventListener('input', each);
   f.addEventListener('change', each);
   f.addEventListener('keydown', (e) => {

@@ -81,10 +81,11 @@ badly each one strands somebody:
 - **Both ALERT formats from one stick** — alert-dsp.js decodes one frame format at a time because a
   strong Binary burst makes CRC-valid Enhanced iFLOWS ghosts. A per-burst decision (try Binary, and
   Enhanced iFLOWS only when Binary finds nothing) could make the format setting unnecessary.
-- **A channeliser shared by a stick's channels** (#3, MegaNet #259 part 2; a prototype watched a
-  960 kHz stick with 50 FFTs a second for 6 ms of CPU a second, against 248 ms for four channels
-  filtering it all the time) — each channel's decoder thread converts and
-  filters the stick's whole stream on its own (one stick, several channels, is done: see
+- **A channeliser shared by a stick's channels** (#3, MegaNet #259 part 2). *Filtering only around
+  bursts* is in 0.18 behind a setting ([configuration.md](configuration.md#between-bursts)): a channel
+  asleep between bursts costs a sixth to a twentieth of one filtering all the time. Next: its *Check*
+  at 18 Bateson, then making it the default. Until then each channel's decoder thread converts and
+filters the stick's whole stream on its own (one stick, several channels, is done: see
   [hardware.md](hardware.md#several-channels-on-one-stick)). Since 0.15 a stick takes the
   narrowest window its channels allow, 1.44 MHz joins the windows (MegaNet's four channels: a fifth
   less work than 1.92), and the settings say what each stick will cost the Pi before it is saved —

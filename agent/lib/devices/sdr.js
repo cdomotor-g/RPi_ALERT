@@ -100,13 +100,15 @@ class SdrChannel {
     this.busy = null;           // how busy its decoder is: 0–1 of its thread's time (sampleBusy)
     this.elu = null;
     this.moved = false;         // its offset changed since its decoder was last told
+    this.watchLogged = 0;
     this.blank();
   }
 
   // What it has heard so far — from scratch when it is moved to another frequency.
   blank() {
     this.level = null;
-    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
+    this.counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0,
+      watchBoth: 0, watchOnlyAlways: 0, watchOnlyWatch: 0, watchMsAlways: 0, watchMsWatch: 0, watchAwake: 0, watchSamples: 0 };
     this.lastDecode = null;
     this.lastBurst = null;
     this.alert2 = new Alert2Reader();
@@ -263,6 +265,22 @@ class SdrChannel {
     this.counts.differ++;
     if (this.counts.differ <= 20) this.log.warn('lean decoder differs (' + fmt + ', ' + (this.spec.freqHz / 1e6).toFixed(4) + ' MHz): full read '
       + (c.full.join(' ') || 'nothing') + ', lean read ' + (c.lean.join(' ') || 'nothing') + (this.counts.differ === 20 ? ' — no more of these logged' : ''));
+  }
+
+  // receivers.sdr.watch 'check': every 10 s of signal, how the watched decoder
+  // (filtering only around bursts, MegaNet #259 part 2) did beside this one —
+  // readings both got, readings only one did — and what each cost. Counted for
+  // the card; a reading only one got is logged, the first few. Ingest has this
+  // one's readings.
+  onWatchCheck(m) {
+    const n = this.counts;
+    n.watchBoth += m.both; n.watchOnlyAlways += m.onlyAlways; n.watchOnlyWatch += m.onlyWatch;
+    n.watchMsAlways += m.msAlways; n.watchMsWatch += m.msWatch; n.watchAwake += m.awake; n.watchSamples += m.samples;
+    for (const d of m.diffs || []) {
+      if (++this.watchLogged > 20) break;
+      this.log.warn('filtering around bursts differs (' + (this.spec.freqHz / 1e6).toFixed(4) + ' MHz): ' + d.reading + ' read ' + d.always
+        + '× filtering always, ' + d.watched + '× around bursts' + (this.watchLogged === 20 ? ' — no more of these logged' : ''));
+    }
   }
 
   // A burst's ALERT2 frames (the worker's alert2-air.js plain()) → readings
@@ -460,7 +478,7 @@ class SdrSession extends EventEmitter {
   dspCfg(c, spec, ch) {
     return { deviceRate: c.sampleRate, channelOffsetHz: spec.offsetHz, format: spec.format, gate: c.gate !== false,
       squelchDb: c.squelchDb, minVotes: c.minVotes, minVotesCrc: c.minVotesCrc, record: this.recording(spec), alert2: c.alert2 !== false,
-      lean: c.decoder !== 'full' && c.decoder !== 'compare', compare: c.decoder === 'compare',
+      lean: c.decoder !== 'full' && c.decoder !== 'compare', compare: c.decoder === 'compare', watch: c.watch || 'always',
       specHz: !ch || ch === this.spectrumSource() ? 1 : 0 };
   }
 
@@ -740,6 +758,7 @@ class SdrSession extends EventEmitter {
       this.agent.deviceEvent(ch, 'burst', { ms: m.ms, peakDb: m.peakDb, nfDb: m.nfDb });
       return;
     }
+    if (m.type === 'watchCheck') { ch.onWatchCheck(m); return; }
     if (m.type === 'decode') ch.onDecode(m);
   }
 
@@ -832,7 +851,8 @@ class SdrSession extends EventEmitter {
     const lv = first && first.level;
     // The stick's counts are its channels' together.
     const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
-    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies', 'compared', 'differ', 'msFull', 'msLean']) counts[k] += ch.counts[k] || 0;
+    for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies', 'compared', 'differ', 'msFull', 'msLean',
+      'watchBoth', 'watchOnlyAlways', 'watchOnlyWatch', 'watchMsAlways', 'watchMsWatch', 'watchAwake', 'watchSamples']) counts[k] += ch.counts[k] || 0;
     const latest = (f) => this.channels.map(ch => ch[f]).filter(Boolean).sort((a, b) => b.t - a.t)[0] || null;
     return {
       key: this.key, kind: 'sdr', name: this.name(), n: this.point.n, pointId: this.point.pointId, state: this.state, protocol: 'alert',

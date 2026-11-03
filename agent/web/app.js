@@ -71,6 +71,14 @@ function compareText(c) {
     + (c.differ ? c.differ + ' read differently (the log has them)' : 'all read the same')
     + (pct != null ? ' · lean took ' + pct + '% of the full decoder\'s time' : '');
 }
+// receivers.sdr.watch 'check': how filtering only around bursts has done beside filtering always.
+function watchText(c) {
+  const awake = c.watchSamples ? Math.round(c.watchAwake / c.watchSamples * 100) : null;
+  const pct = c.watchMsAlways ? Math.round(c.watchMsWatch / c.watchMsAlways * 100) : null;
+  return c.watchBoth + ' reading' + (c.watchBoth === 1 ? '' : 's') + ' both ways'
+    + (c.watchOnlyAlways || c.watchOnlyWatch ? ', ' + c.watchOnlyAlways + ' only filtering always, ' + c.watchOnlyWatch + ' only around bursts (the log has them)' : ', none only one way')
+    + (awake != null ? ' · awake ' + awake + '% of the time' : '') + (pct != null ? ' · ' + pct + '% of the work' : '');
+}
 function protoTag(p) { return '<span class="proto ' + (p === 'alert2' ? 'alert2' : 'alert') + '">' + (p === 'alert2' ? 'ALERT2' : 'ALERT') + '</span>'; }
 function stateLabel(s) {
   return { running: 'receiving', identifying: 'identifying…', opening: 'opening…', starting: 'starting…', disconnected: 'reconnecting…',
@@ -805,6 +813,7 @@ function rxBodyHtml(d) {
     rows.push(['Heard', esc((multi ? 'on all its channels: ' : '') + d.counts.bursts + ' bursts, ' + d.counts.decodes + ' readings, ' + d.counts.shadows + ' bit-flip shadows set aside, ' + d.counts.undecoded + ' undecoded'
       + (d.counts.alert2 || d.counts.alert2Bad ? ' · ALERT2: ' + alert2Text(d.counts) : ''))]);
     if (d.counts.compared) rows.push(['Lean decoder', esc(compareText(d.counts))]);
+    if (d.counts.watchSamples) rows.push(['Around bursts', esc(watchText(d.counts))]);
     if (!multi && d.level && d.level.nfDb != null) rows.push(['Noise floor', esc(d.level.nfDb + ' dBFS in the channel (squelch opens ' + (d.level.nfDb + (d.squelchDb ?? 8)).toFixed(1) + ' dBFS)')]);
     if (!multi && d.lastBurst) {
       const b = d.lastBurst, sat = b.peakDb != null && b.peakDb >= SATURATED_DBFS;

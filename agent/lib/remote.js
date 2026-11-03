@@ -270,7 +270,11 @@ function receiverOf(d) {
       load: d.load ? { cores: d.load.cores, most: d.load.most } : null,
       // receivers.sdr.decoder 'compare': how the lean decoder has done (MegaNet #259).
       lean_check: d.counts && d.counts.compared ? { compared: d.counts.compared, differ: d.counts.differ,
-        time_pct: d.counts.msFull ? Math.round(d.counts.msLean / d.counts.msFull * 100) : null } : undefined });
+        time_pct: d.counts.msFull ? Math.round(d.counts.msLean / d.counts.msFull * 100) : null } : undefined,
+      // receivers.sdr.watch 'check': how filtering only around bursts has done (MegaNet #259 part 2).
+      watch_check: d.counts && d.counts.watchSamples ? { both: d.counts.watchBoth, only_always: d.counts.watchOnlyAlways, only_watch: d.counts.watchOnlyWatch,
+        awake_pct: Math.round(d.counts.watchAwake / d.counts.watchSamples * 100),
+        time_pct: d.counts.watchMsAlways ? Math.round(d.counts.watchMsWatch / d.counts.watchMsAlways * 100) : null } : undefined });
     // A stick hearing more than one channel: each, its own first.
     if (Array.isArray(d.channels) && d.channels.length > 1) {
       r.channels = d.channels.map(ch => {

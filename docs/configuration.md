@@ -103,6 +103,29 @@ The same choice is `receivers.sdr.decoder` (`lean`, `full`, `compare`), or `sdr_
 the SD card. 0.16 wrote `full` into every settings file it saved, so 0.17 reads a 0.16 `full` as
 that default and makes it `lean`; a `compare` someone chose is kept.
 
+<a id="between-bursts"></a>**Between bursts.** Under **Settings → RTL-SDR**, *Between bursts* chooses what each channel's
+decoder does while nothing is on its channel (MegaNet's `BurstWatch`, #259 part 2):
+
+- **Filter every sample** (the default, as before 0.18): the decoder filters the stick's whole
+  window into its channel all the time, burst or not. Between bursts that is nearly all its work,
+  and more the wider the window.
+- **Filter only around bursts**: the decoder keeps the last 1.6 s of the window as it came and looks
+  at its channel 25 times a second. While nothing shows it filters nothing. When the channel comes
+  within 3 dB of the squelch it filters the kept second before and carries on from there, so the
+  squelch and the decoder see the same samples they always did: in MegaNet's tests, the same
+  readings and the same bursts, each the same length, every time. A quiet channel then costs this
+  Pi from 2½ times less at 240 kHz to about 20 times less at 2.4 MHz (*Settings* measures both on
+  this Pi, and says what a stick will take under the one chosen). A channel kept busy — a carrier
+  that stays up — costs what it did.
+- **Check**: filters every sample and sends those readings, and runs a second decoder filtering only
+  around bursts on the same samples. Every 10 s each stick's card adds up the readings both got and
+  the readings only one did (matched 20 s later), how much of the time the second was awake, and its
+  share of the work; a reading only one got is logged, the first 20. It costs a little more than
+  *Filter every sample* alone.
+
+The same choice is `receivers.sdr.watch` (`always`, `bursts`, `check`), or `sdr_watch = check` on
+the SD card. Flood-Net's Base Stations tab sets it too, and shows each stick's check.
+
 Since 0.17 only a stick's first channel works out the stick's spectrum for the waterfall: the other
 channels see the same slice, and skipping it saves a sixth of a channel's work between bursts.
 

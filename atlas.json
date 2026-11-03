@@ -32,11 +32,11 @@
   "status": {
     "phase": "beta",
     "updated": "2026-11-03",
-    "summary": "Version 0.17.0 decodes lean by default (a third of the full decoder's time; 14 of 11,628 live bursts read differently at 18 Bateson) and does a quarter to a third less work between bursts. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "summary": "Version 0.18.0 can filter each channel only around its bursts (Settings → RTL-SDR → Between bursts; off by default, with a Check mode to prove it on the live station), on top of 0.17's lean decoding. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
-      "v0.17.0: lean decoding by default, block copies between bursts, one spectrum a stick",
-      "Next CPU step: filter each channel only around bursts (#3; MegaNet #259 part 2)",
-      "0.15.x: each stick's narrowest window and its CPU cost, tuned on the live station"
+      "v0.18.0: Between bursts — filter only around bursts (a sixth to a twentieth of the work between them), or Check both",
+      "Next CPU step: Check at 18 Bateson, then around bursts the default (#3; MegaNet #259 part 2)",
+      "v0.17.0: lean decoding by default, block copies between bursts, one spectrum a stick"
     ],
     "next": [
       "Close #1: the ERT-A2 field fix shipped in 0.14.1",
@@ -49,7 +49,6 @@
     ],
     "later": [
       "ALERT2-only channels skip the legacy decode first, halving their CPU",
-      "A channeliser shared by a stick's channels, filtering each only around bursts (#3; MegaNet #259 part 2)",
       "Updates you can see coming: release notes, roll back, staged fleet roll-out",
       "Settings backup, and a host id that survives a new SD card",
       "Read-only root file system; GPS-disciplined time with chrony",

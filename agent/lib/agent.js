@@ -148,7 +148,9 @@ class Agent extends EventEmitter {
       sdrBench.measure().then((r) => {
         this.sdrCost = r;
         const per = Object.entries(r.perChannel).map(([rate, v]) => width(Number(rate)) + ' ' + Math.round(v * 100) + ' %').join(', ');
-        this.log.info('a channel\'s decoder costs this Pi, at each window: ' + per + ' of a core (between bursts)');
+        const wat = r.watched ? Object.entries(r.watched).map(([rate, v]) => width(Number(rate)) + ' ' + Math.round(v * 100) + ' %').join(', ') : null;
+        this.log.info('a channel\'s decoder costs this Pi, at each window: ' + per + ' of a core (between bursts)'
+          + (wat ? '; filtering only around bursts: ' + wat : ''));
       }).catch((e) => this.log.warn('could not measure what a channel costs this Pi: ' + e.message));
     }, ms);
     t.unref?.();

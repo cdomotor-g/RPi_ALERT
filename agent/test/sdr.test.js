@@ -204,5 +204,7 @@ test('what a channel costs this Pi at each window: measured, and more the wider 
   const c = r.perChannel;
   assert.deepEqual(Object.keys(c).map(Number), [240000, 960000, 2400000]);
   assert.ok(c[240000] > 0 && c[240000] < c[960000] && c[960000] < c[2400000], JSON.stringify(c));
+  // …and, filtering only around bursts (receivers.sdr.watch 'bursts'), a fraction of that at every window.
+  for (const rate of [240000, 960000, 2400000]) assert.ok(r.watched[rate] > 0 && r.watched[rate] < 0.6 * c[rate], JSON.stringify(r.watched));
   assert.ok(r.ms > 0 && r.at <= Date.now());
 });
