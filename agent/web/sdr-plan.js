@@ -118,29 +118,40 @@
   const memo = new Map();
 
   // chans: [{ freqHz, format }], the stick's own channel first.
-  // opts: { sampleRate: as set (0: automatic), offsetHz: as set (0: a quarter
-  // of the rate), prefer: { sampleRate, centerHz }, where the stick is tuned
-  // now }.
+  // opts: { sampleRate: as set (0: automatic), minRate and maxRate: the
+  // narrowest and the widest window automatic may take (0: no limit; when
+  // they cross, the widest wins), offsetHz: as set (0: a quarter of the
+  // rate), prefer: { sampleRate, centerHz }, where the stick is tuned now }.
   // → { sampleRate, centerHz, auto, needs (the narrowest window that holds
-  //     every channel; null: none does), lowHz and highHz (the window's
-  //     edges), dcHz and mirrorHz (the nearest hazard of each kind to a
-  //     channel; null for one channel),
+  //     every channel; null: none does), minRate and maxRate (the limits
+  //     automatic kept to; 0: none), capped (automatic, and the widest
+  //     allowed leaves channels out that a wider window would hold),
+  //     lowHz and highHz (the window's edges), dcHz and mirrorHz (the
+  //     nearest hazard of each kind to a channel; null for one channel),
   //     channels: [{ freqHz, format, offsetHz, inBand, why (when not) }] }
   function plan(chans, opts) {
     opts = opts || {};
     const rate = RATES.includes(opts.sampleRate) ? opts.sampleRate : 0;
+    const lo = RATES.includes(opts.minRate) ? opts.minRate : 0, hi = RATES.includes(opts.maxRate) ? opts.maxRate : 0;
     const pre = opts.prefer && RATES.includes(opts.prefer.sampleRate) && Number.isFinite(opts.prefer.centerHz) ? opts.prefer : null;
-    const key = chans.map(c => c.freqHz + '/' + c.format).join(',') + '|' + rate + '|' + (opts.offsetHz || 0) + '|' + (pre ? pre.sampleRate + '@' + pre.centerHz : '');
+    const key = chans.map(c => c.freqHz + '/' + c.format).join(',') + '|' + rate + '|' + lo + '-' + hi + '|' + (opts.offsetHz || 0) + '|' + (pre ? pre.sampleRate + '@' + pre.centerHz : '');
     let out = memo.get(key);
     if (!out) {
-      out = compute(chans, rate, opts.offsetHz, pre);
+      out = compute(chans, rate, opts.offsetHz, pre, lo, hi);
       if (memo.size >= 64) memo.delete(memo.keys().next().value);
       memo.set(key, out);
     }
     return Object.assign({}, out, { channels: out.channels.map(c => Object.assign({}, c)) });
   }
 
-  function compute(chans, asked, offsetHz, prefer) {
+  // The windows automatic may take, narrowest first: those from lo to hi
+  // (0: no limit that side). Limits that cross keep the widest allowed alone.
+  function allowedRates(lo, hi) {
+    const ok = RATES.filter(r => (!lo || r >= lo) && (!hi || r <= hi));
+    return ok.length ? ok : hi ? [hi] : RATES;
+  }
+
+  function compute(chans, asked, offsetHz, prefer, lo, hi) {
     const main = chans[0].freqHz;
     const freqs = [...new Set(chans.map(c => c.freqHz))].sort((a, b) => a - b);
     const single = (rate) => ({ centerHz: Math.round(main - (offsetHz || rate / 4)), dc: null, mirror: null });
@@ -154,7 +165,11 @@
         if (!b.why) { needs = r; needsAt = b; break; }
       }
     }
-    const rate = asked || needs || RATES[RATES.length - 1];
+    // Set by hand, that window. Automatic: the narrowest that holds them all,
+    // kept between the limits — the narrowest allowed when they need less,
+    // the widest allowed when they need more (or no window holds them).
+    const ok = allowedRates(lo, hi);
+    const rate = asked || (needs && ok.includes(needs) ? needs : needs && needs < ok[0] ? ok[0] : ok[ok.length - 1]);
     let best = freqs.length === 1 ? single(rate) : rate === needs ? needsAt : bestCentre(freqs, rate), heard = new Set(freqs);
     if (freqs.length > 1 && !best.why && prefer && prefer.sampleRate === rate) {
       const now = score(freqs, prefer.centerHz, reach(rate));
@@ -175,7 +190,9 @@
     const centerHz = best.centerHz;
     const fin = (v) => (Number.isFinite(v) ? Math.round(v) : null);
     return {
-      sampleRate: rate, centerHz, auto: !asked, needs, lowHz: centerHz - rate / 2, highHz: centerHz + rate / 2,
+      sampleRate: rate, centerHz, auto: !asked, needs, minRate: asked ? 0 : lo || 0, maxRate: asked ? 0 : hi || 0,
+      capped: !asked && heard.size < freqs.length && (needs == null || needs > rate) && rate < RATES[RATES.length - 1],
+      lowHz: centerHz - rate / 2, highHz: centerHz + rate / 2,
       dcHz: fin(best.dc), mirrorHz: fin(best.mirror),
       channels: chans.map(c => Object.assign({ freqHz: c.freqHz, format: c.format, offsetHz: c.freqHz - centerHz, inBand: heard.has(c.freqHz) },
         heard.has(c.freqHz) ? {} : { why: why.get(c.freqHz) || 'outside' })),
@@ -194,5 +211,5 @@
   // '240 kHz', '1.44 MHz'.
   function width(rate) { return rate >= 1e6 ? (rate / 1e6) + ' MHz' : (rate / 1e3) + ' kHz'; }
 
-  return { plan, bestCentre, reach, load, width, RATES, COST, USABLE, CH_HALF, DC_MIN, MIRROR_GOOD, MAX_CHANNELS, MAX_SPAN_HZ };
+  return { plan, bestCentre, allowedRates, reach, load, width, RATES, COST, USABLE, CH_HALF, DC_MIN, MIRROR_GOOD, MAX_CHANNELS, MAX_SPAN_HZ };
 }));

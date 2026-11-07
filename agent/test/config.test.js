@@ -165,3 +165,18 @@ test('rpi-alert.conf: ssh = on makes missing host keys before starting sshd, and
   assert.deepEqual(logs, ['SSH off']);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('settings: the narrowest and widest window automatic may take (0.20), shared and a stick\'s own; the SD card sets them', () => {
+  const c = tmpConfig();
+  assert.deepEqual([c.get().receivers.sdr.sampleRateMin, c.get().receivers.sdr.sampleRateMax], [0, 0], 'no limits by default');
+  assert.ok(c.update({ receivers: { sdr: { sampleRateMax: 960000 }, sdrDevices: [{ key: 'sdr-port:1-1.3', sampleRateMin: 240000, sampleRateMax: 240000 }] } }).ok);
+  for (const bad of [300000, -1, '960000']) {
+    assert.match(c.update({ receivers: { sdr: { sampleRateMax: bad } } }).errors.join(), /receivers\.sdr\.sampleRateMax: 0 \(no limit\)/, String(bad));
+    assert.match(c.update({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', sampleRateMin: bad }] } }).errors.join(), /sampleRateMin: 0 \(no limit\)/, String(bad));
+  }
+  assert.match(c.update({ receivers: { sdr: { sampleRateMin: 1440000, sampleRateMax: 960000 } } }).errors.join(), /narrowest window cannot be wider than the widest/);
+  assert.match(c.update({ receivers: { sdrDevices: [{ key: 'sdr-port:1-1.3', sampleRateMin: 1440000, sampleRateMax: 960000 }] } }).errors.join(), /narrowest window cannot be wider/);
+  const { patch } = boot.toPatch(boot.parse('sdr_sample_rate_min = none\nsdr_sample_rate_max = 960000\n'));
+  assert.deepEqual([patch.receivers.sdr.sampleRateMin, patch.receivers.sdr.sampleRateMax], [0, 960000]);
+  assert.ok(c.update(patch).ok, 'the SD card\'s patch passes validation');
+});

@@ -149,6 +149,9 @@ function toPatch(kv) {
       case 'sdr_gain_db': case 'gain_db': set('receivers.sdr.gainDb', /^(auto|agc)$/i.test(v) ? null : n(v)); break;
       case 'sdr_ppm': case 'ppm': set('receivers.sdr.ppm', n(v)); break;
       case 'sdr_sample_rate': set('receivers.sdr.sampleRate', /^auto$/i.test(v) ? 0 : n(v)); break;
+      // 0.20: the narrowest and widest window automatic may take ("none": no limit).
+      case 'sdr_sample_rate_min': set('receivers.sdr.sampleRateMin', /^(none|no|0|auto)$/i.test(v.trim()) ? 0 : n(v)); break;
+      case 'sdr_sample_rate_max': set('receivers.sdr.sampleRateMax', /^(none|no|0|auto)$/i.test(v.trim()) ? 0 : n(v)); break;
       case 'sdr_bias_tee': case 'bias_tee': set('receivers.sdr.biasTee', yes(v)); break;
       case 'sdr_squelch_db': set('receivers.sdr.squelchDb', n(v)); break;
       case 'sdr_decoder': set('receivers.sdr.decoder', String(v).trim().toLowerCase()); break;

@@ -396,3 +396,25 @@ test('a narrow window hears a channel as well as a wide one: the decoder works a
   assert.equal(heard[240000].length, 6, 'every burst in 240 kHz: ' + heard[240000]);
   assert.deepEqual(heard[240000], heard[960000], 'the same readings in 960 kHz');
 });
+
+test('the window\'s limits (0.20): automatic kept between the narrowest and the widest; one set by hand ignores them', () => {
+  const five = MHz(151.5, 151.525, 151.5375, 151.55, 151.575);
+  let p = P.plan(five);
+  assert.deepEqual([p.sampleRate, p.needs, p.capped, p.channels.every(c => c.inBand)], [960000, 960000, false, true], 'five channels need 960 kHz');
+  p = P.plan(five, { maxRate: 240000 });
+  assert.deepEqual([p.sampleRate, p.auto, p.needs, p.maxRate, p.capped], [240000, true, 960000, 240000, true], 'no wider than 240 kHz: the widest allowed');
+  assert.deepEqual(p.channels.filter(c => !c.inBand).map(c => c.freqHz), [151575000], 'the one that does not fit is left out, the rest heard');
+  p = P.plan(five, { maxRate: 1440000 });
+  assert.deepEqual([p.sampleRate, p.capped], [960000, false], 'a widest above what they need changes nothing');
+  p = P.plan(MHz(151.5, 151.525), { minRate: 1200000 });
+  assert.deepEqual([p.sampleRate, p.needs, p.minRate, p.capped, p.channels.every(c => c.inBand)], [1200000, 240000, 1200000, false, true], 'no narrower than 1.2 MHz');
+  p = P.plan(MHz(151.5), { minRate: 960000 });
+  assert.equal(p.sampleRate, 960000, 'one channel: the narrowest allowed');
+  p = P.plan(five, { minRate: 1440000, maxRate: 240000 });
+  assert.equal(p.sampleRate, 240000, 'limits that cross: the widest wins');
+  p = P.plan(five, { sampleRate: 1920000, maxRate: 240000 });
+  assert.deepEqual([p.sampleRate, p.auto, p.minRate, p.maxRate, p.capped], [1920000, false, 0, 0, false], 'a window set by hand is exactly that one');
+  p = P.plan(MHz(151.5, 153.5), { maxRate: 960000 });
+  assert.deepEqual([p.sampleRate, p.needs, p.capped, p.channels.filter(c => c.inBand).length], [960000, null, true, 1], 'no window holds them: the widest allowed, the stick\'s own channel heard');
+  assert.deepEqual(P.allowedRates(960000, 1440000), [960000, 1200000, 1440000]);
+});

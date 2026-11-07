@@ -233,3 +233,27 @@ test('a stick\'s between-bursts check adds up over its channels, and reaches its
   for (const ch of s.channels) ch.blank();
   assert.equal(receiverOf(s.status()).watch_check, undefined);
 });
+
+test('a stick\'s window kept between its narrowest and widest (0.20): its own over the shared; told to Flood-Net', () => {
+  const dir = tmp('rpa-lim-');
+  const config = new Config(path.join(dir, 'config.json')).load();
+  const state = new State(dir).load();
+  const log = { debug() {}, info() {}, warn() {}, error() {}, child() { return log; } };
+  const agent = { config, state, log, board: { cores: 4, memMb: 4000 }, devices: null, audio: null };
+  const st = blogV4('1-1.3', 4);
+  const s = new SdrSession(agent, Object.assign(st, { key: state.assignSdrs([st]).get(st) }));
+  const more = [151525000, 151537500, 151550000, 151575000].map(freqHz => ({ freqHz }));
+  config.update({ receivers: { sdr: { freqHz: 151500000, moreChannels: more } } });
+  assert.equal(s.cfg().sampleRate, 960000, 'five channels: automatic takes 960 kHz');
+  config.update({ receivers: { sdr: { sampleRateMax: 240000 } } });
+  let c = s.cfg();
+  assert.deepEqual([c.sampleRate, c.tune.capped, c.tune.channels.filter(x => !x.inBand).map(x => x.freqHz)], [240000, true, [151575000]], 'the shared widest');
+  config.update({ receivers: { sdrDevices: [{ key: s.key, sampleRateMax: 0 }] } });
+  assert.equal(s.cfg().sampleRate, 960000, 'its own "no limit" over the shared widest');
+  assert.deepEqual(s.status().own, ['sampleRateMax']);
+  config.update({ receivers: { sdrDevices: [{ key: s.key, sampleRateMin: 1440000 }] } });
+  c = s.cfg();
+  assert.equal(c.sampleRate, 240000, 'its narrowest crossing the shared widest: the widest wins');
+  const { receiverOf } = require('../lib/remote');
+  assert.deepEqual(receiverOf(s.status()).window, { auto: true, needs: 960000, min: 1440000, max: 240000, capped: true });
+});

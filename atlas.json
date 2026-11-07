@@ -31,12 +31,12 @@
   },
   "status": {
     "phase": "beta",
-    "updated": "2026-11-07",
-    "summary": "Version 0.19.1 shows the Between bursts check's counts, which 0.18–0.19.0 kept but never showed. The check at 18 Bateson found filtering only around bursts misses some of the weakest bursts (on 151.500, ones just over the squelch), so it stays off by default and a Pi 4 keeps Filter every sample; 0.19's Light decoder is still to be checked. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "updated": "2026-11-08",
+    "summary": "Version 0.20.0 adds No narrower than and No wider than to each stick's window: Automatic keeps between them, and a channel the widest cannot hold is left out and says so — set on the Pi, its SD card, rpi-alert sdr, and Flood-Net's Base Stations tab. 0.19.1 showed the Between bursts check, which found filtering only around bursts misses some of the weakest bursts, so it stays off by default. 18 Bateson runs one RTL-SDR stick with five channels in a 960 kHz window; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
+      "v0.20.0: a narrowest and a widest window for Automatic, on the Pi and in Flood-Net",
       "v0.19.1: the Between bursts check's counts on the card and in Flood-Net",
-      "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)",
-      "v0.19.0: Light decoder and Compare light; filtering around bursts a third less awake; 10 MB less a channel"
+      "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)"
     ],
     "next": [
       "Close #1: the ERT-A2 field fix shipped in 0.14.1",

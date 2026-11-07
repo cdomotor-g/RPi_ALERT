@@ -276,6 +276,7 @@ const FORMATS = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', AS
 const STICK_SETTINGS = {
   freq: 'freqHz', frequency: 'freqHz', mhz: 'freqHz', channels: 'moreChannels', more: 'moreChannels', format: 'format', gain: 'gainDb', ppm: 'ppm', squelch: 'squelchDb',
   window: 'sampleRate', rate: 'sampleRate', 'sample-rate': 'sampleRate',
+  narrowest: 'sampleRateMin', 'min-window': 'sampleRateMin', widest: 'sampleRateMax', 'max-window': 'sampleRateMax',
   'bias-tee': 'biasTee', biastee: 'biasTee', bias: 'biasTee', name: 'name', enabled: 'enabled',
 };
 
@@ -300,6 +301,13 @@ function channelSetting(field, s) {
 // Why a channel is not decoded (web/sdr-plan.js).
 function notHeard(ch) {
   return 'not decoded: ' + ({ outside: 'outside the stick\'s window', spike: 'it would sit on the DC spike', mirror: 'another channel\'s mirror image lands on it' }[ch.why] || 'it does not fit beside the others');
+}
+// How a stick's window was chosen: "automatic", "automatic, no wider than 240 kHz", "as set".
+function windowHow(d) {
+  const t = d.tune || {};
+  if (!t.auto) return 'as set';
+  const lim = [t.minRate ? 'no narrower than ' + SdrPlan.width(t.minRate) : '', t.maxRate ? 'no wider than ' + SdrPlan.width(t.maxRate) : ''].filter(Boolean).join(', ');
+  return 'automatic' + (lim ? ', ' + lim : '') + (t.capped ? (t.needs ? ' — its channels need ' + SdrPlan.width(t.needs) : ' — no window holds them all') : '');
 }
 function cores(c) { return c < 0.995 ? Math.max(1, Math.round(c * 100)) + ' % of a core' : (Math.round(c * 10) / 10) + ' cores'; }
 
@@ -336,11 +344,12 @@ function stickValue(field, s) {
     }
     case 'gainDb': return /^(auto|agc)$/i.test(s) ? null : number('gain: a number of dB, or auto');
     case 'ppm': return number('ppm: a number, e.g. -3');
-    case 'sampleRate': {
-      if (/^(auto|automatic|0)$/i.test(s)) return 0;
+    case 'sampleRate': case 'sampleRateMin': case 'sampleRateMax': {
+      const limit = field !== 'sampleRate', what = { sampleRate: 'window', sampleRateMin: 'narrowest', sampleRateMax: 'widest' }[field];
+      if (limit ? /^(none|no|0)$/i.test(s) : /^(auto|automatic|0)$/i.test(s)) return 0;
       const m = /^(\d+(?:\.\d+)?)\s*(k|khz|ksps|m|mhz|msps)?$/i.exec(s), u = m && (m[2] || '').toLowerCase();
       const r = m ? Math.round(Number(m[1]) * (/^m/.test(u) ? 1e6 : /^k/.test(u) ? 1e3 : 1)) : NaN;
-      if (!SdrPlan.RATES.includes(r)) throw new Error('window: auto, or ' + SdrPlan.RATES.map(SdrPlan.width).join(', '));
+      if (!SdrPlan.RATES.includes(r)) throw new Error(what + ': ' + (limit ? 'none' : 'auto') + ', or ' + SdrPlan.RATES.map(SdrPlan.width).join(', '));
       return r;
     }
     case 'squelchDb': return number('squelch: dB over the noise floor, e.g. 8');
@@ -365,7 +374,7 @@ function printSticks(sticks) {
   if (sticks.some(d => d.own.length)) console.log(C.d + '  * its own setting (the rest: rpi-alert config get receivers.sdr)' + C.x);
   const eg = (sticks[1] || sticks[0]).n;
   console.log('\nA stick\'s own channel: rpi-alert sdr ' + eg + ' freq 151.525   — or several at once: rpi-alert sdr ' + eg + ' freq 151.5, 151.525, 152.4');
-  console.log('(also channels, window, format, gain, ppm, squelch, bias-tee, name, on, off; "shared" undoes one)');
+  console.log('(also channels, window, narrowest, widest, format, gain, ppm, squelch, bias-tee, name, on, off; "shared" undoes one)');
   if (sticks.some(d => d.state === 'unplugged')) console.log('Forget one that is unplugged: rpi-alert sdr remove ' + sticks.find(d => d.state === 'unplugged').n);
 }
 
@@ -386,7 +395,7 @@ async function sdr(args) {
     console.log('  ' + [d.model || d.device.product, d.tuner, 'SN ' + (d.device.serial || '—'), 'USB port ' + d.device.port].filter(Boolean).join(' · '));
     const tuner = 'gain ' + (d.gainDb == null ? 'auto' : d.gainDb + ' dB') + ', ' + (d.ppm || 0) + ' ppm, squelch ' + d.squelchDb + ' dB' + (d.biasTee ? ', bias tee on' : '');
     if (multi) {
-      console.log('  ' + d.channels.length + ' channels at once, a ' + SdrPlan.width(d.sampleRate) + ' window (' + (d.tune && d.tune.auto ? 'automatic' : 'as set') + ') around '
+      console.log('  ' + d.channels.length + ' channels at once, a ' + SdrPlan.width(d.sampleRate) + ' window (' + windowHow(d) + ') around '
         + (d.centerHz / 1e6).toFixed(4) + ' MHz, ' + tuner + ':');
       for (const ch of d.channels) {
         console.log('    ' + (Channels.mhz(ch.freqHz) + ' MHz').padEnd(13) + ' ' + FORMATS[ch.format].padEnd(16) + ' ' + ch.pointId.padEnd(24) + ' '
@@ -394,13 +403,13 @@ async function sdr(args) {
       }
     } else console.log('  ' + (d.freqHz / 1e6).toFixed(4) + ' MHz, ' + FORMATS[d.format] + ', a ' + SdrPlan.width(d.sampleRate) + ' window, ' + tuner);
     if (d.load) console.log('  decoding: ' + cores(d.load.cores) + ' of this Pi' + (d.counts.dropped ? C.y + ', ' + Math.round(d.counts.dropped / 1e6) + ' MB of samples dropped — a narrower window, or fewer channels' + C.x : ''));
-    const label = { freqHz: 'freq', moreChannels: 'channels', sampleRate: 'window', gainDb: 'gain', squelchDb: 'squelch', biasTee: 'bias-tee', enabled: 'on/off' };
+    const label = { freqHz: 'freq', moreChannels: 'channels', sampleRate: 'window', sampleRateMin: 'narrowest', sampleRateMax: 'widest', gainDb: 'gain', squelchDb: 'squelch', biasTee: 'bias-tee', enabled: 'on/off' };
     console.log('  ' + (d.own.length ? 'its own: ' + d.own.map(f => label[f] || f).join(', ') + '; the rest shared' : 'all settings shared') + (d.enabled ? '' : C.y + ' — turned off' + C.x));
     return;
   }
   if (what === 'on' || what === 'off') { value = what === 'on' ? 'shared' : 'off'; what = 'enabled'; }
   const field = STICK_SETTINGS[what];
-  if (!field) throw new Error('rpi-alert sdr <stick> freq|channels|window|format|gain|ppm|squelch|bias-tee|name <value>, or rpi-alert sdr <stick> on|off');
+  if (!field) throw new Error('rpi-alert sdr <stick> freq|channels|window|narrowest|widest|format|gain|ppm|squelch|bias-tee|name <value>, or rpi-alert sdr <stick> on|off');
   if (value === '') throw new Error(what + ': which value? ("shared" for the setting all sticks share)');
   const set = field === 'freqHz' || field === 'moreChannels' ? channelSetting(field, value) : { [field]: stickValue(field, value) };
   const list = (await api('/api/config')).config.receivers.sdrDevices || [];
@@ -415,7 +424,8 @@ async function sdr(args) {
     : field === 'freqHz' ? Channels.text([{ freqHz: v, format: set.format }].concat(set.moreChannels || []), entry.format) + ' MHz'
     : field === 'moreChannels' ? (v.length ? Channels.text(v, entry.format) + ' MHz' : 'none') : field === 'format' ? FORMATS[v]
     : field === 'gainDb' && v === null ? 'auto' : field === 'biasTee' ? (v ? 'on' : 'off')
-    : field === 'sampleRate' ? (v ? SdrPlan.width(v) : 'automatic — the narrowest that holds its channels') : String(v);
+    : field === 'sampleRate' ? (v ? SdrPlan.width(v) : 'automatic — the narrowest that holds its channels')
+    : field === 'sampleRateMin' || field === 'sampleRateMax' ? (v ? SdrPlan.width(v) : 'no limit') : String(v);
   console.log(r.changed.length ? 'Saved: ' + d.name + ' — ' + (field === 'enabled' ? (v === false ? 'turned off' : 'turned on') : what + ' ' + shown) + '.' : 'Unchanged.');
 }
 

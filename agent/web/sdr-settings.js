@@ -22,9 +22,11 @@
 // keyedRows, setHtml, ownEntry, stickWhoHtml, FORMAT_NAMES) it calls once
 // the page is up.
 
-const SDR_FIELDS = ['rate', 'format', 'gain', 'ppm', 'squelch', 'bias'];
+const SDR_FIELDS = ['rate', 'rmin', 'rmax', 'format', 'gain', 'ppm', 'squelch', 'bias'];
 // Each field's setting, in receivers.sdr and in a stick's own entry.
-const SDR_KEY = { rate: 'sampleRate', format: 'format', gain: 'gainDb', ppm: 'ppm', squelch: 'squelchDb', bias: 'biasTee' };
+const SDR_KEY = { rate: 'sampleRate', rmin: 'sampleRateMin', rmax: 'sampleRateMax', format: 'format', gain: 'gainDb', ppm: 'ppm', squelch: 'squelchDb', bias: 'biasTee' };
+// The window's limits (0.20): what automatic may take, narrowest and widest.
+const SDR_LIMITS = ['rmin', 'rmax'];
 const SDR_SUGGEST = 8;
 const SDR_FORMAT_SHORT = { BINARY: 'ABF', ENHANCED_IFLOWS: 'EIF', ASCII: 'ASCII' };
 const SDR = { freqs: null, standard: [], nearKm: 150, asked: 0 };
@@ -32,7 +34,7 @@ const SDR = { freqs: null, standard: [], nearKm: 150, asked: 0 };
 // ── a setting as a field shows it, and back ───────────────────────────────
 
 function sdrShow(k, v) {
-  if (k === 'rate') return String(v || 0);
+  if (k === 'rate' || k === 'rmin' || k === 'rmax') return String(v || 0);
   if (k === 'gain') return v == null ? 'auto' : String(v);
   if (k === 'bias') return v ? 'on' : 'off';
   if (k === 'ppm') return String(v || 0);
@@ -44,7 +46,7 @@ function sdrShow(k, v) {
 function sdrParse(k, t) {
   t = String(t == null ? '' : t).trim();
   const n = Number(t);
-  if (k === 'rate') return { v: Number(t) || 0 };
+  if (k === 'rate' || k === 'rmin' || k === 'rmax') return { v: Number(t) || 0 };
   if (k === 'format') return { v: t };
   if (k === 'bias') return { v: t === 'on' };
   if (k === 'gain') return /^(auto|agc)$/i.test(t) ? { v: null } : t !== '' && n >= 0 && n <= 60 ? { v: n } : { error: 'a gain of 0–60 dB, or auto' };
@@ -70,6 +72,8 @@ function sdrEdHtml(stick) {
     + '<div class="suggest" data-suggest></div></div>'
     + '<div class="cols">'
     + fld('rate', 'Window', '<select name="rate"></select>')
+    + fld('rmin', 'No narrower than', '<select name="rmin" title="With the window on Automatic: the narrowest it may take — wider shows more of the band, and costs more"></select>')
+    + fld('rmax', 'No wider than', '<select name="rmax" title="With the window on Automatic: the widest it may take — keeps the stick\'s work down; a channel it cannot hold is not decoded, and says so"></select>')
     + fld('format', 'Frame format', '<select name="format">' + Object.entries(FORMAT_NAMES).map(([v, t]) => '<option value="' + v + '">' + esc(t) + '</option>').join('') + '</select>')
     + fld('gain', 'Gain, dB', '<input name="gain" autocomplete="off" title="A number of dB, or auto for the tuner\'s AGC">')
     + '</div>'
@@ -116,6 +120,7 @@ function sdrValues(ed) {
     const p = sdrParse(k, sdrEl(ed, k).value);
     if (p.error) { errors.push(p.error); out[k] = m.key ? d[k] : S.config.receivers.sdr[SDR_KEY[k]]; } else out[k] = p.v;
   }
+  if (!out.rate && out.rmin && out.rmax && out.rmin > out.rmax) errors.push('the narrowest window is wider than the widest — make "No narrower than" the narrower');
   return out;
 }
 
@@ -127,7 +132,7 @@ function sdrPlanChans(v) { return v.chans.map((c, i) => ({ freqHz: c.freqHz, for
 
 function sdrPlan(v, st, rate) {
   const live = st && st.state !== 'unplugged' && st.centerHz;
-  return SdrPlan.plan(sdrPlanChans(v), { sampleRate: rate === undefined ? v.rate : rate, offsetHz: S.config.receivers.sdr.offsetHz,
+  return SdrPlan.plan(sdrPlanChans(v), { sampleRate: rate === undefined ? v.rate : rate, minRate: v.rmin, maxRate: v.rmax, offsetHz: S.config.receivers.sdr.offsetHz,
     prefer: live ? { sampleRate: st.sampleRate, centerHz: st.centerHz } : null });
 }
 
@@ -167,6 +172,10 @@ function sdrFill(ed, d) {
   const sd = S.config.receivers.sdr;
   const sel = sdrEl(ed, 'rate');
   if (!sel.options.length) sel.innerHTML = [0].concat(SdrPlan.RATES).map(r => '<option value="' + r + '"></option>').join('');
+  for (const k of SDR_LIMITS) {
+    const ls = sdrEl(ed, k);
+    if (!ls.options.length) ls.innerHTML = [0].concat(SdrPlan.RATES).map(r => '<option value="' + r + '"></option>').join('');
+  }
   if (!d) {
     ed._m = { key: null, own: new Set(SDR_FIELDS), chans: sdrChansOf(null, sd), ownChans: true };
     for (const k of SDR_FIELDS) sdrEl(ed, k).value = sdrShow(k, sd[SDR_KEY[k]]);
@@ -194,16 +203,29 @@ function sdrFollow(ed) {
   for (const k of SDR_FIELDS) if (!m.own.has(k)) { const el = sdrEl(ed, k); const v = sdrShow(k, def[k]); if (el.value !== v) el.value = v; }
 }
 
-// The window's choices, each saying what it would do with these channels.
+// The window's choices, each saying what it would do with these channels;
+// then its limits', each saying what automatic would take with it.
 function sdrRateOptions(ed) {
   const sel = sdrEl(ed, 'rate');
   const v = sdrValues(ed), st = sdrStick(ed), n = v.chans.length;
+  const tail = (p) => {
+    const heard = p.channels.filter(c => c.inBand).length, c = sdrCores(p, st), u = SdrPlan.load(p);
+    return (heard < n ? ' · ' + (n - heard) + ' not heard' : '') + ' · ' + (c != null ? '≈ ' + (Math.round(c * 100) / 100) + ' core' : (Math.round(u * 10) / 10) + '× a channel');
+  };
   for (const o of sel.options) {
-    const r = Number(o.value), p = sdrPlan(v, st, r), heard = p.channels.filter(c => c.inBand).length;
-    const c = sdrCores(p, st), u = SdrPlan.load(p);
-    const t = (r ? SdrPlan.width(r) + (r === SdrPlan.RATES[0] ? ', the lightest' : '') : 'Automatic: ' + SdrPlan.width(p.sampleRate))
-      + (heard < n ? ' · ' + (n - heard) + ' not heard' : '') + ' · ' + (c != null ? '≈ ' + (Math.round(c * 100) / 100) + ' core' : (Math.round(u * 10) / 10) + '× a channel');
+    const r = Number(o.value), p = sdrPlan(v, st, r);
+    const t = (r ? SdrPlan.width(r) + (r === SdrPlan.RATES[0] ? ', the lightest' : '') : 'Automatic: ' + SdrPlan.width(p.sampleRate)) + tail(p);
     if (o.textContent !== t) o.textContent = t;
+  }
+  // The limits apply to Automatic alone.
+  for (const k of SDR_LIMITS) {
+    const ls = sdrEl(ed, k);
+    ls.disabled = !!v.rate;
+    for (const o of ls.options) {
+      const r = Number(o.value), p = sdrPlan(Object.assign({}, v, { rate: 0, [k]: r }), st);
+      const t = (r ? SdrPlan.width(r) : 'No limit') + (v.rate ? '' : ' → ' + SdrPlan.width(p.sampleRate) + tail(p));
+      if (o.textContent !== t) o.textContent = t;
+    }
   }
 }
 
@@ -271,9 +293,16 @@ function sdrSuggestHtml(v, st, p) {
 function sdrPlanHtml(v, st, p) {
   const n = v.chans.length, heard = p.channels.filter(c => c.inBand).length;
   const lines = [];
-  lines.push('<div><b>' + esc(SdrPlan.width(p.sampleRate) + ' window') + '</b> ' + esc((p.auto ? '(automatic: the narrowest that holds ' + (n > 1 ? 'them' : 'it') + ')' : '(as set)')
+  const lim = p.auto ? [p.minRate ? 'no narrower than ' + SdrPlan.width(p.minRate) : '', p.maxRate ? 'no wider than ' + SdrPlan.width(p.maxRate) : ''].filter(Boolean).join(', ') : '';
+  const how = !p.auto ? '(as set)'
+    : p.capped ? '(automatic: the widest allowed — ' + lim + ')'
+    : p.needs && p.sampleRate > p.needs ? '(automatic: the narrowest allowed — ' + lim + ')'
+    : '(automatic: the narrowest that holds ' + (n > 1 ? 'them' : 'it') + (lim ? ', ' + lim : '') + ')';
+  lines.push('<div><b>' + esc(SdrPlan.width(p.sampleRate) + ' window') + '</b> ' + esc(how
     + ' · ' + sdrMhz(p.lowHz) + '–' + sdrMhz(p.highHz) + ' MHz · ' + (heard < n ? heard + ' of ' + n + ' channels heard' : n + ' channel' + (n === 1 ? '' : 's'))
     + ' · ' + sdrCostText(p, st)) + '</div>');
+  if (!v.rate && v.rmin && v.rmax && v.rmin > v.rmax) lines.push('<div class="warn">⚠ ' + esc('"No narrower than" (' + SdrPlan.width(v.rmin) + ') is wider than "No wider than" ('
+    + SdrPlan.width(v.rmax) + '): it cannot be saved like that — make the narrowest the narrower.') + '</div>');
   // Channels the window leaves out, a line for each reason, and what would hold them.
   const out = new Map();
   p.channels.forEach((pc, i) => { if (!pc.inBand) out.set(pc.why, (out.get(pc.why) || []).concat(sdrMhz(v.chans[i].freqHz))); });
@@ -281,7 +310,8 @@ function sdrPlanHtml(v, st, p) {
     lines.push('<div class="warn">⚠ ' + esc((fs.length > 1 ? fs.slice(0, -1).join(', ') + ' and ' + fs[fs.length - 1] + ' MHz are' : fs[0] + ' MHz is') + ' not heard: ' + sdrWhy(why)) + '.</div>');
   }
   if (out.size) {
-    lines.push('<div class="warn">' + esc(p.needs && p.needs > p.sampleRate ? 'A ' + SdrPlan.width(p.needs) + ' window holds them all (' + sdrCostText(sdrPlan(v, st, p.needs), st) + ').'
+    lines.push('<div class="warn">' + esc(p.needs && p.needs > p.sampleRate ? 'A ' + SdrPlan.width(p.needs) + ' window holds them all (' + sdrCostText(sdrPlan(v, st, p.needs), st) + ')'
+      + (p.capped ? ': raise "No wider than" to let it, or take a channel away.' : '.')
       : p.needs ? '' : 'No one window holds them all: give the far ones a stick of their own.') + '</div>');
   }
   // The channel that widens an automatic window, and what is saved without it.
@@ -437,6 +467,8 @@ function sdrPatch() {
       if (p.error) return { error: who + p.error };
       e[SDR_KEY[k]] = p.v;
     }
+    const vv = sdrValues(row);
+    if (vv.errors.length) return { error: who + vv.errors[0] };
     if (!sdrEl(row, 'son').checked) e.enabled = false;
     if (Object.keys(e).length > 1) list.push(e);
   }

@@ -396,14 +396,14 @@ class SdrSession extends EventEmitter {
 
   // The settings for this stick: the shared SDR block, then its own; and the
   // plan for its channels (web/sdr-plan.js): the window — the narrowest that
-  // holds them, or the one set — where to tune, and each channel's offset
-  // from there.
+  // holds them within the narrowest and widest allowed, or the one set —
+  // where to tune, and each channel's offset from there.
   cfg() {
     const all = this.agent.config.get().receivers;
     const own = this.own() || {};
     const c = Object.assign({}, all.sdr);
     for (const f of STICK_FIELDS) if (own[f] !== undefined) c[f] = own[f];
-    c.tune = plan(channelsOf(c, null), { sampleRate: c.sampleRate, offsetHz: c.offsetHz, prefer: this.at });
+    c.tune = plan(channelsOf(c, null), { sampleRate: c.sampleRate, minRate: c.sampleRateMin, maxRate: c.sampleRateMax, offsetHz: c.offsetHz, prefer: this.at });
     c.sampleRate = c.tune.sampleRate;
     c.centerHz = c.tune.centerHz;
     if (!c.offsetHz) c.offsetHz = c.sampleRate / 4;
@@ -624,7 +624,8 @@ class SdrSession extends EventEmitter {
     this.log.info('rtl_sdr ' + args.join(' ') + '  (' + (heard.length > 1
       ? heard.length + ' channels: ' + heard.map(ch => mhz(ch.freqHz) + ' ' + FORMAT_SHORT[ch.format]).join(', ') + ' MHz'
       : 'channel ' + (c.freqHz / 1e6).toFixed(4) + ' MHz, ' + c.format)
-      + (c.tune.auto ? '; ' + width(c.sampleRate) + ', the narrowest window that holds ' + (heard.length > 1 ? 'them' : 'it')
+      + (c.tune.capped ? '; ' + width(c.sampleRate) + ', the widest window allowed — ' + (c.tune.channels.length - heard.length) + ' not in it'
+        : c.tune.auto ? '; ' + width(c.sampleRate) + (c.tune.needs && c.sampleRate > c.tune.needs ? ', the narrowest window allowed' : ', the narrowest window that holds ' + (heard.length > 1 ? 'them' : 'it'))
         : '; a ' + width(c.sampleRate) + ' window, as set' + (heard.length < c.tune.channels.length ? ' — ' + (c.tune.channels.length - heard.length) + ' not in it' : ''))
       + (c.biasTee ? '; bias tee ' + (this.bias ? 'on' : this.biasLater ? 'on once this stick is known' : 'NOT on') : '')
       + (this.sel.how === 'only' ? '' : '; the stick in USB port ' + this.stick.busPath) + ')');
@@ -877,7 +878,8 @@ class SdrSession extends EventEmitter {
       tuner: this.tuner, model: this.model,
       freqHz: c.freqHz, sampleRate: c.sampleRate, centerHz: c.centerHz, gainDb: c.gainDb, squelchDb: c.squelchDb, format: c.format, ppm: c.ppm, biasTee: !!c.biasTee,
       biasOn: plugged && this.bias === true, error: plugged ? this.biasError : null,
-      tune: { auto: c.tune.auto, needs: c.tune.needs, lowHz: c.tune.lowHz, highHz: c.tune.highHz, dcHz: c.tune.dcHz, mirrorHz: c.tune.mirrorHz },
+      tune: { auto: c.tune.auto, needs: c.tune.needs, minRate: c.tune.minRate, maxRate: c.tune.maxRate, capped: c.tune.capped,
+        lowHz: c.tune.lowHz, highHz: c.tune.highHz, dcHz: c.tune.dcHz, mirrorHz: c.tune.mirrorHz },
       channels: this.channels.map(ch => ch.status(plugged)),
       level: lv && plugged ? { dbfs: round(lv.dbfs), clipPct: round(lv.clipPct, 2), chDb: round(lv.chDb), nfDb: round(lv.nfDb), open: lv.open } : null,
       spectrum: this.spectrum && plugged ? { db: this.spectrum.db, rate: this.spectrum.rate, centerHz: c.centerHz, channelHz: c.freqHz,
@@ -894,7 +896,7 @@ class SdrSession extends EventEmitter {
 
 // Why a channel is not decoded, for the log: its plan's reason (web/sdr-plan.js).
 function whyNot(spec, tune) {
-  const what = { outside: 'it is outside this stick\'s ' + width(tune.sampleRate) + ' window (' + mhz(tune.lowHz) + '–' + mhz(tune.highHz) + ' MHz)',
+  const what = { outside: 'it is outside this stick\'s ' + width(tune.sampleRate) + ' window (' + mhz(tune.lowHz) + '–' + mhz(tune.highHz) + ' MHz' + (tune.capped ? ', the widest allowed' : '') + ')',
     spike: 'beside this stick\'s other channels it would sit on the DC spike', mirror: 'beside this stick\'s other channels another\'s mirror image would land on it' }[spec.why]
     || 'it does not fit beside this stick\'s other channels';
   return what + (tune.needs && tune.needs > tune.sampleRate ? ' — a ' + width(tune.needs) + ' window holds them all' : tune.needs ? '' : ' — no window holds them all')

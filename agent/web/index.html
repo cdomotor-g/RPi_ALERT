@@ -188,7 +188,7 @@
       <div class="card-head"><h2>RTL-SDR sticks</h2><label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label></div>
       <p class="hint">Each stick hears every channel in its <b>window</b> at once — a slice of the band — and each channel is a receiver of its own in MegaNet.
         The window is what a stick costs this Pi: every channel's decoder takes in the whole of it, so a wider one is more work for each channel and hears none of them better.
-        <i>Automatic</i> takes the narrowest that holds the stick's channels; choose a wider one only to see more of the band on the waterfall, or a narrow one to keep a stick light whatever it is given.</p>
+        <i>Automatic</i> takes the narrowest that holds the stick's channels, kept between <i>No narrower than</i> and <i>No wider than</i>: a widest keeps a stick light whatever it is given (a channel it cannot hold is not decoded, and says so), a narrowest shows more of the band on the waterfall. Or choose one window exactly.</p>
       <div id="sdr-budget" class="sdr-budget" aria-live="polite"></div>
       <div id="sdr-sticks"></div>
       <details id="sdr-defaults" class="sdr-defaults">

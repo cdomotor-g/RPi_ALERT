@@ -266,7 +266,10 @@ function receiverOf(d) {
       // Whether the Pi keeps up: the rate arriving, what its decoders have had
       // to drop, and how busy they are (cores of the Pi; the busiest one, 0–1).
       rate_ksps: d.rateKsps || 0, dropped_mb: mb(d.counts && d.counts.dropped),
-      window: d.tune ? { auto: d.tune.auto, needs: d.tune.needs || null } : null,
+      // The window: automatic or set; what its channels need; the narrowest
+      // and widest automatic may take (0.20; 0: no limit); whether the widest
+      // left channels out.
+      window: d.tune ? { auto: d.tune.auto, needs: d.tune.needs || null, min: d.tune.minRate || 0, max: d.tune.maxRate || 0, capped: !!d.tune.capped } : null,
       load: d.load ? { cores: d.load.cores, most: d.load.most } : null,
       // receivers.sdr.decoder 'compare': how the lean decoder has done (MegaNet #259).
       lean_check: d.counts && d.counts.compared ? { compared: d.counts.compared, differ: d.counts.differ, pair: d.counts.comparePair || 'full-lean',

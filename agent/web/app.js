@@ -767,13 +767,17 @@ document.addEventListener('click', (e) => { const b = e.target.closest && e.targ
 
 function kv(rows) { return '<div class="kv">' + rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join('') + '</div>'; }
 
-const OWN_LABELS = { name: 'name', enabled: 'on/off', freqHz: 'frequency', format: 'format', moreChannels: 'more channels', sampleRate: 'window', gainDb: 'gain', ppm: 'ppm', biasTee: 'bias tee', squelchDb: 'squelch' };
+const OWN_LABELS = { name: 'name', enabled: 'on/off', freqHz: 'frequency', format: 'format', moreChannels: 'more channels', sampleRate: 'window',
+  sampleRateMin: 'narrowest window', sampleRateMax: 'widest window', gainDb: 'gain', ppm: 'ppm', biasTee: 'bias tee', squelchDb: 'squelch' };
 
 // A stick's window: how wide, and whether it is the narrowest its channels
-// allow or one set by hand.
+// allow (within the narrowest and widest set) or one set by hand.
 function windowText(d) {
   const t = d.tune || {};
-  return 'a ' + SdrPlan.width(d.sampleRate) + ' window (' + (t.auto ? 'automatic' : 'as set' + (t.needs && t.needs > d.sampleRate ? ' — its channels need ' + SdrPlan.width(t.needs) : t.needs && t.needs < d.sampleRate ? ', wider than its channels need' : '')) + ')';
+  if (!t.auto) return 'a ' + SdrPlan.width(d.sampleRate) + ' window (as set' + (t.needs && t.needs > d.sampleRate ? ' — its channels need ' + SdrPlan.width(t.needs) : t.needs && t.needs < d.sampleRate ? ', wider than its channels need' : '') + ')';
+  const lim = [t.minRate ? 'no narrower than ' + SdrPlan.width(t.minRate) : '', t.maxRate ? 'no wider than ' + SdrPlan.width(t.maxRate) : ''].filter(Boolean).join(', ');
+  return 'a ' + SdrPlan.width(d.sampleRate) + ' window (automatic' + (lim ? ', ' + lim : '')
+    + (t.capped ? (t.needs ? ' — its channels need ' + SdrPlan.width(t.needs) : ' — no window holds them all') : t.needs && t.needs < d.sampleRate ? ', wider than its channels need' : '') + ')';
 }
 
 // What a stick's decoders take of this Pi.

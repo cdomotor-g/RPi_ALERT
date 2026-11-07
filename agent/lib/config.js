@@ -43,7 +43,7 @@ const ALERT_SPACING_HZ = 25000;
 const SDR_FORMATS = ['BINARY', 'ENHANCED_IFLOWS', 'ASCII'];
 const FORMAT_NAMES = { BINARY: 'ALERT Binary', ENHANCED_IFLOWS: 'Enhanced iFLOWS', ASCII: 'ALERT ASCII' };
 // What one stick can set for itself (receivers.sdrDevices[]), besides its name.
-const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'moreChannels', 'sampleRate', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
+const STICK_FIELDS = ['enabled', 'freqHz', 'format', 'moreChannels', 'sampleRate', 'sampleRateMin', 'sampleRateMax', 'gainDb', 'ppm', 'biasTee', 'squelchDb'];
 const PORT_TYPES = ['auto', 'quansheng', 'ert-a2', 'gps', 'ignore'];
 const AUDIO_MODES = ['auto', 'live', 'synth', 'beep', 'off'];
 const KIOSK_MODES = ['auto', 'on', 'off'];
@@ -107,6 +107,13 @@ function defaults() {
         // so a wider one costs more and hears no channel better); or exactly
         // one of web/sdr-plan.js's RATES — channels outside it are not decoded.
         sampleRate: 0,
+        // With sampleRate 0, the narrowest and the widest window it may take
+        // (0: no limit): automatic is kept between them — the widest, to keep
+        // a stick's work down (channels it cannot hold are not decoded, and
+        // say so); the narrowest, to see more of the band. Limits that cross:
+        // the widest wins (0.20).
+        sampleRateMin: 0,
+        sampleRateMax: 0,
         offsetHz: 0,           // 0: tune off-centre by a quarter of the rate, away from the DC spike (one channel)
         gainDb: 29.7,          // null: tuner AGC
         ppm: 0,
@@ -138,7 +145,7 @@ function defaults() {
         watch: 'always',
       },
       // Each stick's own settings, by the key the Receivers page shows for it:
-      //   { key, name, enabled, freqHz, format, moreChannels, sampleRate, gainDb, ppm, biasTee, squelchDb }
+      //   { key, name, enabled, freqHz, format, moreChannels, sampleRate, sampleRateMin, sampleRateMax, gainDb, ppm, biasTee, squelchDb }
       // Anything left out is the shared setting above. (0.4 matched them by
       // { serial } alone, which every stick with that serial shares; still read.)
       sdrDevices: [],
@@ -243,6 +250,10 @@ function followChannels(prev, next) {
 }
 
 const RATE_RULE = '0 (the narrowest window that holds the channels), or ' + RATES.join(', ').replace(/, (\d+)$/, ' or $1');
+const LIMIT_RULE = '0 (no limit), or ' + RATES.join(', ').replace(/, (\d+)$/, ' or $1');
+const rateLimit = (v) => v === 0 || RATES.includes(v);
+// A narrowest and a widest window, either left out: they must not cross.
+const limitsOk = (lo, hi) => !(lo > 0 && hi > 0 && lo > hi);
 const MORE_RULE = 'a list of up to ' + (MAX_CHANNELS - 1) + ' more channels, each { freqHz: 24–1766 MHz, format: '
   + SDR_FORMATS.join(' | ') + ' (or left out: the stick\'s own) }';
 
@@ -260,6 +271,9 @@ function stickErrors(d) {
   need(d.format === undefined || SDR_FORMATS.includes(d.format), 'format: one of ' + SDR_FORMATS.join(', '));
   need(d.moreChannels === undefined || moreOk(d.moreChannels), 'moreChannels: ' + MORE_RULE);
   need(d.sampleRate === undefined || d.sampleRate === 0 || RATES.includes(d.sampleRate), 'sampleRate: ' + RATE_RULE);
+  need(d.sampleRateMin === undefined || rateLimit(d.sampleRateMin), 'sampleRateMin: ' + LIMIT_RULE);
+  need(d.sampleRateMax === undefined || rateLimit(d.sampleRateMax), 'sampleRateMax: ' + LIMIT_RULE);
+  need(limitsOk(d.sampleRateMin, d.sampleRateMax), 'sampleRateMin is wider than sampleRateMax: the narrowest window cannot be wider than the widest');
   need(d.gainDb === undefined || d.gainDb === null || isNum(d.gainDb, 0, 60), 'gainDb: 0–60 dB, or null for AGC');
   need(d.ppm === undefined || isNum(d.ppm, -200, 200), 'ppm: -200…200');
   need(d.biasTee === undefined || typeof d.biasTee === 'boolean', 'biasTee: true or false');
@@ -296,6 +310,9 @@ function validate(c) {
   need(num(s.freqHz, 24e6, 1766e6) !== undefined, 'receivers.sdr.freqHz: 24–1766 MHz');
   need(moreOk(s.moreChannels), 'receivers.sdr.moreChannels: ' + MORE_RULE);
   need(s.sampleRate === 0 || RATES.includes(s.sampleRate), 'receivers.sdr.sampleRate: ' + RATE_RULE);
+  need(rateLimit(s.sampleRateMin), 'receivers.sdr.sampleRateMin: ' + LIMIT_RULE);
+  need(rateLimit(s.sampleRateMax), 'receivers.sdr.sampleRateMax: ' + LIMIT_RULE);
+  need(limitsOk(s.sampleRateMin, s.sampleRateMax), 'receivers.sdr.sampleRateMin is wider than sampleRateMax: the narrowest window cannot be wider than the widest');
   need(num(s.offsetHz, -1e6, 1e6) !== undefined, 'receivers.sdr.offsetHz: within ±1 MHz');
   need(s.gainDb === null || num(s.gainDb, 0, 60) !== undefined, 'receivers.sdr.gainDb: 0–60 dB, or null for AGC');
   need(num(s.ppm, -200, 200) !== undefined, 'receivers.sdr.ppm: -200…200');
