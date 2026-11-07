@@ -589,4 +589,4 @@ class Remote extends EventEmitter {
   }
 }
 
-module.exports = { Remote, VERBS, checkPatch, droppedPpm, remoteConfig, fit, LOCAL_ONLY, MEGANET_REMOTE };
+module.exports = { Remote, VERBS, checkPatch, droppedPpm, remoteConfig, receiverOf, fit, LOCAL_ONLY, MEGANET_REMOTE };

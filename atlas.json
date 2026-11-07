@@ -31,12 +31,12 @@
   },
   "status": {
     "phase": "beta",
-    "updated": "2026-11-03",
-    "summary": "Version 0.19.0 adds the Light decoder (half of lean's time a burst, with Compare light to prove it) on top of 0.18's filtering only around bursts, now awake a third less: with both a Pi 3 carries a whole site and a one-core Verdin AM62 Solo one or two channels. Both are off by default until their checks at 18 Bateson. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "updated": "2026-11-07",
+    "summary": "Version 0.19.1 shows the Between bursts check's counts, which 0.18–0.19.0 kept but never showed. The check at 18 Bateson found filtering only around bursts misses some of the weakest bursts (on 151.500, ones just over the squelch), so it stays off by default and a Pi 4 keeps Filter every sample; 0.19's Light decoder is still to be checked. It runs a live base station on two RTL-SDR sticks; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
-      "v0.19.0: Light decoder and Compare light; filtering around bursts a third less awake; 10 MB less a channel",
-      "Next CPU step: Check and Compare light at 18 Bateson, then both the defaults (#3; MegaNet #259)",
-      "v0.18.0: Between bursts — filter only around bursts, or Check both"
+      "v0.19.1: the Between bursts check's counts on the card and in Flood-Net",
+      "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)",
+      "v0.19.0: Light decoder and Compare light; filtering around bursts a third less awake; 10 MB less a channel"
     ],
     "next": [
       "Close #1: the ERT-A2 field fix shipped in 0.14.1",

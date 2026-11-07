@@ -199,7 +199,9 @@ card under **Settings → Audio**. The image keeps `dtparam=audio=on` in `config
 
 - **Between bursts: Filter only around bursts** (0.18). A channel filters the stick's window only
   from 0.8 s before a burst to half a second after it; between bursts it costs a sixth to a
-  twentieth of filtering all the time.
+  twentieth of filtering all the time. Its first live check missed some of the weakest bursts, ones
+  just over the squelch ([what the check found](configuration.md#between-bursts)): use it where
+  the computer needs it, not on a Pi 4.
 - **Decoder: Light** (0.19). Each burst is filtered down to 48 kHz once before its carrier guesses:
   a burst's decode in about half of lean's time.
 - **The screen dashboard off** (*Settings → Screen*, or `kiosk = off`): Chromium is half a Pi 4 core

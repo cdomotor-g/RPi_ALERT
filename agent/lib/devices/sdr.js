@@ -860,7 +860,10 @@ class SdrSession extends EventEmitter {
     const first = this.channels[0];
     const lv = first && first.level;
     // The stick's counts are its channels' together.
-    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0 };
+    // Every key added up below starts at 0: one missing comes out NaN, which a
+    // check-in sends as null (0.18–0.19.0: the between-bursts check never showed).
+    const counts = { bursts: 0, decodes: 0, shadows: 0, undecoded: 0, restarts: this.counts.restarts, dropped: 0, alert2: 0, alert2Bad: 0, copies: 0, compared: 0, differ: 0, msFull: 0, msLean: 0,
+      watchBoth: 0, watchOnlyAlways: 0, watchOnlyWatch: 0, watchMsAlways: 0, watchMsWatch: 0, watchAwake: 0, watchSamples: 0 };
     for (const ch of this.channels) for (const k of ['bursts', 'decodes', 'shadows', 'undecoded', 'dropped', 'alert2', 'alert2Bad', 'copies', 'compared', 'differ', 'msFull', 'msLean',
       'watchBoth', 'watchOnlyAlways', 'watchOnlyWatch', 'watchMsAlways', 'watchMsWatch', 'watchAwake', 'watchSamples']) counts[k] += ch.counts[k] || 0;
     counts.comparePair = (this.channels.find(ch => ch.counts.comparePair) || { counts: {} }).counts.comparePair || null;

@@ -208,3 +208,28 @@ test('what a channel costs this Pi at each window: measured, and more the wider 
   for (const rate of [240000, 960000, 2400000]) assert.ok(r.watched[rate] > 0 && r.watched[rate] < 0.6 * c[rate], JSON.stringify(r.watched));
   assert.ok(r.ms > 0 && r.at <= Date.now());
 });
+
+test('a stick\'s between-bursts check adds up over its channels, and reaches its card and Flood-Net', () => {
+  const dir = tmp('rpa-watch-');
+  const config = new Config(path.join(dir, 'config.json')).load();
+  const state = new State(dir).load();
+  const log = { debug() {}, info() {}, warn() {}, error() {}, child() { return log; } };
+  const agent = { config, state, log, board: { cores: 4, memMb: 4000 }, devices: null, audio: null };
+  const st = blogV4('1-1.3', 4);
+  const s = new SdrSession(agent, Object.assign(st, { key: state.assignSdrs([st]).get(st) }));
+  s.channels = [151500000, 151525000].map((f, i) => {
+    const ch = new SdrChannel(s, i ? 'b' : null);
+    ch.spec = { freqHz: f, format: 'BINARY', offsetHz: 0, inBand: true };
+    return ch;
+  });
+  const tick = { both: 4, onlyAlways: 1, onlyWatch: 0, msAlways: 1000, msWatch: 200, awake: 10, samples: 100, diffs: [] };
+  for (const ch of s.channels) { ch.onWatchCheck(tick); ch.onWatchCheck(tick); }
+  const c = s.status().counts;
+  assert.deepEqual([c.watchBoth, c.watchOnlyAlways, c.watchOnlyWatch, c.watchMsAlways, c.watchMsWatch, c.watchAwake, c.watchSamples],
+    [16, 4, 0, 4000, 800, 40, 400], 'every channel\'s counts, added up — not NaN');
+  const { receiverOf } = require('../lib/remote');
+  assert.deepEqual(receiverOf(s.status()).watch_check, { both: 16, only_always: 4, only_watch: 0, awake_pct: 10, time_pct: 20 });
+  // Without the check: nothing sent.
+  for (const ch of s.channels) ch.blank();
+  assert.equal(receiverOf(s.status()).watch_check, undefined);
+});

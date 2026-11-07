@@ -85,9 +85,14 @@ badly each one strands somebody:
   bursts* is in 0.18 behind a setting ([configuration.md](configuration.md#between-bursts)): a channel
   asleep between bursts costs a sixth to a twentieth of one filtering all the time; 0.19 cuts its time
   awake a third and adds the *Light* decoder (half of lean's time a burst) with *Compare light*.
-  Next: *Check* and *Compare light* at 18 Bateson, then making both the defaults
-  ([hardware.md](hardware.md#smaller-computers): with them a Pi 3 carries a whole site, a one-core
-  computer one or two channels). Until then each channel's decoder thread converts and
+  *Check* ran at 18 Bateson from 4 November 2026 ([what it found](configuration.md#between-bursts)):
+  about one reading in 13–19 on the ordinary ALERT channels came from only one of the two decoders,
+  and on 151.500 the watched one mostly missed weak bursts just over the squelch — so it stays off
+  by default. Next: (1) wake the watch lower than 3 dB under the squelch, or measure the channel
+  the way the squelch does (MegaNet's `BurstWatch` first), and check again with 0.19.1's counts;
+  (2) make *Check* compare ALERT2 frames too, which it does not yet; (3) *Compare light* at 18
+  Bateson. Then the defaults ([hardware.md](hardware.md#smaller-computers): with them a Pi 3
+  carries a whole site, a one-core computer one or two channels). Until then each channel's decoder thread converts and
 filters the stick's whole stream on its own (one stick, several channels, is done: see
   [hardware.md](hardware.md#several-channels-on-one-stick)). Since 0.15 a stick takes the
   narrowest window its channels allow, 1.44 MHz joins the windows (MegaNet's four channels: a fifth

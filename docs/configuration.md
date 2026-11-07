@@ -129,7 +129,21 @@ decoder does while nothing is on its channel (MegaNet's `BurstWatch`, #259 part 
   around bursts on the same samples. Every 10 s each stick's card adds up the readings both got and
   the readings only one did (matched 20 s later), how much of the time the second was awake, and its
   share of the work; a reading only one got is logged, the first 20. It costs a little more than
-  *Filter every sample* alone.
+  *Filter every sample* alone. (0.18–0.19.0 counted it but showed none of it — a stick's total
+  started without the check's counts — so only the log had it; 0.19.1 shows it on the card and in
+  Flood-Net.)
+
+**What the first check found** (18 Bateson, a Pi 4, from 4 November 2026 on 0.19.0): on the two
+ordinary ALERT channels the two decoders disagreed far more often than lean and full ever did — 20
+readings on 151.500 in its first 6½ hours (about one in 13) and 20 on 151.525 in 7½ (about one in
+19), when the log stopped listing them. On 151.525 they went both ways. On 151.500 filtering around
+bursts was the one that missed it 10 times of the 12 still in the log, and every one of those 10
+was a weak burst, 8–9 dB over the noise, just over the 8 dB squelch — and 37% of that channel's
+bursts are that weak. The check compares ordinary ALERT readings only, never ALERT2 frames, so it
+says nothing yet about 151.5375, whose traffic is nearly all ALERT2. Until the watch wakes for the
+weakest bursts it lets through, keep **Filter every sample** on any computer with the power for it
+(a Pi 4 or 5 has plenty), and treat *Filter only around bursts* as the way to fit a smaller one,
+at the cost of some weak bursts.
 
 The same choice is `receivers.sdr.watch` (`always`, `bursts`, `check`), or `sdr_watch = check` on
 the SD card. Flood-Net's Base Stations tab sets it too, and shows each stick's check.
