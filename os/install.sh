@@ -182,7 +182,7 @@ say "Installing services, device rules and the root helper"
 F="$SRC/os/files"
 install -m 0644 "$F/systemd/rpi-alert.service" "$F/systemd/rpi-alert-boot-config.service" "$F/systemd/rpi-alert-btgps.service" /etc/systemd/system/
 # Over-the-air updates: the installer the web page starts, and the nightly timer
-# (off until turned on in Settings → System or with auto_update = on in
+# (off until turned on in Overview → This Pi → System and updates or with auto_update = on in
 # rpi-alert.conf; an upgrade leaves it as it was).
 install -m 0644 "$F/systemd/rpi-alert-update.service" "$F/systemd/rpi-alert-update-auto.service" "$F/systemd/rpi-alert-update-auto.timer" /etc/systemd/system/
 # SSH keys fetched from GitHub and MegaNet, refreshed hourly (rpi-alert-access).

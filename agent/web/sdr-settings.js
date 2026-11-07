@@ -250,7 +250,7 @@ function sdrDraw(ed) {
   setHtml($('[data-chips]', ed), v.chans.map((c, i) => {
     const pc = p.channels[i], fmt = i && c.format && c.format !== v.format ? ' <small>' + SDR_FORMAT_SHORT[c.format] + '</small>' : '';
     const why = pc && !pc.inBand ? 'not heard: ' + sdrWhy(pc.why) : '';
-    return '<span class="ch-chip' + (why ? ' out' : '') + '" title="' + esc((i ? 'MegaNet receiver …-' + sdrMhz(c.freqHz) : 'This stick\'s own MegaNet receiver') + (why ? ' — ' + why : '')) + '">'
+    return '<span class="ch-chip' + (why ? ' out' : '') + '" title="' + esc((i ? 'Flood-Net receiver …-' + sdrMhz(c.freqHz) : 'This stick\'s own Flood-Net receiver') + (why ? ' — ' + why : '')) + '">'
       + esc(sdrMhz(c.freqHz)) + fmt + (why ? ' <small>not heard</small>' : '')
       + '<button type="button" data-rm="' + i + '" aria-label="Take away ' + esc(sdrMhz(c.freqHz)) + ' MHz">×</button></span>';
   }).join('') || '<span class="dim small">No channels — add one.</span>');
@@ -278,7 +278,7 @@ function sdrSuggestHtml(v, st, p) {
       if (!last.inBand) effect = ' · not in this window';
       else if (q.sampleRate > p.sampleRate) effect = ' · → ' + SdrPlan.width(q.sampleRate);
     }
-    const used = f.tx == null ? 'one of MegaNet\'s channels'
+    const used = f.tx == null ? 'one of Flood-Net\'s channels'
       : [f.tx ? f.tx + ' transmit' : '', f.rx ? f.rx + ' listen' : ''].filter(Boolean).join(', ') + (f.near != null ? ' · ' + f.near + ' within ' + SDR.nearKm + ' km' : '')
         + (f.labels && f.labels.length ? ' · ' + f.labels.join('; ') : '')
         + (f.stations && f.stations.length ? '\n' + f.stations.map(w => w.name + (w.km != null ? ' (' + w.km + ' km)' : '') + (w.tx ? '' : ' listens')).join('\n') : '');
@@ -286,7 +286,7 @@ function sdrSuggestHtml(v, st, p) {
     return '<button type="button" class="sg' + (on ? ' on' : '') + '" data-sg="' + f.freqHz + '" aria-pressed="' + on + '" title="' + esc(used) + '">'
       + esc(sdrMhz(f.freqHz)) + (tag ? ' <small>' + esc(tag) + '</small>' : '') + (effect ? '<small class="eff">' + esc(effect) + '</small>' : '') + '</button>';
   }).join('');
-  const src = SDR.freqs && SDR.freqs.length ? 'Used by MegaNet\'s stations' + (SDR.freqs[0].near != null ? ', the most near this Pi first' : '') : 'MegaNet\'s channels';
+  const src = SDR.freqs && SDR.freqs.length ? 'Used by Flood-Net\'s stations' + (SDR.freqs[0].near != null ? ', the most near this Pi first' : '') : 'Flood-Net\'s channels';
   return '<div class="sg-head small dim">' + src + ' — tap to add or take away:</div><div class="sg-list">' + chips + '</div>';
 }
 

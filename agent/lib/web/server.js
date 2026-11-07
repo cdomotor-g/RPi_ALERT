@@ -106,6 +106,7 @@ class WebServer {
     a.on('remote', () => this.broadcast('remote', {}));
     a.on('survey', () => this.broadcast('survey', {}));
     a.on('burst', (b) => this.broadcast('burst', b));
+    a.on('burst-outcome', (o) => this.broadcast('burst-outcome', o));
     a.on('tick', () => this.broadcast('tick', { t: Date.now() }));
     let devTimer = null;
     a.on('devices', () => { if (!devTimer) devTimer = setTimeout(() => { devTimer = null; this.broadcast('devices', {}); }, 500); });

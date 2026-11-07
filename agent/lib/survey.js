@@ -285,7 +285,7 @@ class Survey extends EventEmitter {
     const loc = a.location();
     if (loc.source === 'gps') add('location', 'good', 'GPS fix' + (Number.isFinite(loc.accuracy_m) ? ' ±' + Math.round(loc.accuracy_m) + ' m' : ''), 'Each frame is stored with where it was heard, exactly; and the survey ends itself if the Pi is moved.');
     else if (loc.source === 'manual' || loc.source === 'station') add('location', 'warn', 'Location typed in (approximate)', 'Each frame is stored at ' + loc.lat.toFixed(5) + ', ' + loc.lon.toFixed(5) + ' — make sure that is the site, not the office. A USB GPS makes it exact.');
-    else add('location', 'bad', 'No location', 'Set the site\'s coordinates (Settings → Location) or plug in a USB GPS: a survey with no position cannot be mapped.');
+    else add('location', 'bad', 'No location', 'Set the site\'s coordinates (Overview → This Pi → Location) or plug in a USB GPS: a survey with no position cannot be mapped.');
 
     const c = a.clock.status();
     const rtc = c.rtc;
@@ -320,7 +320,7 @@ class Survey extends EventEmitter {
     // A phone on site, with no network to share: the Pi's own Wi-Fi (lib/hotspot.js).
     const hs = a.hotspot ? a.hotspot.status(true) : null;
     if (hs && hs.available === false) add('phone', 'warn', 'No hotspot for a phone', hs.wifi ? hs.error || 'NetworkManager cannot run one here.' : 'This Pi has no Wi-Fi: a phone cannot reach its dashboard on site without a network to share.');
-    else if (hs && hs.mode === 'off') add('phone', 'warn', 'The hotspot is off', 'With no network at the site, a phone cannot open this page there. Settings → Hotspot: auto.');
+    else if (hs && hs.mode === 'off') add('phone', 'warn', 'The hotspot is off', 'With no network at the site, a phone cannot open this page there. Overview → This Pi → Hotspot: auto.');
     else if (hs) add('phone', 'good', 'A phone on site: Wi-Fi “' + hs.ssid + '”, password ' + hs.password, (hs.active ? 'Up now' + (hs.clients ? ', ' + hs.clients + ' connected' : '') + '. ' : 'Comes up after three minutes with no network. ')
       + 'Join it, then open http://' + hs.address + '/ (the phone may warn it has no internet — stay connected). Note the password before you go.');
 

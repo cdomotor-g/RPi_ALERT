@@ -544,7 +544,7 @@ class Remote extends EventEmitter {
     this.history.unshift(h);
     if (this.history.length > 20) this.history.length = 20;
     let out;
-    if (this.mode() !== 'manage') out = { ok: false, error: 'this base station only reports to MegaNet — its owner has turned requests off (Settings → Remote management)' };
+    if (this.mode() !== 'manage') out = { ok: false, error: 'this base station only reports to MegaNet — its owner has turned requests off (Overview → Flood-Net → What Flood-Net may do here)' };
     else if (!v) out = { ok: false, error: 'this base station cannot "' + verb + '" (RPi ALERT ' + pkg.version + ')' };
     else {
       this.log.info('MegaNet asks: ' + v.label + (h.detail ? ' — ' + h.detail : '') + ' (request ' + id + ')');

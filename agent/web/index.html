@@ -19,29 +19,108 @@
   </div>
   <div class="chips" id="chips" aria-live="polite"></div>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="dash" aria-selected="true">Overview</button>
-    <button role="tab" data-tab="survey">Survey</button>
-    <button role="tab" data-tab="settings">Settings</button>
-    <button role="tab" data-tab="log">Log</button>
+    <button role="tab" data-tab="dash" aria-selected="true" title="What this Pi hears now, and every setting, folded under the card it belongs to">Overview</button>
+    <button role="tab" data-tab="readings" title="Every reading decoded since the agent started, newest first, and the stations heard most">Readings</button>
+    <button role="tab" data-tab="bursts" title="Every burst of signal the receivers heard, decoded or not, and the bursts kept as recordings">Bursts</button>
+    <button role="tab" data-tab="requests" title="What Flood-Net's administrators asked this Pi to do, and whether it was done">Requests</button>
+    <button role="tab" data-tab="log" title="The agent's own log: what it did and what went wrong">Log</button>
+    <button role="tab" data-tab="survey" title="Leave this Pi at a candidate site and see what it hears there">Survey</button>
   </nav>
 </header>
 
 <div id="banner" class="banner" hidden></div>
 
 <main>
-  <!-- ── Overview: everything heard, on one page to scroll ─────── -->
+  <!-- ── Overview: what is heard now; each card's settings folded under it ── -->
   <section id="tab-dash" class="tab">
     <div id="pair-dash"></div>
     <div class="stats" id="stats"></div>
 
-    <div class="card pi-card">
-      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
-      <div class="pi-charts">
-        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
-        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
-        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
+    <div class="card" id="receivers">
+      <div class="card-head">
+        <h2>Receivers <span class="dim small" id="rx-note"></span></h2>
+        <div class="head-actions">
+          <div class="seg" role="group" aria-label="Time shown in the charts">
+            <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+          </div>
+          <button id="rescan" type="button" class="ghost small" title="Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut">Look for devices</button>
+        </div>
       </div>
-      <div class="dim small" id="pi-note"></div>
+      <div id="rx-list" class="rx-list"></div>
+
+      <div class="folds" aria-label="Receiver settings">
+        <div class="folds-h">Settings</div>
+        <details class="fold" data-fold="sdr">
+          <summary><span class="fold-t">RTL-SDR sticks</span><span class="fold-s" data-sum="sdr"></span></summary>
+          <form id="f-sdr" class="form fold-body">
+            <label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label>
+            <p class="hint">Each stick hears every channel in its <b>window</b> at once — a slice of the band — and each channel is a receiver of its own in Flood-Net.
+              The window is what a stick costs this Pi: every channel's decoder takes in the whole of it, so a wider one is more work for each channel and hears none of them better.
+              <i>Automatic</i> takes the narrowest that holds the stick's channels, kept between <i>No narrower than</i> and <i>No wider than</i>: a widest keeps a stick light whatever it is given (a channel it cannot hold is not decoded, and says so), a narrowest shows more of the band on the waterfall. Or choose one window exactly.</p>
+            <div id="sdr-budget" class="sdr-budget" aria-live="polite"></div>
+            <div id="sdr-sticks"></div>
+            <details id="sdr-defaults" class="sdr-defaults">
+              <summary>Defaults — what a stick with nothing of its own uses, and each new stick</summary>
+              <p class="hint small">A stick's field marked <i>default</i> follows these; change it on the stick and it is that stick's own, until ↺ takes it back.</p>
+              <div class="stick-ed" id="sdr-default-ed"></div>
+            </details>
+            <details class="sub-fold">
+              <summary>Decoding — ALERT2, the decoder, between bursts</summary>
+              <label class="check"><input type="checkbox" name="alert2"> Hear ALERT2 too (a burst no ALERT format reads is tried as an ALERT2 frame — a few tenths of a second of the Pi's time each)</label>
+              <label>Decoder <select name="decoder">
+                <option value="lean">Lean — a third of the time (the default, as floodwarning.net decodes)</option>
+                <option value="full">Full — the 45-guess decoder</option>
+                <option value="light">Light — about half of lean's time again (the burst filtered to 48 kHz first)</option>
+                <option value="compare">Compare — full, and each burst decoded lean too to check they agree (more CPU)</option>
+                <option value="compare-light">Compare light — lean, and each burst decoded light too to check they agree (more CPU)</option>
+              </select></label>
+              <p class="small dim">Lean filters a burst once for each carrier guess instead of once for every small nudge around it. At the first base station to compare the two, 14 of 11,628 live bursts read differently (0.12%), and lean took a third of the time. <i>Full</i> goes back to the full decoder; <i>Compare</i> sends the full decoder's readings and counts on each stick's card how often lean agreed. <i>Light</i> filters the burst down to 48 kHz before trying its carrier guesses: about half of lean's time again, and in Flood-Net's tests as many true readings; <i>Compare light</i> sends lean's readings and counts how often light agreed — how light is proven here before it is the default.</p>
+              <label>Between bursts <select name="watch">
+                <option value="always">Filter every sample (as before)</option>
+                <option value="bursts">Filter only around bursts</option>
+                <option value="check">Check — both, and count where they differ</option>
+              </select></label>
+              <p class="small dim">Each channel's decoder filters the stick's whole window into its channel, burst or not, and between bursts that is nearly all of its work. <i>Only around bursts</i> looks at the channel 25 times a second instead and filters only from a second before something shows: from 2½ times less work in a 240 kHz window to 20 times less at 2.4 MHz — but its first live check missed some of the weakest bursts, ones just over the squelch. <i>Check</i> runs both and counts, on each stick's card, readings only one of them got; the readings sent are the first's.</p>
+            </details>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="ports">
+          <summary><span class="fold-t">Serial devices</span><span class="fold-s" data-sum="ports"></span></summary>
+          <form id="f-ports" class="form fold-body">
+            <p class="hint">Quansheng radios, ERT-A2 receivers and GPS units are recognised from what they send. Set a port's type here only if it is not.</p>
+            <label class="check"><input type="checkbox" name="autoDetect"> Recognise serial devices automatically</label>
+            <div id="port-overrides"></div>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="record">
+          <summary><span class="fold-t">Recordings</span><span class="fold-s" data-sum="record"></span></summary>
+          <form id="f-record" class="form fold-body">
+            <p class="hint">Keep the IQ of every burst heard on these channels — to see what is on one that nothing here decodes yet (ALERT2, another format), and to build the decoder that will. Each is the channel's own 240 ksps, as <code>.iq8</code> with a <code>.json</code> beside it saying what it was; Flood-Net's SDR card and its tests read them as they are. The newest are kept, up to the size below; the <a href="#bursts">Bursts</a> tab lists them.</p>
+            <div class="cols">
+              <label>Record every burst on, MHz <input name="freqs" autocomplete="off" spellcheck="false" placeholder="none — e.g. 151.5375"></label>
+              <label>Keep at most, MB <input name="maxMb" type="number" step="1" min="16" max="8192"></label>
+            </div>
+            <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="rec-clear">Delete them all</button><span class="status small"></span></div>
+          </form>
+        </details>
+      </div>
+    </div>
+
+    <div class="card" id="last-bursts-card">
+      <div class="card-head">
+        <h2>Last 10 bursts</h2>
+        <a class="small" href="#bursts">Every burst →</a>
+      </div>
+      <div class="table-wrap">
+        <table class="bursts">
+          <thead><tr><th>Time</th><th>Receiver</th><th class="num" title="How long the burst lasted">Length</th><th class="num" title="How far the burst rose over the receiver's noise floor (an RTL-SDR), or its strength in dBm (a radio)">Signal</th><th>Decoded</th></tr></thead>
+          <tbody id="last-bursts"><tr class="none"><td colspan="5" class="dim">No bursts yet. Each one heard shows here, with what it decoded.</td></tr></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card radio" id="radio" hidden>
@@ -54,55 +133,282 @@
       <div class="dim small" id="radio-foot"></div>
     </div>
 
-    <div class="card" id="receivers">
-      <div class="card-head">
-        <h2>Receivers <span class="dim small" id="rx-note"></span></h2>
-        <div class="head-actions">
-          <div class="seg" role="group" aria-label="Time shown in the charts">
-            <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+    <div class="card" id="flood-card">
+      <div class="card-head"><h2>Flood-Net</h2><a class="small" href="#requests">What it asked →</a></div>
+      <div id="flood-now" class="kv"></div>
+
+      <div class="folds" aria-label="Flood-Net settings">
+        <div class="folds-h">Settings</div>
+        <details class="fold" data-fold="meganet">
+          <summary><span class="fold-t">Token and sending</span><span class="fold-s" data-sum="meganet"></span></summary>
+          <form id="f-meganet" class="form fold-body">
+            <p class="hint">This Pi is an <em>ingest point</em>: one Flood-Net token covers every receiver plugged into it.</p>
+            <div id="pair-settings"></div>
+            <p class="hint">Or paste one an administrator made on Flood-Net's <b>Admin</b> tab → <b>Ingest tokens</b> (it is shown once):</p>
+            <label>Ingest token <input name="token" type="password" autocomplete="off" spellcheck="false" placeholder="mgn_…"></label>
+            <div class="row-actions"><button type="button" id="token-test" class="ghost">Check token</button><span id="token-result" class="small"></span></div>
+            <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Bench Pi, Mt Stuart base"></label>
+            <label class="check"><input type="checkbox" name="enabled"> Send readings to Flood-Net</label>
+            <label class="check"><input type="checkbox" name="receptions"> Also send every frame heard, good and bad (Flood-Net's Reception Map)</label>
+            <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="send-now">Send now</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="remote">
+          <summary><span class="fold-t">What Flood-Net may do here</span><span class="fold-s" data-sum="remote"></span></summary>
+          <form id="f-remote" class="form fold-body">
+            <p class="hint">This base station checks in with Flood-Net's <b>Base Stations</b> tab once a minute — Flood-Net never connects to it, and there is nothing here for anyone else to connect to. Flood-Net's administrators see its health and, if you allow it, change its settings, restart it and install updates. Never from there: the ingest token, where readings go, the web page's password, SSH keys, or this choice — it is made here. What they asked is on the <a href="#requests">Requests</a> tab.</p>
+            <label>Flood-Net may
+              <select name="mode">
+                <option value="manage">See its health, and manage it — settings, restarts, updates, the log</option>
+                <option value="report">See its health only — anything asked is refused</option>
+                <option value="off">Nothing — no check-ins at all</option>
+              </select></label>
+            <p class="small" id="remote-state" aria-live="polite"></p>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+      </div>
+    </div>
+
+    <div class="card pi-card" id="pi-card">
+      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
+      <div class="pi-charts">
+        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
+        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
+        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
+      </div>
+      <div class="dim small" id="pi-note"></div>
+
+      <div class="folds" aria-label="Settings for this Pi">
+        <div class="folds-h">Settings</div>
+        <details class="fold" data-fold="location">
+          <summary><span class="fold-t">Location</span><span class="fold-s" data-sum="location"></span></summary>
+          <form id="f-location" class="form fold-body">
+            <p class="hint">Where the receivers are. Anything but a GPS fix is recorded in Flood-Net as approximate.</p>
+            <div class="radios">
+              <label class="check"><input type="radio" name="source" value="none"> Not given</label>
+              <label class="check"><input type="radio" name="source" value="manual"> Coordinates</label>
+              <label class="check"><input type="radio" name="source" value="station"> At a station</label>
+              <label class="check"><input type="radio" name="source" value="gps"> GPS only</label>
+            </div>
+            <div class="when when-manual">
+              <label>Latitude, longitude <input name="latlon" placeholder="-27.4698, 153.0251"></label>
+              <button type="button" class="ghost" id="geo">Use this browser's location</button>
+            </div>
+            <div class="when when-station">
+              <label>Station (name or number) <input name="stationq" list="station-list" placeholder="start typing…" autocomplete="off"></label>
+              <datalist id="station-list"></datalist>
+              <div class="small dim" id="station-picked"></div>
+            </div>
+            <label class="check"><input type="checkbox" name="useGps"> When a USB GPS has a fix, use it instead (exact)</label>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="audio">
+          <summary><span class="fold-t">Audio</span><span class="fold-s" data-sum="audio"></span></summary>
+          <form id="f-audio" class="form fold-body">
+            <p class="hint">Plug a speaker into the audio jack (or use HDMI or a USB sound card) to hear each ALERT burst.</p>
+            <div class="cols">
+              <label>Play
+                <select name="mode">
+                  <option value="auto">Automatic — the SDR's real audio, a re-made burst for radios</option>
+                  <option value="live">Only an SDR's real audio</option>
+                  <option value="synth">A re-made burst for every reading</option>
+                  <option value="beep">A beep for every reading</option>
+                  <option value="off">Nothing</option>
+                </select></label>
+              <label>Output <select name="device"></select></label>
+              <label>Volume <input name="volume" type="range" min="0" max="100"></label>
+            </div>
+            <div class="row-actions"><button>Save</button>
+              <button type="button" class="ghost" data-test="alert">Test ALERT chirp</button>
+              <button type="button" class="ghost" data-test="alert2">Test ALERT2</button>
+              <span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="display">
+          <summary><span class="fold-t">Screen</span><span class="fold-s" data-sum="display"></span></summary>
+          <form id="f-display" class="form fold-body">
+            <p class="hint">With a monitor plugged in, the Pi shows this page full-screen — the Overview, with these settings hidden. It starts when a monitor is connected and stops when it is unplugged.</p>
+            <label>Full-screen dashboard
+              <select name="kiosk"><option value="auto">Automatic (when a monitor is connected, 1 GB+ RAM)</option><option value="on">Always when a monitor is connected</option><option value="off">Never — text console only</option></select></label>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="network">
+          <summary><span class="fold-t">Network</span><span class="fold-s" data-sum="network"></span></summary>
+          <div class="form fold-body" id="f-network">
+            <pre id="net-status" class="mono small">…</pre>
+            <div class="row-actions"><button type="button" class="ghost" id="wifi-scan">Find Wi-Fi networks</button></div>
+            <div id="wifi-list"></div>
+            <label>Hostname <input id="hostname" pattern="[a-z0-9-]+" placeholder="rpi-alert"></label>
+            <div class="row-actions"><button type="button" class="ghost" id="hostname-save">Set hostname</button><span class="status small" id="hostname-status"></span></div>
           </div>
-          <button id="rescan" type="button" class="ghost small" title="Devices are found by themselves within a few seconds of being plugged in, and reconnected after an unplug or a power cut">Look for devices</button>
-        </div>
-      </div>
-      <div class="all-bursts">
-        <div class="chart-label">Every receiver <span class="dim" id="burst-count"></span></div>
-        <canvas id="burst-canvas" class="chart" aria-label="Bursts heard by every receiver"></canvas>
-        <div class="dim small" id="burst-note"></div>
-      </div>
-      <div id="rx-list" class="rx-list"></div>
-    </div>
+        </details>
 
-    <!-- A table a row: side by side, the columns ran out of room. -->
-    <div class="stack">
-      <div class="card">
-        <h2>Readings <span class="dim" id="read-count"></span></h2>
-        <div class="table-wrap">
-          <table class="readings">
-            <thead><tr><th>Time</th><th>Protocol</th><th>Address</th><th>Station</th><th class="num">Value</th><th>Signal</th><th>Receiver</th></tr></thead>
-            <tbody id="readings"><tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Most heard <span class="dim small">(this session)</span></h2>
-        <div class="table-wrap">
-          <table class="top-heard">
-            <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Heard</th><th>Last value</th><th>Best signal</th><th>Last</th></tr></thead>
-            <tbody id="top-heard"><tr><td colspan="6" class="dim">Nothing heard yet.</td></tr></tbody>
-          </table>
-        </div>
+        <details class="fold" data-fold="hotspot">
+          <summary><span class="fold-t">Hotspot</span><span class="fold-s" data-sum="hotspot"></span></summary>
+          <form id="f-hotspot" class="form fold-body">
+            <p class="hint">The Pi's own Wi-Fi network, for a phone to open this page where there is no other — at a site survey, or when its
+              network is down. Join it and open <b>http://10.42.0.1/</b> (or <b>http://rpi-alert.local/</b>). Note the password before you need it.</p>
+            <p class="small" id="hs-state">…</p>
+            <div class="radios">
+              <label class="check"><input type="radio" name="mode" value="auto"> Auto — after three minutes with no network; gives way to one</label>
+              <label class="check"><input type="radio" name="mode" value="on"> Always on</label>
+              <label class="check"><input type="radio" name="mode" value="off"> Off</label>
+            </div>
+            <div class="cols">
+              <label>Network name <input name="ssid" maxlength="32" pattern="[A-Za-z0-9._ \-]{1,32}" placeholder="RPi-ALERT-…"></label>
+              <label>Password <input name="password" maxlength="63" autocomplete="off" spellcheck="false" class="mono"></label>
+            </div>
+            <p class="hint small"><b>Always on</b> takes the Wi-Fi radio: use it on a Pi on Ethernet, or one that should never join a Wi-Fi network.
+              In <b>auto</b>, with nobody on it, the hotspot steps aside every ten minutes for a minute and a half to let the Pi join a Wi-Fi network it knows.</p>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
+
+        <details class="fold" data-fold="security">
+          <summary><span class="fold-t">Web page password</span><span class="fold-s" data-sum="security"></span></summary>
+          <div class="form fold-body" id="f-security">
+            <p class="hint" id="pw-state"></p>
+            <label>New password <input id="pw1" type="password" autocomplete="new-password" minlength="6"></label>
+            <div class="row-actions"><button type="button" id="pw-save">Set password</button><span class="status small" id="pw-status"></span></div>
+          </div>
+        </details>
+
+        <details class="fold" data-fold="access">
+          <summary><span class="fold-t">SSH access</span><span class="fold-s" data-sum="access"></span></summary>
+          <div class="form fold-body" id="f-access">
+            <p class="hint">Log in as <b class="mono">alert</b> with an SSH key on this list — the same user name on every RPi ALERT, and no password to forget or pass on. Each key is one person's: take it off the list when they move on. Keys come only from the SD card, <code>sudo rpi-alert access add-key</code>, or the GitHub accounts and Flood-Net team keys you choose to accept — never from this page or from Flood-Net's requests.</p>
+            <div id="access-body"><p class="small dim">Loading…</p></div>
+            <div class="cols">
+              <label>SSH <select id="acc-ssh"><option value="on">On</option><option value="off">Off</option></select></label>
+              <label>Password login over SSH <select id="acc-password"><option value="unchanged">As Raspberry Pi Imager set it</option><option value="off">Off — keys only</option><option value="on">On</option></select></label>
+              <label>Flood-Net's team keys <select id="acc-meganet"><option value="off">Not accepted</option><option value="on">May log in as alert</option></select></label>
+              <label title="Private networks: the site's LAN, or a VPN (10.x, 172.16–31.x, 192.168.x, 100.64.x and their IPv6 kin)">Keys from GitHub and Flood-Net work from <select id="acc-from"><option value="private">Private networks only</option><option value="any">Anywhere</option></select></label>
+            </div>
+            <div class="row-actions"><button type="button" class="ghost" id="acc-sync">Fetch the keys again now</button><span class="status small" id="acc-status"></span></div>
+            <details class="sub-fold">
+              <summary>Adding a key — and getting in when nobody can</summary>
+              <ul class="small">
+                <li><b>On the SD card:</b> a line <code>ssh_key = ssh-ed25519 AAAA… you@laptop</code> in <code>rpi-alert.conf</code> on its <i>bootfs</i> drive (the set-up page writes it). The card's lines replace the ones before.</li>
+                <li><b>A team's GitHub accounts:</b> <code>ssh_github = name, name</code> on the card — their public keys, fetched every hour.</li>
+                <li><b>Over SSH, with sudo:</b> <code>sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"</code>; <code>rpi-alert access</code> lists them.</li>
+                <li><b>Nobody can get in:</b> put <code>alert_password = …</code> in <code>rpi-alert.conf</code> on the card, boot, and log in as <b>alert</b> at the console (or over SSH, if password login is on). It is wiped from the card once applied.</li>
+              </ul>
+            </details>
+          </div>
+        </details>
+
+        <details class="fold" data-fold="system">
+          <summary><span class="fold-t">System and updates</span><span class="fold-s" data-sum="system"></span></summary>
+          <form id="f-system" class="form fold-body">
+            <label>Time zone (ALERT2 frame times are local) <input name="timezone" placeholder="Australia/Brisbane"></label>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+            <div class="row-actions">
+              <button type="button" class="ghost" data-power="restart-agent">Restart the agent</button>
+              <button type="button" class="ghost" data-power="reboot">Reboot</button>
+              <button type="button" class="ghost danger" data-power="poweroff">Shut down</button>
+            </div>
+            <h3>Software updates</h3>
+            <p class="hint">Updates install over the network: no need to re-flash the SD card. Settings, the queue and the receiver ids are kept, and if a new version does not start, the one before it is put back.</p>
+            <p class="small" id="update-state"></p>
+            <div class="row-actions">
+              <button type="button" class="ghost" id="update">Check for updates</button>
+              <button type="button" id="update-install" hidden>Install update</button>
+            </div>
+            <label class="check"><input type="checkbox" id="update-auto"> Install new releases automatically (nightly, 3–4 am)</label>
+            <pre id="update-out" class="mono small" hidden></pre>
+          </form>
+        </details>
       </div>
     </div>
-
   </section>
 
-  <!-- ── Site survey ───────────────────────────────────────────── -->
+  <!-- ── Readings: every reading decoded, and the stations heard most ── -->
+  <section id="tab-readings" class="tab" hidden>
+    <div class="card">
+      <div class="card-head"><h2>Readings <span class="dim small" id="read-count"></span></h2><span class="dim small">newest first · the last 150</span></div>
+      <div class="table-wrap">
+        <table class="readings">
+          <thead><tr><th>Time</th><th>Protocol</th><th class="num">Address</th><th>Station</th><th class="num">Value</th><th>Signal</th><th>Receiver</th></tr></thead>
+          <tbody id="readings"><tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Most heard <span class="dim small">(since the agent started)</span></h2>
+      <div class="table-wrap">
+        <table class="top-heard">
+          <thead><tr><th>Station</th><th class="num">Address</th><th class="num">Heard</th><th>Last value</th><th>Best signal</th><th>Last</th></tr></thead>
+          <tbody id="top-heard"><tr><td colspan="6" class="dim">Nothing heard yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Bursts: every burst heard, decoded or not, and those kept as IQ ── -->
+  <section id="tab-bursts" class="tab" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2>Every receiver <span class="dim small" id="burst-count"></span></h2>
+        <div class="seg" role="group" aria-label="Time shown in the chart">
+          <button type="button" data-win="30m">30 min</button><button type="button" data-win="6h">6 h</button><button type="button" data-win="24h">24 h</button>
+        </div>
+      </div>
+      <canvas id="burst-canvas" class="chart" aria-label="Bursts heard by every receiver"></canvas>
+      <div class="dim small" id="burst-note"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Bursts <span class="dim small" id="burst-table-count"></span></h2><span class="dim small">newest first · since this page opened, and the half hour before</span></div>
+      <div class="table-wrap">
+        <table class="bursts">
+          <thead><tr><th>Time</th><th>Receiver</th><th class="num" title="How long the burst lasted">Length</th><th class="num" title="How far the burst rose over the receiver's noise floor (an RTL-SDR), or its strength in dBm (a radio)">Signal</th><th>Decoded</th></tr></thead>
+          <tbody id="burst-rows"><tr class="none"><td colspan="5" class="dim">No bursts yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Recorded bursts</h2><button type="button" class="ghost small" id="rec-refresh">Refresh</button></div>
+      <p class="hint">Set which channels are recorded under <a href="#set-record">Receivers → Settings → Recordings</a>.</p>
+      <div id="rec-list" class="small"></div>
+    </div>
+  </section>
+
+  <!-- ── Requests: what Flood-Net asked of this Pi ───────────────────── -->
+  <section id="tab-requests" class="tab" hidden>
+    <div class="card">
+      <h2>Asked from Flood-Net</h2>
+      <p class="small" id="req-state"></p>
+      <div id="remote-history"></div>
+      <p class="hint small">Since the agent started, the last 20. Who may ask, and what: <a href="#set-remote">Flood-Net → Settings → What Flood-Net may do here</a>.</p>
+    </div>
+  </section>
+
+  <!-- ── Log ───────────────────────────────────────────────────────── -->
+  <section id="tab-log" class="tab" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2>Agent log <span class="dim small">(everything: <code>journalctl -u rpi-alert</code>)</span></h2>
+        <div class="seg" role="group" aria-label="Which lines">
+          <button type="button" data-loglevel="all" aria-pressed="true">Everything</button><button type="button" data-loglevel="warn">Warnings and errors</button>
+        </div>
+      </div>
+      <pre id="log" class="mono log"></pre>
+    </div>
+  </section>
+
+  <!-- ── Site survey ───────────────────────────────────────────────── -->
   <section id="tab-survey" class="tab" hidden>
     <div class="card" id="sv-now">
       <h2>Site survey</h2>
       <p class="hint">Leave this Pi at a site a repeater or base station might go — for a day or three, with or without a network —
-        and see which stations it hears there and how strongly. Everything heard is kept on the card and goes to MegaNet as receptions
-        when it is next on a network; MegaNet's <b>Reception Map → Site surveys</b> lays it beside what the network itself received.</p>
+        and see which stations it hears there and how strongly. Everything heard is kept on the card and goes to Flood-Net as receptions
+        when it is next on a network; Flood-Net's <b>Reception Map → Site surveys</b> lays it beside what the network itself received.</p>
       <div id="sv-state"></div>
     </div>
     <form id="f-survey" class="card form">
@@ -113,7 +419,7 @@
           <option value="24">24 hours</option><option value="48">48 hours</option><option value="72" selected>72 hours</option>
           <option value="168">a week</option><option value="0">until I end it</option></select></label>
       </div>
-      <label class="check"><input type="checkbox" name="readings"> Also send its readings to MegaNet (normally only what it heard, as receptions)</label>
+      <label class="check"><input type="checkbox" name="readings"> Also send its readings to Flood-Net (normally only what it heard, as receptions)</label>
       <p class="hint small">Hours of listening, so the time it spends switched off does not count. It also ends itself if a GPS fix puts it
         more than 500 m from where it began — it has been taken away.</p>
       <div class="row-actions">
@@ -146,233 +452,18 @@
         <tbody id="sv-past"></tbody></table></div>
     </div>
   </section>
-
-  <!-- ── Settings ──────────────────────────────────────────────── -->
-  <section id="tab-settings" class="tab" hidden>
-    <form id="f-meganet" class="card form">
-      <h2>MegaNet</h2>
-      <p class="hint">This Pi is an <em>ingest point</em>: one MegaNet token covers every receiver plugged into it.</p>
-      <div id="pair-settings"></div>
-      <p class="hint">Or paste one an administrator made on MegaNet's <b>Admin</b> tab → <b>Ingest tokens</b> (it is shown once):</p>
-      <label>Ingest token <input name="token" type="password" autocomplete="off" spellcheck="false" placeholder="mgn_…"></label>
-      <div class="row-actions"><button type="button" id="token-test" class="ghost">Check token</button><span id="token-result" class="small"></span></div>
-      <label>Name of this base station <input name="name" maxlength="80" placeholder="e.g. Bench Pi, Mt Stuart base"></label>
-      <label class="check"><input type="checkbox" name="enabled"> Send readings to MegaNet</label>
-      <label class="check"><input type="checkbox" name="receptions"> Also send every frame heard, good and bad (MegaNet's Reception Map)</label>
-      <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="send-now">Send now</button><span class="status small"></span></div>
-    </form>
-
-    <form id="f-location" class="card form">
-      <h2>Location</h2>
-      <p class="hint">Where the receivers are. Anything but a GPS fix is recorded in MegaNet as approximate.</p>
-      <div class="radios">
-        <label class="check"><input type="radio" name="source" value="none"> Not given</label>
-        <label class="check"><input type="radio" name="source" value="manual"> Coordinates</label>
-        <label class="check"><input type="radio" name="source" value="station"> At a station</label>
-        <label class="check"><input type="radio" name="source" value="gps"> GPS only</label>
-      </div>
-      <div class="when when-manual">
-        <label>Latitude, longitude <input name="latlon" placeholder="-27.4698, 153.0251"></label>
-        <button type="button" class="ghost" id="geo">Use this browser's location</button>
-      </div>
-      <div class="when when-station">
-        <label>Station (name or number) <input name="stationq" list="station-list" placeholder="start typing…" autocomplete="off"></label>
-        <datalist id="station-list"></datalist>
-        <div class="small dim" id="station-picked"></div>
-      </div>
-      <label class="check"><input type="checkbox" name="useGps"> When a USB GPS has a fix, use it instead (exact)</label>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <form id="f-sdr" class="card form">
-      <div class="card-head"><h2>RTL-SDR sticks</h2><label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label></div>
-      <p class="hint">Each stick hears every channel in its <b>window</b> at once — a slice of the band — and each channel is a receiver of its own in MegaNet.
-        The window is what a stick costs this Pi: every channel's decoder takes in the whole of it, so a wider one is more work for each channel and hears none of them better.
-        <i>Automatic</i> takes the narrowest that holds the stick's channels, kept between <i>No narrower than</i> and <i>No wider than</i>: a widest keeps a stick light whatever it is given (a channel it cannot hold is not decoded, and says so), a narrowest shows more of the band on the waterfall. Or choose one window exactly.</p>
-      <div id="sdr-budget" class="sdr-budget" aria-live="polite"></div>
-      <div id="sdr-sticks"></div>
-      <details id="sdr-defaults" class="sdr-defaults">
-        <summary>Defaults — what a stick with nothing of its own uses, and each new stick</summary>
-        <p class="hint small">A stick's field marked <i>default</i> follows these; change it on the stick and it is that stick's own, until ↺ takes it back.</p>
-        <div class="stick-ed" id="sdr-default-ed"></div>
-      </details>
-      <label class="check"><input type="checkbox" name="alert2"> Hear ALERT2 too (a burst no ALERT format reads is tried as an ALERT2 frame — a few tenths of a second of the Pi's time each)</label>
-      <label>Decoder <select name="decoder">
-        <option value="lean">Lean — a third of the time (the default, as floodwarning.net decodes)</option>
-        <option value="full">Full — the 45-guess decoder</option>
-        <option value="light">Light — about half of lean's time again (the burst filtered to 48 kHz first)</option>
-        <option value="compare">Compare — full, and each burst decoded lean too to check they agree (more CPU)</option>
-        <option value="compare-light">Compare light — lean, and each burst decoded light too to check they agree (more CPU)</option>
-      </select></label>
-      <p class="small dim">Lean filters a burst once for each carrier guess instead of once for every small nudge around it. At the first base station to compare the two, 14 of 11,628 live bursts read differently (0.12%), and lean took a third of the time. <i>Full</i> goes back to the full decoder; <i>Compare</i> sends the full decoder's readings and counts on each stick's card how often lean agreed. <i>Light</i> filters the burst down to 48 kHz before trying its carrier guesses: about half of lean's time again, and in Flood-Net's tests as many true readings; <i>Compare light</i> sends lean's readings and counts how often light agreed — how light is proven here before it is the default.</p>
-      <label>Between bursts <select name="watch">
-        <option value="always">Filter every sample (as before)</option>
-        <option value="bursts">Filter only around bursts</option>
-        <option value="check">Check — both, and count where they differ</option>
-      </select></label>
-      <p class="small dim">Each channel's decoder filters the stick's whole window into its channel, burst or not, and between bursts that is nearly all of its work. <i>Only around bursts</i> looks at the channel 25 times a second instead and filters only from a second before something shows, so the squelch and the decoder see the same samples: from 2½ times less work in a 240 kHz window to 20 times less at 2.4 MHz. <i>Check</i> runs both and counts, on each stick's card, readings only one of them got; the readings sent are the first's.</p>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <form id="f-record" class="card form">
-      <h2>Recordings</h2>
-      <p class="hint">Keep the IQ of every burst heard on these channels — to see what is on one that nothing here decodes yet (ALERT2, another format), and to build the decoder that will. Each is the channel's own 240 ksps, as <code>.iq8</code> with a <code>.json</code> beside it saying what it was; MegaNet's SDR card and its tests read them as they are. The newest are kept, up to the size below.</p>
-      <div class="cols">
-        <label>Record every burst on, MHz <input name="freqs" autocomplete="off" spellcheck="false" placeholder="none — e.g. 151.5375"></label>
-        <label>Keep at most, MB <input name="maxMb" type="number" step="1" min="16" max="8192"></label>
-      </div>
-      <div class="row-actions"><button>Save</button><button type="button" class="ghost" id="rec-refresh">Refresh the list</button><button type="button" class="ghost" id="rec-clear">Delete them all</button><span class="status small"></span></div>
-      <div id="rec-list" class="small"></div>
-    </form>
-
-    <form id="f-ports" class="card form">
-      <h2>Serial devices</h2>
-      <p class="hint">Quansheng radios, ERT-A2 receivers and GPS units are recognised from what they send. Set a port's type here only if it is not.</p>
-      <label class="check"><input type="checkbox" name="autoDetect"> Recognise serial devices automatically</label>
-      <div id="port-overrides"></div>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <form id="f-audio" class="card form">
-      <h2>Audio</h2>
-      <p class="hint">Plug a speaker into the audio jack (or use HDMI or a USB sound card) to hear each ALERT burst.</p>
-      <div class="cols">
-        <label>Play
-          <select name="mode">
-            <option value="auto">Automatic — the SDR's real audio, a re-made burst for radios</option>
-            <option value="live">Only an SDR's real audio</option>
-            <option value="synth">A re-made burst for every reading</option>
-            <option value="beep">A beep for every reading</option>
-            <option value="off">Nothing</option>
-          </select></label>
-        <label>Output <select name="device"></select></label>
-        <label>Volume <input name="volume" type="range" min="0" max="100"></label>
-      </div>
-      <div class="row-actions"><button>Save</button>
-        <button type="button" class="ghost" data-test="alert">Test ALERT chirp</button>
-        <button type="button" class="ghost" data-test="alert2">Test ALERT2</button>
-        <span class="status small"></span></div>
-    </form>
-
-    <form id="f-display" class="card form">
-      <h2>Screen</h2>
-      <p class="hint">With a monitor plugged in, the Pi shows this page full-screen. It starts when a monitor is connected and stops when it is unplugged.</p>
-      <label>Full-screen dashboard
-        <select name="kiosk"><option value="auto">Automatic (when a monitor is connected, 1 GB+ RAM)</option><option value="on">Always when a monitor is connected</option><option value="off">Never — text console only</option></select></label>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <div class="card form" id="f-network">
-      <h2>Network</h2>
-      <pre id="net-status" class="mono small">…</pre>
-      <div class="row-actions"><button type="button" class="ghost" id="wifi-scan">Find Wi-Fi networks</button></div>
-      <div id="wifi-list"></div>
-      <label>Hostname <input id="hostname" pattern="[a-z0-9-]+" placeholder="rpi-alert"></label>
-      <div class="row-actions"><button type="button" class="ghost" id="hostname-save">Set hostname</button><span class="status small" id="hostname-status"></span></div>
-    </div>
-
-    <form id="f-hotspot" class="card form">
-      <h2>Hotspot</h2>
-      <p class="hint">The Pi's own Wi-Fi network, for a phone to open this page where there is no other — at a site survey, or when its
-        network is down. Join it and open <b>http://10.42.0.1/</b> (or <b>http://rpi-alert.local/</b>). Note the password before you need it.</p>
-      <p class="small" id="hs-state">…</p>
-      <div class="radios">
-        <label class="check"><input type="radio" name="mode" value="auto"> Auto — after three minutes with no network; gives way to one</label>
-        <label class="check"><input type="radio" name="mode" value="on"> Always on</label>
-        <label class="check"><input type="radio" name="mode" value="off"> Off</label>
-      </div>
-      <div class="cols">
-        <label>Network name <input name="ssid" maxlength="32" pattern="[A-Za-z0-9._ \-]{1,32}" placeholder="RPi-ALERT-…"></label>
-        <label>Password <input name="password" maxlength="63" autocomplete="off" spellcheck="false" class="mono"></label>
-      </div>
-      <p class="hint small"><b>Always on</b> takes the Wi-Fi radio: use it on a Pi on Ethernet, or one that should never join a Wi-Fi network.
-        In <b>auto</b>, with nobody on it, the hotspot steps aside every ten minutes for a minute and a half to let the Pi join a Wi-Fi network it knows.</p>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <div class="card form" id="f-security">
-      <h2>Web page password</h2>
-      <p class="hint" id="pw-state"></p>
-      <label>New password <input id="pw1" type="password" autocomplete="new-password" minlength="6"></label>
-      <div class="row-actions"><button type="button" id="pw-save">Set password</button><span class="status small" id="pw-status"></span></div>
-    </div>
-
-    <form id="f-remote" class="card form">
-      <h2>Remote management</h2>
-      <p class="hint">This base station checks in with MegaNet's <b>Base Stations</b> tab once a minute — MegaNet never connects to it, and there is nothing here for anyone else to connect to. MegaNet's administrators see its health and, if you allow it, change its settings, restart it and install updates. Never from there: the ingest token, where readings go, the web page's password, SSH keys, or this choice — it is made here.</p>
-      <label>MegaNet may
-        <select name="mode">
-          <option value="manage">See its health, and manage it — settings, restarts, updates, the log</option>
-          <option value="report">See its health only — anything asked is refused</option>
-          <option value="off">Nothing — no check-ins at all</option>
-        </select></label>
-      <p class="small" id="remote-state" aria-live="polite"></p>
-      <div id="remote-history"></div>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-    </form>
-
-    <div class="card form" id="f-access">
-      <h2>SSH access</h2>
-      <p class="hint">Log in as <b class="mono">alert</b> with an SSH key on this list — the same user name on every RPi ALERT, and no password to forget or pass on. Each key is one person's: take it off the list when they move on. Keys come only from the SD card, <code>sudo rpi-alert access add-key</code>, or the GitHub accounts and MegaNet team keys you choose to accept — never from this page or from MegaNet's requests.</p>
-      <div id="access-body"><p class="small dim">Loading…</p></div>
-      <div class="cols">
-        <label>SSH <select id="acc-ssh"><option value="on">On</option><option value="off">Off</option></select></label>
-        <label>Password login over SSH <select id="acc-password"><option value="unchanged">As Raspberry Pi Imager set it</option><option value="off">Off — keys only</option><option value="on">On</option></select></label>
-        <label>MegaNet's team keys <select id="acc-meganet"><option value="off">Not accepted</option><option value="on">May log in as alert</option></select></label>
-        <label title="Private networks: the site's LAN, or a VPN (10.x, 172.16–31.x, 192.168.x, 100.64.x and their IPv6 kin)">Keys from GitHub and MegaNet work from <select id="acc-from"><option value="private">Private networks only</option><option value="any">Anywhere</option></select></label>
-      </div>
-      <div class="row-actions"><button type="button" class="ghost" id="acc-sync">Fetch the keys again now</button><span class="status small" id="acc-status"></span></div>
-      <details>
-        <summary>Adding a key — and getting in when nobody can</summary>
-        <ul class="small">
-          <li><b>On the SD card:</b> a line <code>ssh_key = ssh-ed25519 AAAA… you@laptop</code> in <code>rpi-alert.conf</code> on its <i>bootfs</i> drive (the set-up page writes it). The card's lines replace the ones before.</li>
-          <li><b>A team's GitHub accounts:</b> <code>ssh_github = name, name</code> on the card — their public keys, fetched every hour.</li>
-          <li><b>Over SSH, with sudo:</b> <code>sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"</code>; <code>rpi-alert access</code> lists them.</li>
-          <li><b>Nobody can get in:</b> put <code>alert_password = …</code> in <code>rpi-alert.conf</code> on the card, boot, and log in as <b>alert</b> at the console (or over SSH, if password login is on). It is wiped from the card once applied.</li>
-        </ul>
-      </details>
-    </div>
-
-    <form id="f-system" class="card form">
-      <h2>System</h2>
-      <label>Time zone (ALERT2 frame times are local) <input name="timezone" placeholder="Australia/Brisbane"></label>
-      <div class="row-actions"><button>Save</button><span class="status small"></span></div>
-      <div class="row-actions">
-        <button type="button" class="ghost" data-power="restart-agent">Restart the agent</button>
-        <button type="button" class="ghost" data-power="reboot">Reboot</button>
-        <button type="button" class="ghost danger" data-power="poweroff">Shut down</button>
-      </div>
-      <h3>Software updates</h3>
-      <p class="hint">Updates install over the network: no need to re-flash the SD card. Settings, the queue and the receiver ids are kept, and if a new version does not start, the one before it is put back.</p>
-      <p class="small" id="update-state"></p>
-      <div class="row-actions">
-        <button type="button" class="ghost" id="update">Check for updates</button>
-        <button type="button" id="update-install" hidden>Install update</button>
-      </div>
-      <label class="check"><input type="checkbox" id="update-auto"> Install new releases automatically (nightly, 3–4 am)</label>
-      <pre id="update-out" class="mono small" hidden></pre>
-    </form>
-  </section>
-
-  <!-- ── Log ───────────────────────────────────────────────────── -->
-  <section id="tab-log" class="tab" hidden>
-    <div class="card">
-      <h2>Agent log <span class="dim small">(everything: <code>journalctl -u rpi-alert</code>)</span></h2>
-      <pre id="log" class="mono log"></pre>
-    </div>
-  </section>
 </main>
 
 <dialog id="login">
   <form method="dialog" id="login-form">
     <h2>Log in</h2>
-    <p class="hint">This base station has a web page password.</p>
+    <p class="hint">This base station has a web page password. Looking needs none; changing a setting does.</p>
     <label>Password <input type="password" id="login-pw" autocomplete="current-password"></label>
-    <div class="row-actions"><button id="login-go" value="go">Log in</button><span class="status small" id="login-status"></span></div>
+    <div class="row-actions"><button id="login-go" value="go">Log in</button><button type="button" class="ghost" id="login-cancel">Not now</button><span class="status small" id="login-status"></span></div>
   </form>
 </dialog>
 
-<footer class="dim small"><span id="foot"></span></footer>
+<footer class="dim small"><span id="foot"></span><a href="#" class="kiosk-only" id="show-settings">Show the settings</a></footer>
 <script src="qr.js"></script>
 <script src="channels.js"></script>
 <script src="sdr-plan.js"></script>

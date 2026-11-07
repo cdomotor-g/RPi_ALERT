@@ -47,7 +47,7 @@ A stick hands over a whole slice of the band at once — as wide as its sample r
 have to choose one channel: the agent decodes **every ALERT channel in the slice at the same time**,
 each with a decoder thread of its own, and each is a receiver of its own in MegaNet. A new base
 station listens on all four of the channels MegaNet's stations use; change them under
-**Settings → RTL-SDR** — each stick's *Channels*, typed or picked from the frequencies MegaNet's
+**Overview → Receivers → RTL-SDR sticks** — each stick's *Channels*, typed or picked from the frequencies MegaNet's
 stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 152.4`, or
 `sdr_frequency_mhz = 151.5, 151.525, 152.4` on the SD card).
 
@@ -75,8 +75,8 @@ stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 
   (Each is an exact divisor of the stick's 28.8 MHz crystal and a multiple of the decoder's 240 ksps.
   Nothing between 300 kHz and 900 kHz: the RTL2832U does not sample there.) A burst's decode — a
   second or so on a Pi 4 — comes on top, the same at any window: on the bench Pi 4, two sticks of
-  two channels took 0.49 of a core in 960 kHz windows and 0.26 in 240 kHz, bursts and all. A window set by hand (Settings →
-  RTL-SDR, the stick's *Window*; `rpi-alert sdr 1 window 240k`) is exactly that one: wider to see
+  two channels took 0.49 of a core in 960 kHz windows and 0.26 in 240 kHz, bursts and all. A window set by hand (Overview →
+  Receivers → RTL-SDR sticks, the stick's *Window*; `rpi-alert sdr 1 window 240k`) is exactly that one: wider to see
   more of the band on the waterfall, or narrow to keep a stick light whatever it is given — a
   channel that does not fit in it is not decoded, and the stick says so, and which window would
   hold them all.
@@ -91,7 +91,7 @@ stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 
   of the window away.
 - **What it costs this Pi**: a couple of minutes after it starts, the agent measures what a channel
   costs its own Pi at each window; and as it runs, how busy each decoder is (its thread's share of
-  the time spent working, bursts and all — the Overview's *Decoder busy*). **Settings → RTL-SDR**
+  the time spent working, bursts and all — the Overview's *Decoder busy*). **Overview → Receivers → RTL-SDR sticks**
   puts the two together as channels are typed: each stick's window and what it will take of the Pi
   in cores, each choice of window with its cost, which channel is the one that widens a stick
   (*152.4 MHz is what makes this stick 1.44 MHz wide: without it the rest fit 960 kHz*), and the
@@ -123,7 +123,7 @@ stations use, those near the Pi first (or `rpi-alert sdr 1 freq 151.5, 151.525, 
 
 Plug in as many as the Pi's CPU and USB power allow — each is a receiver of its own with its own
 decoder threads, so a Pi 4 runs a few, each in the narrowest window its channels allow (two V4s draw
-about 0.6 A; use a powered hub beyond that). Give each its own channels under **Settings → RTL-SDR**
+about 0.6 A; use a powered hub beyond that). Give each its own channels under **Overview → Receivers → RTL-SDR sticks**
 (or
 `rpi-alert sdr 2 freq 151.525`), and one Pi listens to networks further apart than one stick can
 hear.
@@ -190,12 +190,12 @@ ERT-A2 for its cable.
 ## Audio
 
 `aplay` on ALSA's default device (on a Pi 3/4 that is the 3.5 mm jack); choose HDMI or a USB sound
-card under **Settings → Audio**. The image keeps `dtparam=audio=on` in `config.txt`.
+card under **Overview → This Pi → Audio**. The image keeps `dtparam=audio=on` in `config.txt`.
 
 ## Smaller computers
 
 <a id="smaller-computers"></a>Three settings decide how little a base station needs, all under
-**Settings → RTL-SDR** ([configuration.md](configuration.md#between-bursts)):
+**Overview → Receivers → RTL-SDR sticks** ([configuration.md](configuration.md#between-bursts)):
 
 - **Between bursts: Filter only around bursts** (0.18). A channel filters the stick's window only
   from 0.8 s before a burst to half a second after it; between bursts it costs a sixth to a
@@ -204,7 +204,7 @@ card under **Settings → Audio**. The image keeps `dtparam=audio=on` in `config
   the computer needs it, not on a Pi 4.
 - **Decoder: Light** (0.19). Each burst is filtered down to 48 kHz once before its carrier guesses:
   a burst's decode in about half of lean's time.
-- **The screen dashboard off** (*Settings → Screen*, or `kiosk = off`): Chromium is half a Pi 4 core
+- **The screen dashboard off** (*Overview → This Pi → Screen*, or `kiosk = off`): Chromium is half a Pi 4 core
   on its own, and a few hundred MB.
 
 With all three, from the base-station builder's model (RPi ALERT's measurements on a Pi 4; an

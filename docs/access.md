@@ -15,7 +15,7 @@ everybody out.
 |---|---|
 | **One user name, everywhere** | Every RPi ALERT has the same maintenance account, **`alert`**, made by the installer. Nobody has to remember which name was chosen on which Pi. |
 | **No password** | `alert` has no password at all — it logs in with SSH keys only, and may use `sudo`. There is nothing to forget, write on a sticker or pass on. |
-| **Keys are people** | The keys that open it are a list each Pi shows (`rpi-alert access`, the web page's *Settings → SSH access*, MegaNet's Base Stations tab): one key per person, each with where it came from. Someone leaves: take their key off the list, and only theirs. |
+| **Keys are people** | The keys that open it are a list each Pi shows (`rpi-alert access`, the web page's *Overview → This Pi → SSH access*, MegaNet's Base Stations tab): one key per person, each with where it came from. Someone leaves: take their key off the list, and only theirs. |
 | **The list is a team's, not a person's** | It can follow the GitHub accounts a team names, or MegaNet's team keys — so when someone joins or leaves, every base station that follows that list follows within the hour, without anyone visiting it. |
 | **Fetched keys stay local** | Keys fetched from GitHub or MegaNet only work from a private network — the site's LAN or a VPN — unless the card says otherwise, so a Pi that ends up with a public address is not opened to the internet by a list somebody else keeps. |
 | **A way back in, always** | Whoever holds the SD card holds the Pi. `alert_password = …` in `rpi-alert.conf` on the card gives `alert` a password for the console. It is wiped from the card once applied. |
@@ -31,13 +31,13 @@ The account Raspberry Pi Imager made is left exactly as it was: its password and
 | **The SD card** | `ssh_key = ssh-ed25519 AAAA… you@laptop` in `rpi-alert.conf` (a line each; the set-up page writes them). The card's lines replace the ones before; `ssh_key = none` clears them. | anywhere |
 | **sudo on the Pi** | `sudo rpi-alert access add-key "ssh-ed25519 AAAA… you@laptop"`, `sudo rpi-alert access remove-key SHA256:…` | anywhere |
 | **GitHub accounts** | `ssh_github = alice, bob` on the card, or `sudo rpi-alert access github alice bob`. Their public keys (`github.com/<name>.keys`) are fetched every hour. | private networks |
-| **MegaNet's team keys** | `ssh_meganet_keys = yes` on the card, or *Settings → SSH access* on the Pi's page. MegaNet's administrators keep the list (public keys only) on its Base Stations tab; a Pi that takes it fetches it hourly, and within a minute of a change while it is checking in. | private networks |
+| **MegaNet's team keys** | `ssh_meganet_keys = yes` on the card, or *Overview → This Pi → SSH access* on the Pi's page. MegaNet's administrators keep the list (public keys only) on its Base Stations tab; a Pi that takes it fetches it hourly, and within a minute of a change while it is checking in. | private networks |
 
 "Private networks" means 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, link-local and loopback, and their IPv6
 counterparts. Carrier-grade NAT (100.64.0.0/10, which Tailscale uses) is left out on purpose, because a Pi
 on a 4G modem shares that range with the carrier's other subscribers: a Pi reached only over Tailscale
 needs `ssh_from = any`. `ssh_from = any`
-on the card (or *Settings → SSH access*) lets fetched keys work from anywhere.
+on the card (or *Overview → This Pi → SSH access*) lets fetched keys work from anywhere.
 
 **Keys never arrive through the web page or a MegaNet request.** Only root writes the list — the
 SD card's import at boot, `sudo rpi-alert access`, and `rpi-alert-access.service` fetching the

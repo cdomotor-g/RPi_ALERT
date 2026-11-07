@@ -12,27 +12,39 @@ mode 0600 because it holds the ingest token):
 
 ## The web page
 
-- **Dashboard** — MegaNet, clock, location, power and temperature at a glance; each receiver's
-  state; the bursts of the last 30 minutes; readings as they arrive (protocol, format, address,
-  station, value in engineering units, signal, receiver).
+Six tabs, the first what the Pi's own screen shows:
+
+- **Overview** — what this Pi hears now: the counts at a glance; each receiver's state (for a
+  stick, each channel's level, bursts and readings, and a *Details* fold with its tuner, window, USB
+  port and what its decoders cost); the **last 10 bursts**, each with what it came to (its readings,
+  a repeat of one already heard, or nothing); the radio picture (spectrum and waterfall); Flood-Net
+  (sending, what is waiting, check-ins); and this Pi (temperature, load, memory). **Every setting is
+  folded under the card it belongs to**, each fold's one line saying what it is set to: under
+  *Receivers*, the RTL-SDR sticks (each stick's channels, window and tuner, with what they will cost
+  the Pi as they are typed; the defaults; decoding), serial devices and recordings; under
+  *Flood-Net*, the token and sending, and what Flood-Net may do here; under *This Pi*, location,
+  audio, screen, network (Wi-Fi scan and join, hostname), the hotspot (the Pi's own Wi-Fi network
+  for a phone where there is no other), the web page's password, SSH access (the `alert` account,
+  its keys and where each came from, password login, Flood-Net's team keys), and system and updates
+  (time zone, restart, reboot, shut down, updates). Looking needs no password; opening a fold asks
+  for it where one is set (this Pi's own screen never does). The Pi's own screen hides the folds.
+  A link to one setting: `http://rpi-alert.local/#set-sdr` (or `#set-meganet`, `#set-location`,
+  `#set-audio`, …; the old `#settings-…` links still work).
+- **Readings** — every reading decoded since the agent started, newest first (protocol, format,
+  address, station, value in engineering units, signal, receiver), and the stations heard most.
+- **Bursts** — every receiver's bursts over the last 30 minutes, 6 or 24 hours; every burst heard
+  since the page opened (and the half hour before), each with its length, its signal over the noise
+  floor and what it came to; and the bursts kept as recordings, each a download.
+- **Requests** — what Flood-Net's administrators asked this Pi to do from its Base Stations tab,
+  and whether it was done.
+- **Log** — the agent's own log, everything or only warnings and errors.
 - **Survey** — a site survey: start one now or at the next power-up, whether this Pi is ready to be
   left at a site with no network (receivers, location, clock, room on the card, power, token), and a
   table of every station it has heard there — good and bad frames, signal and SNR — readable on site
   before it is ever on a network. [survey.md](survey.md)
-- **Receivers** — everything known about each device: port, USB ids, speed, how it was recognised,
-  firmware, battery and noise floor (Quansheng), wire format and receiver clock (ERT-A2), tuner,
-  USB port, levels and spectrum (RTL-SDR), fix (GPS); a *Restart* button each, and *Remove* for one
-  that is unplugged.
-- **Settings** — MegaNet, location, RTL-SDR sticks (each stick's channels, window and tuner, with
-  what they will cost the Pi as they are typed; and the defaults), serial devices, audio, screen, network (Wi-Fi scan and join, hostname), the hotspot (the
-  Pi's own Wi-Fi network for a phone where there is no other: auto / on / off, its name and
-  password), web password,
-  remote management (what MegaNet's Base Stations tab may do, and what it last asked), SSH access
-  (the `alert` account, its keys and where each came from, password login, MegaNet's team keys),
-  time zone, restart/reboot/shut down, update check.
 
 **Several channels on one stick.** One stick decodes every channel in its *window* — a stretch of
-the band up to 2.4 MHz wide — all at the same time. Under **Settings → RTL-SDR** each stick's
+the band up to 2.4 MHz wide — all at the same time. Under **Overview → Receivers → RTL-SDR sticks** each stick's
 *Channels* are chips: × takes one away; type a frequency (a format after one sent in another:
 `152.4 EIF`) or tap one of the frequencies MegaNet's stations use — from the station register the
 Pi fetches each day, those used within 150 km of it first, each saying what it would do to the
@@ -60,7 +72,7 @@ More: [hardware.md](hardware.md#several-channels-on-one-stick).
 
 **Several RTL-SDR sticks.** Each stick is a receiver of its own, with its own MegaNet receiver id
 (`rpi-<host>-sdr1`, `-sdr2`, …) and name (*RTL-SDR*, *RTL-SDR 2*, …, numbered in USB port order).
-Under **Settings → RTL-SDR**, each stick has a block of its own: its channels, window, frame
+Under **Overview → Receivers → RTL-SDR sticks**, each stick has a block of its own: its channels, window, frame
 format, gain, ppm, squelch, bias tee and name, or it can be turned off. Each field shows the value
 the stick has, marked *default* (it follows **Defaults**, further down, which a new stick starts
 with) or *this stick's* — change a field and it is the stick's own; ↺ gives it back to the default.
@@ -90,7 +102,7 @@ reading by. A channel's line on the Overview counts its ALERT2 frames
 stays its legacy one. A Pi short of CPU can turn it off (`receivers.sdr.alert2: false`): each try
 costs a few tenths of a second on a Pi 4, and only bursts nothing else decoded are tried.
 
-<a id="lean-decoder"></a>**The decoder.** Under **Settings → RTL-SDR**, *Decoder* chooses how a burst is decoded, using
+<a id="lean-decoder"></a>**The decoder.** Under **Overview → Receivers → RTL-SDR sticks**, *Decoder* chooses how a burst is decoded, using
 MegaNet's own `alert-dsp.js` either way (MegaNet #259):
 
 - **Lean** (the default since 0.17, as on floodwarning.net): filters a burst once for each of its 9
@@ -114,7 +126,7 @@ The same choice is `receivers.sdr.decoder` (`lean`, `full`, `light`, `compare`, 
 the SD card. 0.16 wrote `full` into every settings file it saved, so 0.17 reads a 0.16 `full` as
 that default and makes it `lean`; a `compare` someone chose is kept.
 
-<a id="between-bursts"></a>**Between bursts.** Under **Settings → RTL-SDR**, *Between bursts* chooses what each channel's
+<a id="between-bursts"></a>**Between bursts.** Under **Overview → Receivers → RTL-SDR sticks**, *Between bursts* chooses what each channel's
 decoder does while nothing is on its channel (MegaNet's `BurstWatch`, #259 part 2):
 
 - **Filter every sample** (the default, as before 0.18): the decoder filters the stick's whole
@@ -159,7 +171,7 @@ uses: about 10 MB less a channel, the same readings.
 Since 0.17 only a stick's first channel works out the stick's spectrum for the waterfall: the other
 channels see the same slice, and skipping it saves a sixth of a channel's work between bursts.
 
-<a id="recordings"></a>**Recordings.** Under **Settings → Recordings**, list channels (MHz) to keep the IQ of every
+<a id="recordings"></a>**Recordings.** Under **Overview → Receivers → Recordings**, list channels (MHz) to keep the IQ of every
 burst heard on them — to see what is on a channel nothing here decodes yet (another format,
 another protocol), and to build the decoder that will — as ALERT2's was. Each burst is two files in
 `/var/lib/rpi-alert/recordings`: an `.iq8`, the channel's own 240 ksps as u8 I then Q, centred on
@@ -195,7 +207,7 @@ back or you press **Remove** — which forgets its name, its own settings and it
 in again, it is found as a new receiver.
 - **Log** — the agent's log, live.
 
-**Getting the token.** *Request a token* (Settings → MegaNet, or the banner while there is none)
+**Getting the token.** *Request a token* (Overview → Flood-Net → Token and sending, or the banner while there is none)
 makes a token on the Pi and asks MegaNet to approve it; the Pi shows a code and a QR code, an
 administrator signed in to MegaNet anywhere approves the request on MegaNet's **Admin** tab →
 **Ingest tokens**, and the token is saved by itself. The token being asked about waits in

@@ -79,7 +79,7 @@ running hours later.
 | `report` | health only; anything asked is refused (by MegaNet, and by the Pi too) |
 | `off` | no check-ins at all. Switched off while running, it says so once, so MegaNet shows "turned off" rather than a station that went quiet |
 
-Set it on the web page (**Settings → Remote management**), with `rpi-alert remote manage|report|off`,
+Set it on the web page (**Overview → Flood-Net → What Flood-Net may do here**), with `rpi-alert remote manage|report|off`,
 or with `remote_management = …` in `rpi-alert.conf`. `remote.idleS` (30–900 s, default 60) is how
 often to check in when nobody is watching.
 

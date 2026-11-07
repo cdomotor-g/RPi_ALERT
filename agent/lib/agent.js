@@ -228,6 +228,17 @@ class Agent extends EventEmitter {
     this.emit('device-event', { key: session.key, type, data });
   }
 
+  // What a burst came to, once decoded: { readings, copies, shadows, alert2,
+  // decoded }, on the newest burst from that receiver not yet told (within
+  // 10 s — a decode follows its burst by a fraction of a second).
+  burstOutcome(session, read) {
+    const receiver = session.name(), now = Date.now();
+    const b = this.bursts.find(x => x.key === session.key && x.receiver === receiver && !x.read && now - x.t < 10000);
+    if (!b) return;
+    b.read = read;
+    this.emit('burst-outcome', { t: b.t, key: b.key, receiver, read });
+  }
+
   deviceAttached(session) {
     const kind = session.kind === 'sdr' ? 'sdr' : session.type;
     if (!KINDS[kind] || !KINDS[kind].receiver) return;

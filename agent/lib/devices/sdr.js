@@ -252,6 +252,10 @@ class SdrChannel {
       this.agent.deviceReception(this, { protocol: 'alert', alert_id: null, ok: false, fault: 'undecoded', level_dbfs: level, ts,
         detail: { fmt, burst_ms: m.burst.ms, nf_dbfs: nf, freq_mhz: freq } });
     }
+    // What the burst came to, on the burst itself (the web page's burst
+    // tables): a repeat of a reading already heard is decoded, not "nothing".
+    if (m.burst) this.agent.burstOutcome(this, { readings: m.readings.length, copies: (m.copies || []).length, shadows: (m.shadows || []).length,
+      alert2: a2 || 0, decoded: !!(m.all || m.readings.length || (m.copies || []).length || a2) });
   }
 
   // receivers.sdr.decoder 'compare': the pipeline decoded this burst both ways

@@ -279,7 +279,7 @@ function applySystem(s, log) {
   if (s.updateNow) {
     // In the background: it waits for the network, and restarts the agent when done.
     const r = sh('systemctl', ['start', '--no-block', 'rpi-alert-update.service']);
-    log(r.ok ? 'installing the latest release (see Settings → System on the web page)' : 'could not start the update: ' + r.out);
+    log(r.ok ? 'installing the latest release (see Overview → This Pi → System and updates on the web page)' : 'could not start the update: ' + r.out);
   }
 }
 

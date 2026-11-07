@@ -72,7 +72,7 @@ badly each one strands somebody:
   longest heard is 349 bytes, 1.9 s); (4) self-reporting stations — 62721 and 62725 send their own
   sensors on 151.500, each report twice 2 s apart — are receptions only: their sensors become
   readings once MegaNet's register maps (station, sensor number) to an ALERT id.
-- ~~**A lighter burst decode**~~ — done in 0.16 (*Settings → RTL-SDR → Decoder*) and the default
+- ~~**A lighter burst decode**~~ — done in 0.16 (*Overview → Receivers → RTL-SDR sticks → Decoder*) and the default
   in 0.17 ([configuration.md](configuration.md#lean-decoder), MegaNet #259). *Compare* ran overnight
   at 18 Bateson: 14 of 11,628 live bursts read differently (0.12%), lean in 33–34% of the full
   decoder's time. 0.17 also fills the rings a block at a time (a quarter less work between bursts,
@@ -155,8 +155,8 @@ filters the stick's whole stream on its own (one stick, several channels, is don
 
 ## Operating
 
-- **Updates you can see coming, and undo.** Installing from the page exists (Settings → *Check for
-  updates* → *Install*). Missing: an *update available* badge that appears on its own (the Install
+- **Updates you can see coming, and undo.** Installing from the page exists (Overview → This Pi → System
+  and updates → *Check for updates* → *Install*). Missing: an *update available* badge that appears on its own (the Install
   button shows today only when the check's message matches `/is available/`), the release notes
   before installing, a *go back to the previous version* button beside the automatic two-minute
   rollback, and a channel or pinned version settable from MegaNet, so a fleet takes a release a few

@@ -587,7 +587,7 @@ async function hotspot(mode) {
   console.log('  Then open      http://' + h.address + '/');
   if (h.note) console.log(C.d + '  ' + h.note + C.x);
   if (h.error) console.log(C.y + '  ' + h.error + C.x);
-  if (!mode) console.log(C.d + '\nChange it: rpi-alert hotspot auto | on | off   (name and password: Settings → Hotspot, or hotspot_ssid / hotspot_password on the SD card)' + C.x);
+  if (!mode) console.log(C.d + '\nChange it: rpi-alert hotspot auto | on | off   (name and password: Overview → This Pi → Hotspot, or hotspot_ssid / hotspot_password on the SD card)' + C.x);
 }
 
 // ── site survey ──────────────────────────────────────────────────────────────

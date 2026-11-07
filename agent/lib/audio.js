@@ -180,7 +180,7 @@ class Audio {
   }
 
   fail(msg) {
-    if (msg !== this.lastErr) this.log.warn('audio: ' + msg + ' (check the speaker, or Settings → Audio → output)');
+    if (msg !== this.lastErr) this.log.warn('audio: ' + msg + ' (check the speaker, or Overview → This Pi → Audio → output)');
     this.lastErr = msg;
     this.broken = Date.now();
   }

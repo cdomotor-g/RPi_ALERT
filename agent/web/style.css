@@ -31,22 +31,26 @@ header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wra
   border: 1px solid var(--line); font-size: .82em; white-space: nowrap; }
 .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .chip.ok::before { background: var(--ok); } .chip.warn::before { background: var(--warn); } .chip.bad::before { background: var(--bad); }
-.tabs { display: flex; gap: 4px; }
-.tabs button { background: none; border: 0; color: var(--dim); padding: 8px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
-.tabs button[aria-selected="true"] { background: var(--panel2); color: var(--text); }
+.tabs { display: flex; gap: 2px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 8px 12px 6px; border-radius: 8px 8px 0 0;
+  font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.tabs button:hover { color: var(--text); background: color-mix(in srgb, var(--panel2) 60%, transparent); }
+.tabs button[aria-selected="true"] { color: var(--text); background: var(--panel2); border-bottom-color: var(--accent); font-weight: 600; }
 .banner { margin: 12px 16px 0; padding: 10px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 18%, var(--panel));
   border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line)); }
 .banner.bad { background: color-mix(in srgb, var(--bad) 18%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
 
 main { padding: 12px 16px 24px; max-width: 1400px; margin: 0 auto; }
 .kiosk main { max-width: 1880px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
-.card h2 { margin: 0 0 10px; font-size: 1.02em; font-weight: 650; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; min-width: 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.card h2 { margin: 0 0 10px; font-size: 1.08em; font-weight: 650; }
+.kiosk .card { margin-bottom: 12px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
 .grid2 > .card { margin-bottom: 0; }
 .grid2 { margin-bottom: 14px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 .stat .v { font-size: 1.6em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat .k { color: var(--dim); font-size: .82em; }
 
@@ -83,7 +87,6 @@ tr.fresh td { animation: flash 2s ease-out; }
 #f-access .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: .9em; margin-bottom: 8px; }
 #f-access .kv div:nth-child(odd) { color: var(--dim); }
 #f-access .kv div { min-width: 0; overflow-wrap: anywhere; }
-.remote-history { margin: 4px 0 8px; padding-left: 1.2em; }
 #f-access details ul { margin: 6px 0; padding-left: 1.2em; }
 .pill { font-size: .78em; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
 
@@ -100,8 +103,6 @@ tr.fresh td { animation: flash 2s ease-out; }
 
 /* Receivers: a block a device — a stick in its colour, a line a channel. */
 .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.all-bursts { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
-.all-bursts .chart-label { margin-top: 0; }
 .rx-list { display: grid; gap: 14px; }
 .rx-dev { border-left: 4px solid var(--c, var(--line)); padding: 2px 0 2px 12px; min-width: 0; }
 .dev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
@@ -118,9 +119,6 @@ tr.fresh td { animation: flash 2s ease-out; }
 .rx-more .chans { font-size: .9em; margin-bottom: 6px; }
 .rx-more .more-nf { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 4px 18px; }
 .rx-more .hist-nf { height: 70px; }
-/* Cards holding a table are given the whole width, one under the other: side
-   by side, their columns ran out of room and were cut off. */
-.stack > .card { margin-bottom: 14px; }
 
 /* Charts (charts.js): the canvas takes its size from here. */
 canvas.chart { width: 100%; height: 90px; display: block; touch-action: pan-y; }
@@ -235,8 +233,73 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .sv-big .name { font-size: 1.25em; font-weight: 650; }
 .sv-table td.st { white-space: normal; min-width: 12em; }
 footer { text-align: center; padding: 8px 16px 16px; }
+footer a { margin-left: 14px; }
+.kiosk-only { display: none; }
+.kiosk .kiosk-only { display: inline; }
+.kiosk.show-folds #show-settings { display: none; }
 @media (max-width: 720px) {
   header.top { gap: 8px; }
-  .tabs { width: 100%; overflow-x: auto; }
+  .tabs { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .tabs button { padding: 8px 10px 6px; }
+  .card { padding: 14px 14px; }
+  .fold > summary { padding-right: 6px; }
   .brand .sub { max-width: 70vw; }
+}
+
+/* ── Status words, coloured ─────────────────────────────────────────────── */
+.ok-t { color: var(--ok); font-weight: 600; } .warn-t { color: var(--warn); font-weight: 600; } .bad-t { color: var(--bad); font-weight: 600; }
+
+/* A card's facts: a name and what it is, a row each (the Flood-Net card). */
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 18px; font-size: .93em; }
+.kv > div:nth-child(odd) { color: var(--dim); }
+.kv > div { min-width: 0; overflow-wrap: anywhere; }
+
+/* ── Settings, folded under the card they belong to ─────────────────────── */
+.folds { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line); }
+.folds-h { font-size: .74em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 4px 2px; }
+.fold { border-radius: 8px; }
+.fold + .fold { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); border-top-left-radius: 0; border-top-right-radius: 0; }
+.fold > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 9px 10px 9px 30px;
+  position: relative; border-radius: 8px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: ""; position: absolute; left: 11px; top: 15px; width: 6px; height: 6px; border-right: 2px solid var(--dim);
+  border-bottom: 2px solid var(--dim); transform: rotate(-45deg); transition: transform .15s ease; }
+.fold[open] > summary::before { transform: rotate(45deg); top: 13px; }
+.fold > summary:hover { background: var(--panel2); }
+.fold[open] > summary { background: var(--panel2); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.fold-t { font-weight: 600; }
+.fold-s { color: var(--dim); font-size: .88em; min-width: 0; overflow-wrap: anywhere; }
+.fold-body { padding: 10px 12px 6px; margin: 0; border: 1px solid var(--panel2); border-top: 0; border-radius: 0 0 8px 8px; }
+.fold-lock { display: none; margin: 0; padding: 10px 12px; color: var(--dim); border: 1px solid var(--panel2); border-top: 0; border-radius: 0 0 8px 8px; }
+.fold-lock button { margin-left: 8px; }
+.no-config .fold > .fold-body { display: none; }
+.no-config .fold > .fold-lock { display: block; }
+/* On the Pi's own screen the settings stay out of sight until a link asks for one. */
+.kiosk:not(.show-folds) .folds { display: none; }
+.sub-fold { margin: 10px 0; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 8px; }
+.sub-fold > summary { cursor: pointer; font-weight: 600; font-size: .94em; }
+.sub-fold[open] > summary { margin-bottom: 4px; }
+.fold-body .stick-row { background: var(--bg); }
+
+/* ── Bursts: the Overview's last ten, the Bursts tab's last 200 ─────────── */
+table.bursts td { vertical-align: top; }
+table.bursts td.wrap { min-width: 14em; }
+table.bursts .proto { margin-right: 2px; }
+table.requests td { vertical-align: top; }
+#last-bursts-card .card-head a, #flood-card .card-head a { text-decoration: none; }
+#last-bursts-card .card-head a:hover, #flood-card .card-head a:hover { text-decoration: underline; }
+
+/* The log: a quiet panel to read from, warnings and errors coloured. */
+pre.log { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 40vh; }
+
+/* On a phone a burst is two lines — when and how strong, then what it came
+   to — rather than a table to scroll sideways. */
+@media (max-width: 720px) {
+  table.bursts thead { display: none; }
+  table.bursts tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 10px; padding: 7px 2px; border-bottom: 1px solid var(--line); }
+  table.bursts td { border: 0; padding: 1px 0; white-space: normal; }
+  table.bursts td:nth-child(2) { color: var(--dim); font-size: .88em; align-self: center; overflow-wrap: anywhere; }
+  table.bursts td:nth-child(3) { display: none; }
+  table.bursts td:nth-child(5) { grid-column: 1 / -1; min-width: 0; }
+  table.bursts tr.none td { grid-column: 1 / -1; }
 }

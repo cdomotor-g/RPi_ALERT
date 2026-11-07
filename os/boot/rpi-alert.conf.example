@@ -39,7 +39,7 @@ request_token = yes
 
 # ── RTL-SDR ─────────────────────────────────────────────────────────────────
 # For every stick. With several sticks, each can have channels of its own once
-# it has been plugged in: the web page (Settings → RTL-SDR), or
+# it has been plugged in: the web page (Overview → Receivers → RTL-SDR sticks), or
 # `rpi-alert sdr 2 freq 151.525` over SSH.
 #sdr_frequency_mhz = 151.5
 # One stick hears several channels at once when they are within about 1.9 MHz
@@ -120,7 +120,7 @@ request_token = yes
 #hostname = rpi-alert
 #ssh = on
 # Install new RPi ALERT releases by themselves, nightly between 3 and 4 am (or
-# turn this on in the web page's Settings → System). update = now installs the
+# turn this on in the web page's Overview → This Pi → System and updates). update = now installs the
 # latest release once, at this boot. Either way no re-flashing is needed.
 #auto_update = on
 #update = now

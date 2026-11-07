@@ -32,8 +32,9 @@
   "status": {
     "phase": "beta",
     "updated": "2026-11-08",
-    "summary": "Version 0.20.0 adds No narrower than and No wider than to each stick's window: Automatic keeps between them, and a channel the widest cannot hold is left out and says so — set on the Pi, its SD card, rpi-alert sdr, and Flood-Net's Base Stations tab. 0.19.1 showed the Between bursts check, which found filtering only around bursts misses some of the weakest bursts, so it stays off by default. 18 Bateson runs one RTL-SDR stick with five channels in a 960 kHz window; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "summary": "Version 0.21.0 reworks the web page: the Overview shows what the Pi hears now, with every setting folded under the card it belongs to (hidden on the Pi's own screen until asked), the last 10 bursts and what each came to; readings, bursts, Flood-Net's requests and the log each have a tab. 0.20.0 added a narrowest and a widest window for Automatic, on the Pi and in Flood-Net's Base Stations tab. 18 Bateson runs one RTL-SDR stick with five channels in a 960 kHz window; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
+      "v0.21.0: the web page — settings folded into the Overview's cards, a tab for each kind of log, the last 10 bursts",
       "v0.20.0: a narrowest and a widest window for Automatic, on the Pi and in Flood-Net",
       "v0.19.1: the Between bursts check's counts on the card and in Flood-Net",
       "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)"

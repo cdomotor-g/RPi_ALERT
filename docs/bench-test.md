@@ -55,7 +55,7 @@ the token's label, the clock **ok (ntp)**, and the location.
 1. With the V2 running as *RTL-SDR*, plug the V4 in beside it. Expect *RTL-SDR 2* within a few
    seconds — and *RTL-SDR* not renamed, not restarted (its Receivers card: same receiver id, no
    restarts), even though both sticks say serial 00000001.
-2. **Settings → RTL-SDR → Each stick**: give *RTL-SDR 2* another channel (or the same channel in
+2. **Overview → Receivers → RTL-SDR sticks → Each stick**: give *RTL-SDR 2* another channel (or the same channel in
    Enhanced iFLOWS) and save. Only that stick restarts; each now hears its own. `rpi-alert sdr`
    lists both with their USB ports.
 3. On the Overview, each stick's details: the *USB port* line should say *seen to be this stick*. Swap
@@ -66,7 +66,7 @@ the token's label, the clock **ok (ntp)**, and the location.
 
 ## 3b. Several channels on one stick
 
-1. **Settings → RTL-SDR**, the stick's *Channels*: a new install already has 151.5, 151.525, 151.95
+1. **Overview → Receivers → RTL-SDR sticks**, the stick's *Channels*: a new install already has 151.5, 151.525, 151.95
    and 152.4 there (MegaNet's channels); on one set up before that, tap them in the list under them
    (or whichever of the networks' channels the bench can hear) and save. Expect the stick in a
    1.44 MHz window, tuned to about 151.85 MHz: its Receivers card lists four channels, each with its own
@@ -74,7 +74,7 @@ the token's label, the clock **ok (ntp)**, and the location.
    has a green line for each.
 2. Readings now come from every channel — the dashboard names each *RTL-SDR · 151.500* and so on.
    Compare with MegaNet's Message Log, or a Quansheng radio on each channel in turn.
-3. Load: each channel's *Decoder busy* on the Overview, and the stick's in Settings → RTL-SDR (with
+3. Load: each channel's *Decoder busy* on the Overview, and the stick's in Overview → Receivers → RTL-SDR sticks (with
    what the agent measured a channel costs this Pi at each window: its log says so a couple of
    minutes after it starts). A Pi 4 should keep up with four channels in 1.44 MHz; a *dropping
    samples* warning means too many for this Pi (fewer, or closer together, or a narrower window).
@@ -107,7 +107,7 @@ readings tagged ALERT2. If the Overview says frame times are hours out, check th
 | Pull the power, restore it | everything comes back by itself; anything queued is sent |
 | Boot with no network at all, then connect it | readings show ⏳ (held for the clock) until NTP sets it, then are timed and sent |
 | A monitor plugged in / unplugged | the full-screen dashboard starts within ~10 s / stops |
-| A speaker in the audio jack | a chirp for each burst (Settings → Audio → *Test ALERT chirp*) |
+| A speaker in the audio jack | a chirp for each burst (Overview → This Pi → Audio → *Test ALERT chirp*) |
 
 ## 7. If something is wrong
 

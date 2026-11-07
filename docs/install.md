@@ -93,18 +93,18 @@ and writes what it did to `rpi-alert-boot.log` on the same drive.
 3. Open **http://rpi-alert.local/** (or the hostname you chose) from a computer on the same
    network. If `.local` names do not resolve there (some corporate networks), use the address
    your router lists for the Pi, or plug in a monitor: the console shows it.
-4. **Get the token — press *Request a token*** (the banner on the Overview, or **Settings →
-   MegaNet**). The Pi shows a code such as `WDJB-MJHT` and a QR code. On a phone or computer
+4. **Get the token — press *Request a token*** (the banner on the Overview, or **Overview →
+   Flood-Net → Token and sending**). The Pi shows a code such as `WDJB-MJHT` and a QR code. On a phone or computer
    signed in to MegaNet as an administrator, **scan the QR code** (or open MegaNet → **Admin** →
    **Ingest tokens**), check the request shows the same code, and press **Approve** — rename it
    there if you like. Within five seconds the Pi has its token and sends everything it has kept.
    A request lasts half an hour; *Stop asking* withdraws it. Set the base station's **name** in
-   Settings → MegaNet first and it asks under that name.
+   Overview → Flood-Net → Token and sending first and it asks under that name.
    (Pasting a token instead still works: paste it, press *Check token*, *Save*.)
-   **Settings → Location**: set where it is.
-5. **Dashboard**: each receiver appears within seconds of being plugged in; readings appear as they
-   are heard, with the station each address belongs to.
-6. **Settings → Web page password**: set one, so others on the network cannot change things.
+   **Overview → This Pi → Location**: set where it is.
+5. **Overview**: each receiver appears within seconds of being plugged in; readings appear as they
+   are heard (the *Readings* tab), with the station each address belongs to.
+6. **Overview → This Pi → Web page password**: set one, so others on the network cannot change things.
 
 **SSH:** `ssh alert@rpi-alert.local` with a key you put on the card (`ssh_key`, or the GitHub
 accounts in `ssh_github`), or the user you made in Imager. `rpi-alert access` shows who may log in;
@@ -116,7 +116,7 @@ with a key from `ssh_key`/`ssh_github`/`ssh_meganet_keys`, or set `alert_passwor
 If SSH did not start, `rpi-alert-boot.log` on the card says why.
 
 **MegaNet's Base Stations tab:** once the token is approved, the Pi checks in there once a minute,
-and MegaNet's administrators see its health and can manage it. **Settings → Remote management**
+and MegaNet's administrators see its health and can manage it. **Overview → Flood-Net → What Flood-Net may do here**
 narrows that to health only, or turns it off ([remote-management.md](remote-management.md)).
 
 Over SSH instead: `ssh <user>@rpi-alert.local`, then `rpi-alert setup` (questions for the
@@ -134,7 +134,7 @@ turns it down. The request appears on MegaNet's Admin tab under that name; its c
 
 Updates install over the network; the SD card never needs re-flashing for a new RPi ALERT.
 
-- **From the web page:** Settings → System → **Check for updates**, then **Install update**.
+- **From the web page:** Overview → This Pi → System and updates → **Check for updates**, then **Install update**.
   The page follows the install and reloads on the new version.
 - **Automatically:** tick *Install new releases automatically* there (or `auto_update = on` in
   `rpi-alert.conf`). A timer installs any newer release nightly, at a random time between 3 and 4 am.
@@ -149,7 +149,7 @@ rpi-alert-update` over SSH always installs the latest release, so it is also the
 Every route runs `rpi-alert-update.service`, which downloads the release and the version the Pi
 runs now, installs, and waits up to two minutes for the agent to answer as the new version. If it
 does not, the previous version is put back. Settings, the queue and the receiver ids are kept.
-The outcome shows on the Settings page; the detail is in `journalctl -u rpi-alert-update`.
+The outcome shows under Overview → This Pi → System and updates; the detail is in `journalctl -u rpi-alert-update`.
 
 Pis on 0.3.0 or earlier have no install button yet: install this once over SSH
 (`ssh = on` in `rpi-alert.conf` turns SSH on), and from then on the web page does it.

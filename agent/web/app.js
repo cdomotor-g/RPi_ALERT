@@ -127,12 +127,12 @@ function renderHeader() {
   const addr = (s.system.addresses || []).map(a => a.address).join(' · ');
   $('#host').textContent = s.system.hostname + '.local' + (addr ? ' · ' + addr : '') + ' · ' + (s.system.model || '');
   const m = s.meganet, chips = [], tr = s.tokenRequest || {};
-  if (tr.state === 'pending') chips.push(['warn', 'MegaNet: waiting for approval · ' + tr.code]);
-  else if (!m.tokenSet) chips.push(['warn', 'MegaNet: no token']);
-  else if (m.tokenRefused) chips.push(['bad', 'MegaNet: token refused']);
-  else if (!m.enabled) chips.push(['warn', 'MegaNet: sending off']);
-  else if (m.lastError) chips.push(['warn', 'MegaNet: retrying']);
-  else chips.push(['ok', 'MegaNet' + (m.label ? ': ' + m.label : '') + (m.lastOkAt ? ' · ' + ago(Date.now() - m.lastOkAt) : '')]);
+  if (tr.state === 'pending') chips.push(['warn', 'Flood-Net: waiting for approval · ' + tr.code]);
+  else if (!m.tokenSet) chips.push(['warn', 'Flood-Net: no token']);
+  else if (m.tokenRefused) chips.push(['bad', 'Flood-Net: token refused']);
+  else if (!m.enabled) chips.push(['warn', 'Flood-Net: sending off']);
+  else if (m.lastError) chips.push(['warn', 'Flood-Net: retrying']);
+  else chips.push(['ok', 'Flood-Net' + (m.label ? ': ' + m.label : '') + (m.lastOkAt ? ' · ' + ago(Date.now() - m.lastOkAt) : '')]);
   if (m.queued || m.waitingForClock) chips.push(['warn', (m.queued + m.waitingForClock) + ' waiting']);
   chips.push(s.clock.trusted ? ['ok', 'Clock: ' + s.clock.source] : ['warn', 'Clock: not set yet']);
   if (s.hotspot && s.hotspot.active) chips.push(['ok', 'Hotspot: ' + s.hotspot.ssid + (s.hotspot.clients ? ' · ' + s.hotspot.clients + ' on it' : '')]);
@@ -144,27 +144,27 @@ function renderHeader() {
   else if (s.system.power && s.system.power.underVoltageSinceBoot) chips.push(['warn', 'Under-voltage since boot']);
   if (s.system.tempC != null) chips.push([s.system.tempC > 75 ? 'bad' : s.system.tempC > 65 ? 'warn' : 'ok', s.system.tempC + ' °C']);
   // An administrator has this base station open on MegaNet's Base Stations tab.
-  if (s.remote && s.remote.watch && s.remote.state === 'ok') chips.push(['ok', 'MegaNet: an administrator is looking']);
+  if (s.remote && s.remote.watch && s.remote.state === 'ok') chips.push(['ok', 'Flood-Net: an administrator is looking']);
   $('#chips').innerHTML = chips.map(([c, t]) => '<span class="chip ' + c + '">' + esc(t) + '</span>').join('');
 
   const banners = [];
   const ask = '<button type="button" data-act="token-request"' + (tr.state === 'asking' ? ' disabled' : '') + '>Request a token</button>';
-  // Waiting: the card on the Dashboard and in Settings says it, larger; the
-  // other tabs get a line pointing back to it.
+  // Waiting: the card on the Overview says it, larger; the other tabs get a
+  // line pointing back to it.
   if (tr.state === 'pending') {
-    if (S.tab !== 'dash' && S.tab !== 'settings') banners.push(['', 'Waiting for an administrator to approve this base station — code <b class="mono">'
+    if (S.tab !== 'dash') banners.push(['', 'Waiting for an administrator to approve this base station — code <b class="mono">'
       + esc(tr.code) + '</b>. <a href="#dash">Show the QR code</a>']);
-  } else if (!m.tokenSet) banners.push(['', 'No MegaNet ingest token yet — readings are decoded and kept here, and sent once one is set. ' + ask
-    + ' <span class="dim">— an administrator approves it from their phone. Or paste one in <a href="#settings">Settings → MegaNet</a>.</span>']);
-  if (m.tokenRefused && tr.state !== 'pending') banners.push(['bad', esc(m.lastError) + ' ' + ask.replace('Request a token', 'Request a new token') + ' <a href="#settings">Settings → MegaNet</a>']);
+  } else if (!m.tokenSet) banners.push(['', 'No Flood-Net ingest token yet — readings are decoded and kept here, and sent once one is set. ' + ask
+    + ' <span class="dim">— an administrator approves it from their phone. Or paste one in <a href="#set-meganet">Flood-Net → Token and sending</a>.</span>']);
+  if (m.tokenRefused && tr.state !== 'pending') banners.push(['bad', esc(m.lastError) + ' ' + ask.replace('Request a token', 'Request a new token') + ' <a href="#set-meganet">Flood-Net → Token and sending</a>']);
   if (s.system.power && (s.system.power.underVoltageNow || s.system.power.underVoltageSinceBoot)) banners.push(['bad', 'The Pi has seen under-voltage. A weak power supply makes USB receivers drop out — use the official supply (5 V 3 A, or 5 A for a Pi 5).']);
   // Secure by default (H-4): a password is always set. The auto-generated one
   // is shown only on this Pi's own screen (a local request), so whoever stands
   // at the kiosk can read it and hand it out or change it; the network never
   // gets it. The old "no password set" line is kept as a fallback.
   if (s.auth && s.auth.initialPassword) banners.push(['', 'This base station\'s web password is <b class="mono">' + esc(s.auth.initialPassword)
-    + '</b> — other computers on the network need it to change settings. <a href="#settings">Change it</a>.']);
-  else if (s.auth && !s.auth.passwordSet && !s.auth.local) banners.push(['', 'No web page password is set, so anyone on this network can change these settings. <a href="#settings">Set one</a>.']);
+    + '</b> — other computers on the network need it to change settings. <a href="#set-security">Change it</a>.']);
+  else if (s.auth && !s.auth.passwordSet && !s.auth.local) banners.push(['', 'No web page password is set, so anyone on this network can change these settings. <a href="#set-security">Set one</a>.']);
   const b = $('#banner');
   b.hidden = !banners.length;
   b.className = 'banner' + (banners.some(x => x[0] === 'bad') ? ' bad' : '');
@@ -189,7 +189,7 @@ function untilText(sec) {
 
 function pairCardHtml(tr, where) {
   let qr = '';
-  try { qr = typeof QR !== 'undefined' ? QR.svg(tr.link, { ecl: 'M', label: 'QR code: open MegaNet\'s Admin tab on this request' }) : ''; } catch (_) {}
+  try { qr = typeof QR !== 'undefined' ? QR.svg(tr.link, { ecl: 'M', label: 'QR code: open Flood-Net\'s Admin tab on this request' }) : ''; } catch (_) {}
   return '<div class="card pair" role="status">'
     + '<h2>Waiting for an administrator to approve this base station</h2>'
     + '<div class="pair-body">'
@@ -197,13 +197,13 @@ function pairCardHtml(tr, where) {
     + '<div class="pair-text">'
     + '<div class="dim small">The code</div><div class="pair-code" aria-label="' + esc(tr.code.split('').join(' ')) + '">' + esc(tr.code) + '</div>'
     + '<ol class="pair-steps">'
-    + '<li>On a phone or computer signed in to MegaNet as an administrator, ' + (qr ? 'scan this QR code, or ' : '') + 'open MegaNet → <b>Admin</b> → <b>Ingest tokens</b>.</li>'
+    + '<li>On a phone or computer signed in to Flood-Net as an administrator, ' + (qr ? 'scan this QR code, or ' : '') + 'open Flood-Net → <b>Admin</b> → <b>Ingest tokens</b>.</li>'
     + '<li>Check the request shows <b class="mono">' + esc(tr.code) + '</b>, then press <b>Approve</b>.</li>'
     + '<li>This Pi starts sending by itself within a few seconds — nothing to type here.</li></ol>'
     + '<div class="dim small">Asking as “' + esc(tr.label || '') + '” · expires in <span data-expires>' + esc(untilText(tr.expiresInS)) + '</span>'
     + (tr.auto ? ' · asked by itself (request_token = yes)' : '') + '</div>'
     + '<div class="row-actions"><button type="button" class="ghost" data-act="token-cancel">Stop asking</button>'
-    + (where === 'dash' ? '' : '<a class="small" href="' + esc(tr.link) + '" target="_blank" rel="noopener">Open MegaNet</a>') + '</div>'
+    + (where === 'dash' ? '' : '<a class="small" href="' + esc(tr.link) + '" target="_blank" rel="noopener">Open Flood-Net</a>') + '</div>'
     + '</div></div></div>';
 }
 
@@ -227,11 +227,11 @@ function renderPair() {
     const working = m.tokenSet && !m.tokenRefused;
     set = '<div class="pair-ask"><div class="row-actions"><button type="button"' + (working ? ' class="ghost"' : '') + ' data-act="token-request"'
       + (tr.state === 'asking' ? ' disabled' : '') + '>'
-      + (tr.state === 'asking' ? 'Asking MegaNet…' : m.tokenSet ? 'Request a new token' : 'Request a token') + '</button></div>'
+      + (tr.state === 'asking' ? 'Asking Flood-Net…' : m.tokenSet ? 'Request a new token' : 'Request a token') + '</button></div>'
       + (working
         ? '<p class="hint">This Pi has a token that works. Ask for a new one only if it has been revoked or lost — once approved, the new one replaces it here, '
           + 'and the administrator can revoke the old one as they approve.</p>'
-        : '<p class="hint">Easiest: this Pi asks MegaNet for its token and shows a code; an administrator signed in to MegaNet on any device — '
+        : '<p class="hint">Easiest: this Pi asks Flood-Net for its token and shows a code; an administrator signed in to Flood-Net on any device — '
           + 'their phone — checks the code and approves it on the <b>Admin</b> tab. Nothing to copy or type, and nobody signs in here.</p>')
       + lastHtml(tr.last) + '</div>';
   }
@@ -286,7 +286,7 @@ function renderStats() {
   const rx = receivers().filter(d => d.kind !== 'gps');
   const stats = [
     ['Readings heard', s.counts.readings], ['ALERT', s.counts.alert || 0], ['ALERT2', s.counts.alert2 || 0],
-    ['Stored in MegaNet', m.accepted], ['Waiting to send', m.queued + m.waitingForClock],
+    ['Stored in Flood-Net', m.accepted], ['Waiting to send', m.queued + m.waitingForClock],
     ['Receivers receiving', rx.filter(d => d.state === 'running').length + ' / ' + rx.length],
   ];
   $('#stats').innerHTML = stats.map(([k, v]) => '<div class="stat"><div class="v">' + esc(v) + '</div><div class="k">' + esc(k) + '</div></div>').join('');
@@ -375,7 +375,8 @@ function readingRow(r, fresh) {
 }
 
 function renderReadings(freshOne) {
-  const n = KIOSK ? 40 : 150;
+  if (S.tab !== 'readings') return;
+  const n = 150;
   const list = S.readings.slice(0, n);
   $('#readings').innerHTML = list.length ? list.map((r, i) => readingRow(r, freshOne && i === 0)).join('')
     : '<tr><td colspan="7" class="dim">Nothing heard yet. Readings appear here as each burst is decoded.</td></tr>';
@@ -479,7 +480,7 @@ const readingOf = (r, d) => (r.receiverKey ? r.receiverKey === d.key : r.receive
 function liveChart(c, d, t0, t1) {
   const bursts = S.bursts.filter(b => b.t >= t0 && (!d || burstOf(b, d)));
   const reads = S.readings.filter(r => r.t >= t0 && (!d || readingOf(r, d)));
-  const decoded = (b) => b.frames > 0 || reads.some(r => Math.abs(r.t - b.t) < 4000 && (!b.key || !r.receiverKey || r.receiverKey === b.key));
+  const decoded = (b) => (b.read ? b.read.decoded : b.frames > 0 || reads.some(r => Math.abs(r.t - b.t) < 4000 && (!b.key || !r.receiverKey || r.receiverKey === b.key)));
   const stems = bursts.map(b => ({ t: b.t, f: burstF(b), color: decoded(b) ? '--ok' : '--warn', b }));
   Charts.draw(c, {
     t0, t1, stems, noY: true, xAxis: !d, gutter: d ? 26 : 0,
@@ -504,12 +505,13 @@ function renderCharts(now) {
 
 function drawCharts() {
   $$('[data-win]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.win === S.win)));
-  if (S.tab === 'dash') { drawRadio(); renderBursts(); renderRxList(); renderPi(); }
+  if (S.tab === 'dash') { drawRadio(); renderRxList(); renderPi(); renderLastBursts(); }
+  if (S.tab === 'bursts') { renderBursts(); renderBurstRows(); }
 }
 
 function renderBursts() {
   const c = $('#burst-canvas');
-  if (!c || S.tab !== 'dash') return;
+  if (!c || S.tab !== 'bursts') return;
   const w = WINDOWS[S.win], t1 = Date.now(), t0 = t1 - w.ms;
   if (S.win === '30m') {
     const n = liveChart(c, null, t0, t1);
@@ -522,6 +524,138 @@ function renderBursts() {
     $('#burst-count').textContent = n ? '(' + n + ' in ' + S.win.replace('h', ' h') + ')' : '';
     $('#burst-note').textContent = 'Every receiver together, ' + Math.round(w.bucket / MIN) + ' minutes a bar: bursts (pale) and the readings decoded from them (green).';
   }
+}
+
+// ── bursts as a table: the Overview's last ten, the Bursts tab's last 200 ──
+// A burst's readings: what its receiver decoded within 4 s of it.
+function burstReadings(b) {
+  return S.readings.filter(r => Math.abs(r.t - b.t) < 4000 && (r.receiver && b.receiver ? r.receiver === b.receiver : readingOf(r, { key: b.key })));
+}
+
+function burstRow(b) {
+  const rd = burstReadings(b);
+  const sig = b.kind === 'sdr'
+    ? (b.peakDb != null && b.nfDb != null ? '<span title="' + esc('peak ' + Math.round(b.peakDb) + ' dBFS over a floor of ' + Math.round(b.nfDb)) + '">' + Math.round(b.peakDb - b.nfDb) + ' dB</span>' : '')
+    : (b.peak != null ? esc(b.peak + ' dBm') : '');
+  // What it came to: its readings; or, told by the agent, a repeat, a shadow,
+  // ALERT2 frames with nothing new; or nothing.
+  const o = b.read;
+  const dec = rd.length
+    ? rd.slice(0, 3).map(r => protoTag(r.protocol) + ' ' + esc(r.alert_id) + ' = <b>' + esc(r.eng) + '</b>' + (r.station ? ' <span class="dim">' + esc(r.station.name) + '</span>' : '')).join('<br>')
+      + (rd.length > 3 ? ' <span class="dim">and ' + (rd.length - 3) + ' more</span>' : '')
+    : o && o.copies ? '<span class="dim" title="Another transmission of a reading heard in the last few seconds — a station\'s repeat, or a repeater\'s copy. Sent to Flood-Net as a reception, not as a reading again.">a repeat of a reading already heard</span>'
+    : o && o.decoded ? '<span class="dim" title="Decoded, and every reading in it was one already heard">decoded — nothing new</span>'
+    : o && o.shadows ? '<span class="warn-t" title="What it held was a weaker echo of a stronger station\'s reading, not a reading of its own">a shadow of another reading</span>'
+    : o || b.kind !== 'sdr' ? '<span class="warn-t" title="No reading came from it: too weak, two at once, or a format this receiver is not set to">nothing read</span>'
+    : '<span class="dim">…</span>';
+  return '<tr><td>' + hhmmss(b.t) + '</td><td>' + esc(b.receiver || '') + '</td><td class="num">' + (b.ms != null ? esc(b.ms) + ' ms' : '')
+    + '</td><td class="num">' + sig + '</td><td class="wrap">' + dec + '</td></tr>';
+}
+
+function renderLastBursts() {
+  const list = S.bursts.slice(0, 10);
+  setHtml($('#last-bursts'), list.length ? list.map(burstRow).join('')
+    : '<tr class="none"><td colspan="5" class="dim">No bursts yet. Each one heard shows here, with what it decoded.</td></tr>');
+}
+
+function renderBurstRows() {
+  const list = S.bursts.slice(0, 200);
+  setHtml($('#burst-rows'), list.length ? list.map(burstRow).join('') : '<tr class="none"><td colspan="5" class="dim">No bursts yet.</td></tr>');
+  const nRead = list.filter(b => burstReadings(b).length || (b.read && b.read.decoded)).length;
+  $('#burst-table-count').textContent = list.length ? '(' + list.length + (S.bursts.length > list.length ? ' of ' + S.bursts.length : '') + ', ' + nRead + ' read)' : '';
+}
+
+// ── the Flood-Net card: sending and check-ins, in words ─────────────────────
+function renderFlood() {
+  const s = S.status;
+  if (!s) return;
+  const m = s.meganet, r = s.remote || {}, tr = s.tokenRequest || {};
+  const sending = tr.state === 'pending' ? '<span class="warn-t">waiting for an administrator to approve this Pi (code ' + esc(tr.code) + ')</span>'
+    : !m.tokenSet ? '<span class="warn-t">no token yet</span> — readings are kept here until one is set'
+    : m.tokenRefused ? '<span class="bad-t">the token was refused</span>'
+    : !m.enabled ? '<span class="warn-t">turned off</span> — readings are kept here'
+    : m.lastError ? '<span class="warn-t">retrying</span> — ' + esc(m.lastError)
+    : '<span class="ok-t">sending</span>' + (m.label ? ' as “' + esc(m.label) + '”' : '');
+  const rows = [['Readings', sending]];
+  if (m.lastOkAt) rows.push(['Last sent', esc(ago(Date.now() - m.lastOkAt))]);
+  rows.push(['Stored there', esc(String(m.accepted || 0)) + (m.queued || m.waitingForClock ? ' · <span class="warn-t">' + esc(m.queued + m.waitingForClock) + ' waiting to send</span>' : ' · nothing waiting')]);
+  rows.push(['Check-ins', esc((REMOTE_STATES[r.state] || r.state || '—') + (r.state === 'ok' && r.lastOkAt ? ', last ' + ago(Date.now() - r.lastOkAt) : ''))
+    + (r.watch && r.state === 'ok' ? ' · an administrator has it open' : '')]);
+  setHtml($('#flood-now'), rows.map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join(''));
+}
+
+// ── the settings, folded under the Overview's cards ─────────────────────────
+// Each fold's one line says what it is set to, from the status (so it reads
+// before anybody logs in) or, once loaded, the settings themselves. Opening one
+// loads the settings — asking for the password where it is needed — and what
+// that fold shows that the status does not.
+
+const AUDIO_SUM = { auto: 'automatic', live: 'the SDR\'s real audio only', synth: 'a re-made burst a reading', beep: 'a beep a reading', off: 'off' };
+const SCREEN_SUM = { auto: 'the dashboard when a monitor is in', on: 'the dashboard whenever a monitor is in', off: 'text console only' };
+const REMOTE_SUM = { manage: 'may see its health and manage it', report: 'sees its health only', off: 'nothing — no check-ins' };
+const LOC_SUM = { gps: 'a GPS fix', manual: 'coordinates typed in', station: 'at a station', none: 'not given' };
+
+function foldOpen(name) { const f = $('.fold[data-fold="' + name + '"]'); return !!(f && f.open); }
+
+function renderFoldSums() {
+  const s = S.status, c = S.config;
+  if (!s) return;
+  const sticks = s.devices.sdrs.filter(d => d.state !== 'unplugged' && d.enabled !== false);
+  const chans = sticks.reduce((a, d) => a + (d.channels && d.channels.length ? d.channels.filter(x => x.inBand).length : 1), 0);
+  const widths = [...new Set(sticks.map(d => d.sampleRate).filter(Boolean))].map(SdrPlan.width);
+  const rec = s.recordings || {};
+  const sum = {
+    sdr: s.devices.sdrs.length ? sticks.length + ' stick' + (sticks.length === 1 ? '' : 's') + ' on · ' + chans + ' channel' + (chans === 1 ? '' : 's') + (widths.length ? ' · ' + widths.join(', ') : '') : 'no stick plugged in yet',
+    ports: s.devices.ports.length ? s.devices.ports.length + ' port' + (s.devices.ports.length === 1 ? '' : 's') : 'none plugged in',
+    record: rec.freqHz && rec.freqHz.length ? rec.freqHz.map(f => Channels.mhz(f)).join(', ') + ' MHz · ' + (rec.files || 0) + ' kept' : 'off',
+    meganet: !s.meganet.tokenSet ? 'no token yet' : (s.meganet.enabled ? 'sending' : 'sending off') + (s.meganet.label ? ' as “' + s.meganet.label + '”' : ''),
+    remote: REMOTE_SUM[s.remote && s.remote.mode] || '',
+    location: (LOC_SUM[s.location.source] || s.location.source) + (s.location.source === 'station' && s.location.stationName ? ': ' + s.location.stationName : ''),
+    audio: c ? (c.audio.enabled === false ? 'off' : (AUDIO_SUM[c.audio.mode] || c.audio.mode) + ' · volume ' + c.audio.volume + ' %') : (AUDIO_SUM[s.audio && s.audio.mode] || ''),
+    display: SCREEN_SUM[s.kiosk && s.kiosk.mode] || '',
+    network: (s.system.addresses || []).map(a => a.iface + ' ' + a.address).join(' · ') || 'no address',
+    hotspot: s.hotspot ? (s.hotspot.active ? 'on: ' + s.hotspot.ssid + (s.hotspot.clients ? ' · ' + s.hotspot.clients + ' on it' : '') : { auto: 'automatic — off now', on: 'always on', off: 'off' }[s.hotspot.mode] || '') : '',
+    security: s.auth && s.auth.passwordSet ? 'set' : 'none set',
+    access: 'SSH keys for the alert account',
+    system: 'RPi ALERT ' + s.version + ' · time zone ' + (s.clock.timezone || '—'),
+  };
+  for (const [k, v] of Object.entries(sum)) { const el = $('[data-sum="' + k + '"]'); if (el && el.textContent !== v) el.textContent = v; }
+}
+
+// The settings, for a fold just opened; and what only that fold shows.
+function foldOpened(f) {
+  const name = f.dataset.fold;
+  if (!S.config) loadConfig().catch(() => {});
+  if (name === 'network') loadNetwork();
+  if (name === 'access') loadAccess();
+  if (name === 'system') loadUpdate().then(u => { if (u && u.running) followUpdate(); });
+  if (S.config) {
+    if (name === 'sdr') sdrRender();
+    if (name === 'ports') renderPortOverrides();
+    if (name === 'hotspot') renderHotspot();
+  }
+  if (name === 'remote') renderRemote();
+}
+$$('.fold').forEach(f => f.addEventListener('toggle', () => { if (f.open) foldOpened(f); }));
+// Until the settings are read (the password, where one is asked), a fold says
+// so rather than showing empty fields.
+document.documentElement.classList.add('no-config');
+$$('.fold').forEach(f => {
+  const p = document.createElement('p');
+  p.className = 'fold-lock small';
+  p.innerHTML = 'Log in to see and change these. <button type="button" class="small" data-login>Log in</button>';
+  $('summary', f).after(p);
+});
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-login]')) { askLogin(); loadConfig().catch(() => {}); } });
+
+// A fold by its name, or the one holding form f-<name>: open, and in view.
+function openFold(name) {
+  const byForm = document.getElementById('f-' + name);
+  const f = $('.fold[data-fold="' + name + '"]') || (byForm && byForm.closest('.fold'));
+  if (!f) return;
+  document.documentElement.classList.add('show-folds');
+  if (!f.open) f.open = true; else foldOpened(f);
+  f.scrollIntoView({ block: 'start' });
 }
 
 // Each stick's colour, on the radio picture and beside its receivers.
@@ -597,7 +731,7 @@ function renderRxList() {
       el.style.setProperty('--c', sdr ? 'var(' + stickColor(d) + ')' : 'var(--line)');
       const a2 = sdr && d.channels.some(ch => ch.counts && (ch.counts.alert2 || ch.counts.alert2Bad));
       const act = d.state === 'unplugged'
-        ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '" title="Forget it: its name, its own settings and its MegaNet receiver id">Remove</button>'
+        ? '<button type="button" class="ghost small danger" data-forget="' + esc(d.key) + '" data-name="' + esc(d.name) + '" title="Forget it: its name, its own settings and its Flood-Net receiver id">Remove</button>'
         : '<button type="button" class="ghost small" data-restart="' + esc(d.key) + '">Restart</button>';
       setHtml($('.dev-head', el), '<span class="dot ' + esc(d.state) + '"></span><b class="name">' + esc(d.name) + '</b>'
         + (d.protocol ? protoTag(d.protocol) : '') + (a2 ? protoTag('alert2') : '') + '<span class="dim small">' + esc(stateLabel(d.state)) + '</span>'
@@ -796,7 +930,7 @@ function rxBodyHtml(d) {
   const multi = d.kind === 'sdr' && d.channels && d.channels.length > 1;
   const rows = [['State', esc(stateLabel(d.state)) + (d.error ? ' — ' + esc(d.error) : '')]];
   // A stick with several channels has a receiver id for each: in its table.
-  if (!multi) rows.push(['MegaNet receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']);
+  if (!multi) rows.push(['Flood-Net receiver id', d.pointId ? '<code>' + esc(d.pointId) + '</code>' : '']);
   if (d.kind === 'sdr') {
     rows.push(['Stick', esc([d.model, d.tuner, d.device.serial && 'SN ' + d.device.serial, 'USB ' + d.device.usb].filter(Boolean).join(' · '))]);
     rows.push(['USB port', esc(d.device.port || '?') + (d.opened ? ' <span class="dim">· ' + esc(openedText(d.opened)) + '</span>' : '')]);
@@ -811,7 +945,7 @@ function rxBodyHtml(d) {
       rows.push(['Tuned', esc((d.freqHz / 1e6).toFixed(4) + ' MHz channel, ' + windowText(d) + tuner)]);
       rows.push(['Format', esc(FORMAT_NAMES[d.format] || d.format) + (d.channels && d.channels[0] && d.channels[0].recording ? ' <span class="dim">· every burst recorded (Settings → Recordings)</span>' : '')]);
     }
-    rows.push(['Settings', esc(d.own.length ? 'its own ' + d.own.map(f => OWN_LABELS[f] || f).join(', ') + '; the rest shared' : 'the shared ones') + ' — <a href="#settings-sdr">change</a>']);
+    rows.push(['Settings', esc(d.own.length ? 'its own ' + d.own.map(f => OWN_LABELS[f] || f).join(', ') + '; the rest shared' : 'the shared ones') + ' — <a href="#set-sdr">change</a>']);
     if (d.level) {
       rows.push(['Signal', esc('ADC ' + d.level.dbfs + ' dBFS' + (d.level.clipPct ? ', clipping ' + d.level.clipPct + '%' : '')
         + (multi ? '' : ' · channel ' + d.level.chDb + ' dB, floor ' + d.level.nfDb + ' dB' + (d.level.open ? ' · squelch OPEN' : '')))]);
@@ -881,7 +1015,7 @@ function channelTable(d) {
       + '<td>' + (ld ? esc(decodeText(ld)) : '<span class="dim">—</span>') + '</td>'
       + '<td class="num"' + (ch.busy > 0.8 ? ' style="color: var(--warn)" title="Near its limit: it may fall behind and drop samples"' : '') + '>' + (ch.busy != null ? Math.round(ch.busy * 100) + ' %' : '<span class="dim">—</span>') + '</td></tr>';
   });
-  return '<div class="table-wrap chans"><table><thead><tr><th>Channel</th><th>Format</th><th>MegaNet receiver id</th><th>Signal</th><th>Heard</th><th>Last decode</th>'
+  return '<div class="table-wrap chans"><table><thead><tr><th>Channel</th><th>Format</th><th>Flood-Net receiver id</th><th>Signal</th><th>Heard</th><th>Last decode</th>'
     + '<th class="num" title="How busy its decoder is: the share of its thread\'s time spent working">Decoder busy</th></tr></thead><tbody>'
     + rows.join('') + '</tbody></table></div>';
 }
@@ -1167,7 +1301,10 @@ function wireRadioHover() {
 async function loadConfig() {
   const r = await api('/api/config');
   S.config = r.config;
+  document.documentElement.classList.toggle('no-config', false);
   fillForms();
+  renderFoldSums();
+  for (const f of $$('.fold')) if (f.open) foldOpened(f);
 }
 
 // The bursts kept as IQ (Settings → Recordings), newest first, each a download.
@@ -1327,7 +1464,7 @@ function wireSettings() {
     out.textContent = 'Checking…'; out.className = 'small';
     try {
       const r = await api('/api/token/test', { method: 'POST', body: { token: f.token.value.trim() } });
-      out.textContent = r.ok ? '✓ MegaNet accepts it' + (r.label ? ' — ingest point "' + r.label + '"' : '') + (r.note ? '. ' + r.note : '') : '✗ ' + r.error;
+      out.textContent = r.ok ? '✓ Flood-Net accepts it' + (r.label ? ' — ingest point "' + r.label + '"' : '') + (r.note ? '. ' + r.note : '') : '✗ ' + r.error;
       out.className = 'small status ' + (r.ok ? 'ok' : 'bad');
     } catch (e) { out.textContent = e.message; out.className = 'small status bad'; }
   });
@@ -1453,7 +1590,7 @@ function wireSettings() {
     const b = e.target.closest && e.target.closest('[data-forget]');
     if (!b || b.disabled) return;
     e.preventDefault();
-    if (!confirm('Remove ' + b.dataset.name + '?\n\nThe Pi forgets it: its name, its own settings and its MegaNet receiver id. If it is plugged in again, it is found as a new receiver.')) return;
+    if (!confirm('Remove ' + b.dataset.name + '?\n\nThe Pi forgets it: its name, its own settings and its Flood-Net receiver id. If it is plugged in again, it is found as a new receiver.')) return;
     b.disabled = true;
     try {
       await api('/api/devices/forget', { method: 'POST', body: { key: b.dataset.forget } });
@@ -1470,6 +1607,9 @@ async function loadNetwork() {
   } catch (e) { $('#net-status').textContent = e.message; }
 }
 
+const logPaced = paced(() => renderLog(), 500);
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-loglevel]'); if (b) { S.logLevel = b.dataset.loglevel; renderLog(); } });
+
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 // ── log ─────────────────────────────────────────────────────────────────────
@@ -1477,7 +1617,9 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 function renderLog() {
   const el = $('#log');
   const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
-  el.innerHTML = S.logLines.slice(-400).map(l => '<span class="' + l.level + '">' + esc(new Date(l.t).toLocaleTimeString() + ' ' + l.level.toUpperCase().padEnd(5) + ' [' + l.tag + '] ' + l.msg) + '</span>').join('\n');
+  const lines = S.logLevel === 'warn' ? S.logLines.filter(l => l.level === 'warn' || l.level === 'error') : S.logLines;
+  $$('[data-loglevel]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.loglevel === (S.logLevel || 'all'))));
+  el.innerHTML = (lines.length ? '' : '<span class="dim">' + (S.logLevel === 'warn' ? 'No warnings or errors in the lines kept.' : 'Nothing logged yet.') + '</span>') + lines.slice(-400).map(l => '<span class="' + l.level + '">' + esc(new Date(l.t).toLocaleTimeString() + ' ' + l.level.toUpperCase().padEnd(5) + ' [' + l.tag + '] ' + l.msg) + '</span>').join('\n');
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 
@@ -1487,6 +1629,7 @@ function askLogin() {
   const d = $('#login');
   if (!d.open) d.showModal();
 }
+$('#login-cancel').addEventListener('click', () => $('#login').close());
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
@@ -1524,7 +1667,7 @@ function renderSurvey() {
       + '<span class="dim">listening ' + durText(v.elapsedMs) + (v.endsInMs != null ? ' · ends in ' + durText(v.endsInMs) : ' · until ended') + '</span></div>'
       + '<div class="small">Started ' + esc(whenText(v.startedAt)) + (v.where ? ' at ' + v.where.lat.toFixed(5) + ', ' + v.where.lon.toFixed(5) + ' (' + esc(v.where.source) + ')' : ' — <b>no location</b>')
       + ' · ' + v.totals.ok + ' good frames, ' + v.totals.bad + ' bad, ' + v.totals.undecoded + ' undecoded bursts'
-      + (v.readings ? ' · readings go to MegaNet too' : ' · readings stay here (receptions go)') + '</div>'
+      + (v.readings ? ' · readings go to Flood-Net too' : ' · readings stay here (receptions go)') + '</div>'
       + (v.totals.untimed ? '<div class="small">' + v.totals.untimed + ' heard before the time was known — kept, and timed once it is.</div>' : '')
       + '<div class="row-actions"><button type="button" class="ghost danger" id="sv-end">End the survey</button><span class="dim small">Survey <span class="mono">' + esc(v.id) + '</span></span></div>';
   } else if (armed) {
@@ -1534,7 +1677,7 @@ function renderSurvey() {
   } else if (v.state === 'ended') {
     st = '<div class="sv-big"><span class="name">' + esc(v.name) + '</span><span class="chip">ended</span><span class="dim">' + esc(v.endedWhy || '') + '</span></div>'
       + '<div class="small">Listened ' + durText(v.elapsedMs) + ' · ' + v.totals.ok + ' good frames from ' + (v.stations || []).length + ' addresses. '
-      + 'What it heard goes to MegaNet as receptions once this Pi is on a network with a token (' + esc(waitingText()) + ').</div>';
+      + 'What it heard goes to Flood-Net as receptions once this Pi is on a network with a token (' + esc(waitingText()) + ').</div>';
   } else st = '<p class="dim">No survey yet.</p>';
   setHtml($('#sv-state'), st);
   $('#sv-form-h').textContent = run ? 'Start a different survey (ends this one)' : armed ? 'Arm a different survey' : 'Start a survey';
@@ -1542,7 +1685,7 @@ function renderSurvey() {
   if (end && !end.dataset.wired) {
     end.dataset.wired = '1';
     end.addEventListener('click', () => {
-      if (run && !confirm('End the survey "' + v.name + '"? What it heard is kept and still goes to MegaNet.')) return;
+      if (run && !confirm('End the survey "' + v.name + '"? What it heard is kept and still goes to Flood-Net.')) return;
       api('/api/survey', { method: 'POST', body: { action: 'end' } }).then(r => { S.survey = r; renderSurvey(); }).catch(e => alert(e.message));
     });
   }
@@ -1598,10 +1741,10 @@ async function refresh() {
     if (KIOSK && S.version && S.status.version && S.status.version !== S.version) { location.reload(); return; }
     S.version = S.version || S.status.version;
     collectSpectra();
-    renderHeader(); renderStats();
+    renderHeader(); renderStats(); renderFlood(); renderFoldSums(); renderRemote();
     renderCharts();
     if (S.tab === 'survey') loadSurvey();
-    if (S.tab === 'settings' && S.config) { renderPortOverrides(); sdrRender(); renderRemote(); renderHotspot(); }
+    if (S.config) { if (foldOpen('ports')) renderPortOverrides(); if (foldOpen('sdr')) sdrRender(); if (foldOpen('hotspot')) renderHotspot(); }
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;
   }
@@ -1613,17 +1756,21 @@ function connectEvents() {
   S.sse = es;
   es.addEventListener('reading', (e) => { S.readings.unshift(JSON.parse(e.data)); if (S.readings.length > 500) S.readings.length = 500; readingsPaced(true); renderCharts(); });
   es.addEventListener('burst', (e) => { S.bursts.unshift(JSON.parse(e.data)); if (S.bursts.length > 2000) S.bursts.length = 2000; renderCharts(); });
+  es.addEventListener('burst-outcome', (e) => {
+    const o = JSON.parse(e.data), b = S.bursts.find(x => x.t === o.t && x.receiver === o.receiver);
+    if (b) { b.read = o.read; renderCharts(); }
+  });
   es.addEventListener('tick', () => refresh());
   es.addEventListener('devices', () => refresh());
   // Approved: the settings page shows the token as set, without a reload.
   es.addEventListener('token-request', (e) => {
     let t = null; try { t = JSON.parse(e.data); } catch (_) {}
     refresh();
-    if (t && t.last && t.last.status === 'approved' && S.tab === 'settings') loadConfig().catch(() => {});
+    if (t && t.last && t.last.status === 'approved' && S.config) loadConfig().catch(() => {});
   });
-  es.addEventListener('remote', () => { if (S.tab === 'settings') refresh(); });
+  es.addEventListener('remote', () => refresh());
   es.addEventListener('survey', () => { refresh(); if (S.tab === 'survey') loadSurvey(true); });
-  es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') renderLog(); });
+  es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') logPaced(); });
   es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
 }
 
@@ -1691,8 +1838,8 @@ function bindUpdates() {
 // ── remote management (MegaNet's Base Stations tab) ─────────────────────────
 
 const REMOTE_STATES = {
-  ok: 'checking in', starting: 'starting', 'no-token': 'waiting for a MegaNet token', off: 'off — this base station does not check in',
-  unsupported: 'MegaNet does not take check-ins yet', refused: 'MegaNet refused the ingest token', error: 'cannot reach MegaNet just now',
+  ok: 'checking in', starting: 'starting', 'no-token': 'waiting for a Flood-Net token', off: 'off — this base station does not check in',
+  unsupported: 'Flood-Net does not take check-ins yet', refused: 'Flood-Net refused the ingest token', error: 'cannot reach Flood-Net just now',
 };
 
 function renderRemote() {
@@ -1703,19 +1850,24 @@ function renderRemote() {
   if (r.state === 'ok' && r.label) bits.push('as “' + r.label + '”');
   if (r.watch && r.state === 'ok') bits.push('an administrator has it open, so it checks in every few seconds');
   if (r.lastError && r.state !== 'ok') bits.push(r.lastError);
-  const st = $('#remote-state');
-  st.textContent = 'Now: ' + bits.join(' · ') + '.';
-  st.className = 'small ' + (r.state === 'refused' || r.state === 'error' ? 'status bad' : '');
+  for (const st of [$('#remote-state'), $('#req-state')]) {
+    if (!st) continue;
+    st.textContent = 'Now: ' + bits.join(' · ') + '.';
+    st.className = 'small ' + (r.state === 'refused' || r.state === 'error' ? 'status bad' : '');
+  }
+  if (S.tab !== 'requests') return;
   const hist = (r.history || []);
   setHtml($('#remote-history'), hist.length
-    ? '<div class="small dim">Asked from MegaNet:</div><ul class="small remote-history">' + hist.map(h => '<li>' + esc(hhmmss(h.at)) + ' — ' + esc(h.label)
-      + (h.detail ? ' <span class="dim">(' + esc(h.detail) + ')</span>' : '') + ' — ' + (h.ok ? '<span class="status ok">done</span>' : '<span class="status bad">not done: ' + esc(h.error || '') + '</span>') + '</li>').join('') + '</ul>'
-    : '<p class="small dim">Nothing asked from MegaNet since the agent started.</p>');
+    ? '<div class="table-wrap"><table class="requests"><thead><tr><th>Time</th><th>Asked to</th><th>What</th><th>Result</th></tr></thead><tbody>'
+      + hist.map(h => '<tr><td>' + esc(hhmmss(h.at)) + '</td><td>' + esc(h.label) + '</td><td class="wrap dim small">' + esc(h.detail || '') + '</td><td class="wrap">'
+        + (h.ok ? '<span class="ok-t">done</span>' : '<span class="bad-t">not done</span>' + (h.error ? ' <span class="small">' + esc(h.error) + '</span>' : '')) + '</td></tr>').join('')
+      + '</tbody></table></div>'
+    : '<p class="small dim">Nothing asked from Flood-Net since the agent started.</p>');
 }
 
 // ── SSH access ──────────────────────────────────────────────────────────────
 
-const KEY_SOURCES = { local: 'this Pi (SD card or sudo)', github: 'GitHub', meganet: 'MegaNet team keys' };
+const KEY_SOURCES = { local: 'this Pi (SD card or sudo)', github: 'GitHub', meganet: 'Flood-Net team keys' };
 const KEY_TYPES = { 'ssh-ed25519': 'Ed25519', 'sk-ssh-ed25519@openssh.com': 'Ed25519, security key', 'ssh-rsa': 'RSA',
   'sk-ecdsa-sha2-nistp256@openssh.com': 'ECDSA, security key' };
 const keyType = (t) => KEY_TYPES[t] || (/^ecdsa/.test(t) ? 'ECDSA' : t);
@@ -1773,7 +1925,7 @@ function bindRemote() {
     const f = e.target;
     try {
       await api('/api/remote', { method: 'POST', body: { mode: f.mode.value } });
-      flash(f, f.mode.value === 'off' ? 'Saved — MegaNet is told once, then nothing.' : 'Saved.', true);
+      flash(f, f.mode.value === 'off' ? 'Saved — Flood-Net is told once, then nothing.' : 'Saved.', true);
       loadConfig().catch(() => {}); refresh();
     } catch (err) { flash(f, err.message, false); }
   });
@@ -1782,33 +1934,46 @@ function bindRemote() {
   $('#acc-password').addEventListener('change', (e) => accessSet({ set: 'password', value: e.target.value },
     e.target.value === 'on' ? 'Accept passwords over SSH? Anyone who can reach this Pi can then try them.' : null));
   $('#acc-meganet').addEventListener('change', (e) => accessSet({ set: 'meganet', value: e.target.value },
-    e.target.value === 'on' ? 'Let MegaNet\'s team SSH keys log in as alert (with sudo)? Its administrators keep that list.' : null));
+    e.target.value === 'on' ? 'Let Flood-Net\'s team SSH keys log in as alert (with sudo)? Its administrators keep that list.' : null));
   $('#acc-from').addEventListener('change', (e) => accessSet({ set: 'from', value: e.target.value },
-    e.target.value === 'any' ? 'Let keys fetched from GitHub and MegaNet work from any address, not only private networks?' : null));
+    e.target.value === 'any' ? 'Let keys fetched from GitHub and Flood-Net work from any address, not only private networks?' : null));
   $('#acc-sync').addEventListener('click', () => accessSet({ sync: true }));
 }
 
 function showTab(t) {
+  if (!document.getElementById('tab-' + t)) t = 'dash';
   S.tab = t;
   renderHeader();
   $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   $$('.tab').forEach(s => { s.hidden = s.id !== 'tab-' + t; });
   if (t === 'survey') loadSurvey(true);
-  if (t === 'settings') { loadConfig().catch(() => {}); loadRecordings(); loadNetwork(); loadUpdate().then(u => { if (u && u.running) followUpdate(); }); loadAccess(); }
+  if (t === 'readings') renderReadings();
+  if (t === 'bursts') loadRecordings();
+  if (t === 'requests') renderRemote();
   if (t === 'log') api('/api/log?n=300').then(r => { S.logLines = r.lines; renderLog(); }).catch(() => {});
-  if (t === 'dash') renderCharts(true);
+  if (t === 'dash' || t === 'bursts') renderCharts(true);
 }
 
-// #settings, or #settings-sdr: the tab, then that card (id f-sdr). #rx, the
-// Receivers tab that was: the Overview's receivers.
+// A tab by name (#readings); a setting (#set-sdr: the fold holding form
+// f-sdr, open). Settings were a tab once: #settings and #settings-sdr still
+// lead to them. #rx, the Receivers tab that was: the Overview's receivers.
 function route() {
-  const h = location.hash.slice(1) || 'dash';
+  let h = location.hash.slice(1) || 'dash';
   if (h === 'rx') { showTab('dash'); $('#receivers').scrollIntoView({ block: 'start' }); return; }
-  const tab = h.split('-')[0];
-  showTab(tab);
-  const card = h !== tab && document.getElementById('f-' + h.slice(tab.length + 1));
-  if (card) card.scrollIntoView({ block: 'start' });
+  if (h === 'settings') h = 'set-meganet';
+  else if (h.startsWith('settings-')) h = 'set-' + h.slice(9);
+  if (h.startsWith('set-')) { showTab('dash'); openFold(h.slice(4)); return; }
+  showTab(h);
 }
+// The Pi's own screen keeps the settings out of sight until asked.
+$('#show-settings').addEventListener('click', (e) => { e.preventDefault(); document.documentElement.classList.add('show-folds'); $('#receivers').scrollIntoView({ block: 'start' }); });
+// A link to a setting already in the address bar opens it again.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[href^="#set-"]');
+  if (!a || location.hash !== a.getAttribute('href')) return;
+  e.preventDefault();
+  route();
+});
 
 $$('.tabs button').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', route);
@@ -1818,7 +1983,10 @@ window.addEventListener('resize', debounce(() => renderCharts(true), 200));
   wireSettings();
   wireSurvey();
   await refresh();
-  try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); } catch (_) {}
+  // Read at once where no password is asked (this Pi's own screen, or logged
+  // in): the folds' lines and forms are filled. Elsewhere, a fold opened asks.
+  if (S.status && S.status.auth && S.status.auth.authed) loadConfig().catch(() => {});
+  try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); renderCharts(true); } catch (_) {}
   loadHistory();
   setInterval(loadHistory, 60 * 1000);
   connectEvents();
