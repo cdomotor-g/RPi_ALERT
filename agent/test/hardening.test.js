@@ -94,3 +94,10 @@ test('H-4: a fresh Pi generates a web password, and a chosen one replaces it', (
   delete require.cache[require.resolve('../lib/web-password')];
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('the generated web password is never written to the log MegaNet can read back', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../lib/agent.js'), 'utf8');
+  const call = src.slice(src.indexOf('webpw.ensure(this.config)'), src.indexOf('this.clock.start()'));
+  assert.ok(call.includes('log.warn'), 'the notice is still logged');
+  assert.ok(!/\+\s*pw\b/.test(call), 'but without the password in it');
+});

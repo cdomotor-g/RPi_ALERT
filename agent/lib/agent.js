@@ -92,8 +92,9 @@ class Agent extends EventEmitter {
     // and in `rpi-alert status`; the network never sees the value (H-4).
     try {
       const pw = webpw.ensure(this.config);
-      if (pw) this.log.warn('No web password was set — generated one: ' + pw
-        + '  (shown on this Pi\'s screen and by `rpi-alert status`; change it in Settings, or with `rpi-alert password`)');
+      // The value goes to the screen and `rpi-alert status` only: this log is what MegaNet's `log` command returns.
+      if (pw) this.log.warn('No web password was set — a new one was generated '
+        + '(shown on this Pi\'s screen and by `rpi-alert status`; change it in Settings, or with `rpi-alert password`)');
     } catch (e) { this.log.warn('could not set an initial web password: ' + e.message); }
     this.clock.start();
     this.uplink.start();
