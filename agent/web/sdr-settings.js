@@ -214,7 +214,10 @@ function sdrRateOptions(ed) {
   };
   for (const o of sel.options) {
     const r = Number(o.value), p = sdrPlan(v, st, r);
-    const t = (r ? SdrPlan.width(r) + (r === SdrPlan.RATES[0] ? ', the lightest' : '') : 'Automatic: ' + SdrPlan.width(p.sampleRate)) + tail(p);
+    // Each with the stretch of the band it would take, in MHz: the stick samples
+    // only certain widths, so these edges are the ones it can have.
+    const t = (r ? SdrPlan.width(r) + (r === SdrPlan.RATES[0] ? ', the lightest' : '') : 'Automatic: ' + SdrPlan.width(p.sampleRate))
+      + ' (' + sdrMhz(p.lowHz) + '–' + sdrMhz(p.highHz) + ')' + tail(p);
     if (o.textContent !== t) o.textContent = t;
   }
   // The limits apply to Automatic alone.

@@ -14,11 +14,12 @@ mode 0600 because it holds the ingest token):
 
 Six tabs, the first what the Pi's own screen shows:
 
-- **Overview** — what this Pi hears now: the counts at a glance; each receiver's state (for a
+- **Overview** — the plots together at the top: this Pi's temperature, load and memory, and the
+  radio picture (spectrum and waterfall); then the counts at a glance; each receiver's state (for a
   stick, each channel's level, bursts and readings, and a *Details* fold with its tuner, window, USB
-  port and what its decoders cost); the **last 10 bursts**, each with what it came to (its readings,
-  a repeat of one already heard, or nothing); the radio picture (spectrum and waterfall); Flood-Net
-  (sending, what is waiting, check-ins); and this Pi (temperature, load, memory). **Every setting is
+  port and what its decoders cost) with its charts over 30 minutes, 6 or 24 hours; the **last 10
+  bursts**, each with what it came to (its readings, a repeat of one already heard, or nothing);
+  Flood-Net (sending, what is waiting, check-ins); and this Pi's settings. **Every setting is
   folded under the card it belongs to**, each fold's one line saying what it is set to: under
   *Receivers*, the RTL-SDR sticks (each stick's channels, window and tuner, with what they will cost
   the Pi as they are typed; the defaults; decoding), serial devices and recordings; under
@@ -55,7 +56,18 @@ stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and count
 **The window.** Every channel's decoder takes in a stick's whole window, so the window is what a
 stick costs the Pi, and a wider one hears no channel better. *Automatic* is the narrowest that holds
 the stick's channels: 240 kHz for channels within 162 kHz of each other, then 960 kHz, 1.2, 1.44,
-1.92 and 2.4 MHz. Since 0.20 *No narrower than* and *No wider than* keep Automatic between two
+1.92 and 2.4 MHz. **288 kHz** (0.22) lies between 240 kHz and 960 kHz: five channels 75 kHz apart
+(151.500–151.575) fit in it with the DC spike 20 kHz clear, where 240 kHz holds four — at about
+three fifths of 960 kHz's work a channel (0.62, measured on a PC), twice 240 kHz's. Automatic takes it only where *No narrower than* or *No
+wider than* names it, or it is chosen as the window. **Why not any width you type?** The stick's
+chip, the RTL2832U, samples only from 225 to 300 kHz or from 900 kHz up — nothing between — and the
+window is as wide as it samples; the decoder wants 240 kHz, which a whole multiple, or 288 kHz
+(resampled by 5/6), gives it exactly. So a range typed as 151.425–151.6 MHz is 175 kHz: no stick can
+take exactly that, and the nearest it can that holds five channels there is 288 kHz. The settings
+show each window's real edges in MHz. Signals outside a stick's channels but inside its window do
+not reach the decoders — each channel is filtered down to its own ±12 kHz — unless they are strong
+enough to overload the stick (its *ADC* level on the Overview near 0 dBFS); a narrower window
+mostly saves the Pi's work. Since 0.20 *No narrower than* and *No wider than* keep Automatic between two
 windows: a widest keeps a stick light whatever channels it is given — a channel it cannot hold is
 not decoded, and the stick says which and what a wider window would cost — and a narrowest shows
 more of the band on the waterfall (limits that cross: the widest wins). A window chosen by hand is
@@ -275,7 +287,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `sdr_more_channels_mhz` | e.g. `151.525, 152.4`, or none | `receivers.sdr.moreChannels` alone |
 | `sdr_format` | binary / enhanced_iflows / ascii | `receivers.sdr.format` |
 | `sdr_gain_db` | dB, or auto | `receivers.sdr.gainDb` |
-| `sdr_sample_rate` | auto, or 240000, 960000, 1200000, 1440000, 1920000, 2400000 | `receivers.sdr.sampleRate`: the window (auto: the narrowest that holds the channels) |
+| `sdr_sample_rate` | auto, or 240000, 288000, 960000, 1200000, 1440000, 1920000, 2400000 | `receivers.sdr.sampleRate`: the window (auto: the narrowest that holds the channels) |
 | `sdr_sample_rate_min`, `sdr_sample_rate_max` | none, or one of the windows above | `receivers.sdr.sampleRateMin` / `sampleRateMax` (0.20): the narrowest and the widest window *auto* may take |
 | `sdr_ppm`, `sdr_bias_tee`, `sdr_squelch_db`, `sdr_decoder` (`lean`/`full`/`light`/`compare`/`compare-light`), `sdr_watch` (`always`/`bursts`/`check`), `sdr` (on/off) | | `receivers.sdr.*` — every stick's; a stick's own settings are made once it has been plugged in (web page, or `rpi-alert sdr`) |
 | `auto_detect` | yes / no | `receivers.autoDetect` |
@@ -326,7 +338,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdr.freqHz` | 151500000 | The ALERT channel (a stick's own) |
 | `receivers.sdr.moreChannels` | 151.525, 151.95 and 152.4 MHz | More channels for the same stick to decode at once, each a receiver of its own: `[{ freqHz, format }]`, `format` left out for the stick's own. At most 7, within 1.89 MHz of each other and of `freqHz` (the widest window); none listed twice. By default the rest of the channels MegaNet's stations use, so a new base station hears all four. While they are those, a change to `freqHz` alone (MegaNet's Base Stations tab, `rpi-alert config set`) keeps them: the channel moved to stops being a more channel, the one left becomes one, and any too far from the new one to share the stick are dropped. More channels anyone chose stay as they are |
 | `receivers.sdr.format` | BINARY | BINARY · ENHANCED_IFLOWS · ASCII (one per channel: alert-dsp.js explains why) |
-| `receivers.sdr.sampleRate` | 0 (auto) | A stick's window, in samples a second. 0: the narrowest that holds its channels — 20 kHz or more from the DC spike, clear of each other's mirror images. Or exactly one of 240000, 960000, 1200000, 1440000, 1920000, 2400000; a channel that does not fit in it is not decoded, and says so. Every channel's decoder takes in the whole window: 960000 is about three times 240000's work a channel, 1920000 five. Settings from before 0.15 (version 1), where a rate set by hand was raised for channels that needed more, are carried over: 240000 — set to mean as light as the channels allow — becomes 0, which now means that; any other is kept, exactly |
+| `receivers.sdr.sampleRate` | 0 (auto) | A stick's window, in samples a second. 0: the narrowest that holds its channels — 20 kHz or more from the DC spike, clear of each other's mirror images. Or exactly one of 240000, 288000 (0.22), 960000, 1200000, 1440000, 1920000, 2400000; a channel that does not fit in it is not decoded, and says so. Every channel's decoder takes in the whole window: 960000 is about three times 240000's work a channel, 1920000 five. Settings from before 0.15 (version 1), where a rate set by hand was raised for channels that needed more, are carried over: 240000 — set to mean as light as the channels allow — becomes 0, which now means that; any other is kept, exactly |
 | `receivers.sdr.sampleRateMin`, `sampleRateMax` | 0, 0 (no limits) | 0.20: with `sampleRate` 0, the narrowest and the widest window it may take — each 0 or one of the windows above. Automatic takes the narrowest that holds the channels, then the narrowest allowed if that is narrower, or the widest allowed if it is wider (the channels that do not fit are not decoded, and say so). The narrowest may not be wider than the widest; where a stick's own and the shared ones cross, the widest wins. Each stick may have its own |
 | `receivers.sdr.offsetHz` | 0 (auto) | One channel: tune this far below it (default rate/4) to keep the DC spike off it. Several are placed by the agent |
 | `receivers.sdr.gainDb` | 29.7 | null = tuner AGC |

@@ -58,11 +58,16 @@
   // the RTL2832U's 28.8 MHz (÷120, 30, 24, 20, 15, 12), inside its two valid
   // bands (225–300 k and 0.9–3.2 M). AlertDsp.DEVICE_RATES, the ones
   // MegaNet's SDR card offers, are among them.
-  const RATES = [240000, 960000, 1200000, 1440000, 1920000, 2400000];
+  // 288k (0.22): in the RTL2832U's low band (up to 300k) and 28.8 MHz ÷ 100,
+  // but not a whole multiple of 240k — MegaNet's decoder resamples it by 5/6.
+  // Five channels 75 kHz apart fit in it with the DC spike 20 kHz clear, where
+  // 240k holds four. New, so Automatic takes it only where a limit names it.
+  const RATES = [240000, 288000, 960000, 1200000, 1440000, 1920000, 2400000];
+  const ASKED_ONLY = [288000];
   // A channel's decoding at each window against one at 240 ksps — steady
   // state, between bursts (a burst's decode is the same work at any window).
   // lib/devices/sdr-bench.js measures this Pi's own.
-  const COST = { 240000: 1, 960000: 3, 1200000: 3.7, 1440000: 4.1, 1920000: 5.1, 2400000: 6.3 };
+  const COST = { 240000: 1, 288000: 2.1, 960000: 3, 1200000: 3.7, 1440000: 4.1, 1920000: 5.1, 2400000: 6.3 };
   const USABLE = 0.8;          // of the sample rate, around the centre
   const CH_HALF = 15000;       // a channel's own width either side: the decoder's ±10 kHz carrier search, and the signal
   const DC_MIN = 20000;        // never a channel nearer than this to the DC spike
@@ -145,10 +150,12 @@
   }
 
   // The windows automatic may take, narrowest first: those from lo to hi
-  // (0: no limit that side). Limits that cross keep the widest allowed alone.
+  // (0: no limit that side) — 288k only where lo or hi names it. Limits that
+  // cross keep the widest allowed alone.
   function allowedRates(lo, hi) {
-    const ok = RATES.filter(r => (!lo || r >= lo) && (!hi || r <= hi));
-    return ok.length ? ok : hi ? [hi] : RATES;
+    const ladder = RATES.filter(r => !ASKED_ONLY.includes(r) || r === lo || r === hi);
+    const ok = ladder.filter(r => (!lo || r >= lo) && (!hi || r <= hi));
+    return ok.length ? ok : hi ? [hi] : ladder;
   }
 
   function compute(chans, asked, offsetHz, prefer, lo, hi) {
@@ -169,7 +176,7 @@
     // kept between the limits — the narrowest allowed when they need less,
     // the widest allowed when they need more (or no window holds them).
     const ok = allowedRates(lo, hi);
-    const rate = asked || (needs && ok.includes(needs) ? needs : needs && needs < ok[0] ? ok[0] : ok[ok.length - 1]);
+    const rate = asked || (needs && ok.find(r => r >= needs)) || ok[ok.length - 1];
     let best = freqs.length === 1 ? single(rate) : rate === needs ? needsAt : bestCentre(freqs, rate), heard = new Set(freqs);
     if (freqs.length > 1 && !best.why && prefer && prefer.sampleRate === rate) {
       const now = score(freqs, prefer.centerHz, reach(rate));

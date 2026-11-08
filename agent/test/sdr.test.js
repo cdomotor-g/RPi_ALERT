@@ -255,5 +255,5 @@ test('a stick\'s window kept between its narrowest and widest (0.20): its own ov
   c = s.cfg();
   assert.equal(c.sampleRate, 240000, 'its narrowest crossing the shared widest: the widest wins');
   const { receiverOf } = require('../lib/remote');
-  assert.deepEqual(receiverOf(s.status()).window, { auto: true, needs: 960000, min: 1440000, max: 240000, capped: true });
+  assert.deepEqual(receiverOf(s.status()).window, { auto: true, needs: 288000, min: 1440000, max: 240000, capped: true });
 });

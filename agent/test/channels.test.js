@@ -57,7 +57,8 @@ test('tuning: the narrowest window that holds the channels, or exactly the one s
   // Every window one the decoder divides exactly and the RTL2832U makes from
   // its 28.8 MHz, in its valid bands; MegaNet's SDR card's are among them.
   for (const r of P.RATES) {
-    assert.equal(r % AlertDsp.FS_IN, 0, r + ': a multiple of the decoder\'s 240 ksps');
+    // 288k (0.22) is the one that is not: MegaNet's decoder resamples it by 5/6.
+    if (r !== 288000) assert.equal(r % AlertDsp.FS_IN, 0, r + ': a multiple of the decoder\'s 240 ksps');
     assert.equal(28800000 % r, 0, r + ': a divisor of the crystal');
     assert.ok((r > 225000 && r <= 300000) || (r > 900000 && r <= 3200000), r + ': a rate the RTL2832U takes');
   }
@@ -114,7 +115,7 @@ test('tuning: the narrowest window that holds the channels, or exactly the one s
     p = P.plan(MHz(...set));
     holds(p, set.join(', '));
     assert.ok(p.channels.every(c => c.inBand), set.join(', ') + ' all heard');
-    const narrower = P.RATES.filter(r => r < p.sampleRate);
+    const narrower = P.allowedRates(0, 0).filter(r => r < p.sampleRate);
     if (narrower.length) assert.ok(P.plan(MHz(...set), { sampleRate: narrower[narrower.length - 1] }).channels.some(c => !c.inBand), set.join(', ') + ': the narrowest');
   }
   // Only a channel stuck on the DC spike in the middle of the widest span is
@@ -400,9 +401,9 @@ test('a narrow window hears a channel as well as a wide one: the decoder works a
 test('the window\'s limits (0.20): automatic kept between the narrowest and the widest; one set by hand ignores them', () => {
   const five = MHz(151.5, 151.525, 151.5375, 151.55, 151.575);
   let p = P.plan(five);
-  assert.deepEqual([p.sampleRate, p.needs, p.capped, p.channels.every(c => c.inBand)], [960000, 960000, false, true], 'five channels need 960 kHz');
+  assert.deepEqual([p.sampleRate, p.needs, p.capped, p.channels.every(c => c.inBand)], [960000, 288000, false, true], 'five channels: 960 kHz (288 kHz, which holds them, is taken only where asked)');
   p = P.plan(five, { maxRate: 240000 });
-  assert.deepEqual([p.sampleRate, p.auto, p.needs, p.maxRate, p.capped], [240000, true, 960000, 240000, true], 'no wider than 240 kHz: the widest allowed');
+  assert.deepEqual([p.sampleRate, p.auto, p.needs, p.maxRate, p.capped], [240000, true, 288000, 240000, true], 'no wider than 240 kHz: the widest allowed');
   assert.deepEqual(p.channels.filter(c => !c.inBand).map(c => c.freqHz), [151575000], 'the one that does not fit is left out, the rest heard');
   p = P.plan(five, { maxRate: 1440000 });
   assert.deepEqual([p.sampleRate, p.capped], [960000, false], 'a widest above what they need changes nothing');
@@ -417,4 +418,67 @@ test('the window\'s limits (0.20): automatic kept between the narrowest and the 
   p = P.plan(MHz(151.5, 153.5), { maxRate: 960000 });
   assert.deepEqual([p.sampleRate, p.needs, p.capped, p.channels.filter(c => c.inBand).length], [960000, null, true, 1], 'no window holds them: the widest allowed, the stick\'s own channel heard');
   assert.deepEqual(P.allowedRates(960000, 1440000), [960000, 1200000, 1440000]);
+});
+
+test('288 kHz (0.22): between 240 kHz and 960 kHz — taken where asked for, never by Automatic alone', () => {
+  const five = MHz(151.5, 151.525, 151.5375, 151.55, 151.575);
+  let p = P.plan(five);
+  assert.deepEqual([p.sampleRate, p.needs], [960000, 288000], 'Automatic, no limits: 960 kHz as before — though 288 kHz holds them');
+  p = P.plan(five, { maxRate: 288000 });
+  assert.deepEqual([p.sampleRate, p.capped, p.channels.every(c => c.inBand)], [288000, false, true], 'no wider than 288 kHz: all five in it');
+  holds(p, 'five in 288k');
+  assert.ok(p.channels.every(c => Math.abs(c.offsetHz) >= 20000), 'the DC spike 20 kHz clear of every channel');
+  p = P.plan(five, { sampleRate: 288000 });
+  assert.deepEqual([p.sampleRate, p.auto, p.channels.every(c => c.inBand)], [288000, false, true], 'or set by hand');
+  p = P.plan(five, { maxRate: 240000 });
+  assert.deepEqual([p.sampleRate, p.capped, p.needs], [240000, true, 288000], 'no wider than 240 kHz: four, and it says 288 kHz holds them all');
+  p = P.plan(MHz(151.5, 151.525), { minRate: 288000 });
+  assert.equal(p.sampleRate, 288000, 'no narrower than 288 kHz');
+  assert.deepEqual(P.allowedRates(0, 0).includes(288000), false);
+  assert.deepEqual(P.allowedRates(0, 288000), [240000, 288000]);
+});
+
+test('end to end in 288 kHz (0.22): five channels 12.5 and 25 kHz apart, each burst decoded on its own channel', { timeout: 180000 }, async (t) => {
+  const m = await stub.start();
+  t.after(() => m.close());
+  const dir = tmp('rpa-288-');
+  for (const d of ['dev', 'data', 'etc', 'bin']) fs.mkdirSync(path.join(dir, d));
+  const usb = path.join(dir, 'sys', 'bus', 'usb', 'devices', '1-1.3');
+  fs.mkdirSync(usb, { recursive: true });
+  for (const [k, v] of Object.entries({ idVendor: '0bda', idProduct: '2838', serial: '00000001', manufacturer: 'RTLSDRBlog', product: 'Blog V4', busnum: '1', devnum: '4' })) fs.writeFileSync(path.join(usb, k), v + '\n');
+  fs.symlinkSync(path.join(__dirname, 'helpers', 'fake-rtl_sdr'), path.join(dir, 'bin', 'rtl_sdr'));
+  fs.writeFileSync(path.join(dir, 'bin', 'aplay'), '#!/bin/sh\ncat > /dev/null\n', { mode: 0o755 });
+  const port = 18000 + Math.floor(Math.random() * 2000);
+  // 18 Bateson's five, no wider than 288 kHz.
+  fs.writeFileSync(path.join(dir, 'etc', 'config.json'), JSON.stringify({
+    name: 'Five in 288k', web: { port },
+    meganet: { token: 'mgn_test_token', endpoints: [m.url + '/rest/v1'], stationsUrls: [m.url + '/stations.json'] },
+    location: { source: 'manual', lat: -27.47, lon: 153.02 },
+    receivers: { sdr: { freqHz: 151500000, sampleRateMax: 288000, moreChannels: [151525000, 151537500, 151550000, 151575000].map(freqHz => ({ freqHz })) } },
+  }));
+  const env = Object.assign({}, process.env, {
+    PATH: path.join(dir, 'bin') + ':' + process.env.PATH, RPI_ALERT_CONFIG: path.join(dir, 'etc', 'config.json'), RPI_ALERT_DATA: path.join(dir, 'data'),
+    RPI_ALERT_DEV: path.join(dir, 'dev'), RPI_ALERT_SYSFS: path.join(dir, 'sys'), RPI_ALERT_ASSUME_CLOCK: '1', RPI_ALERT_PRIV: '/nonexistent',
+    RPI_ALERT_FAKE_BURSTS: JSON.stringify([
+      { channelHz: 151500000, frames: '2088:143', startSec: 1.5 },
+      { channelHz: 151525000, frames: '2443:142', startSec: 3.0 },
+      { channelHz: 151537500, frames: '4079:420', startSec: 4.5 },
+      { channelHz: 151550000, frames: '6129:77', startSec: 6.0 },
+      { channelHz: 151575000, frames: '1783:12', startSec: 7.5 },
+    ]),
+  });
+  const agent = spawn(process.execPath, [path.join(__dirname, '..', 'bin', 'rpi-alert'), 'daemon'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  let log = '';
+  agent.stderr.on('data', (d) => { log += d; });
+  t.after(() => { agent.kill('SIGTERM'); });
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const until = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(200); } return false; };
+  const get = async (p) => { try { return await (await fetch('http://127.0.0.1:' + port + p)).json(); } catch (_) { return null; } };
+  const heard = async () => { const r = await get('/api/readings?limit=500'); return r ? r.readings.map(x => x.alert_id + '@' + x.receiver) : []; };
+  const want = ['2088@RTL-SDR · 151.500', '2443@RTL-SDR · 151.525', '4079@RTL-SDR · 151.5375', '6129@RTL-SDR · 151.550', '1783@RTL-SDR · 151.575'];
+  assert.ok(await until(async () => { const h = await heard(); return want.every(w => h.includes(w)); }, 60000), 'all five, each on its own channel:\n' + (await heard()).join(' ') + '\n' + log.slice(-3000));
+  for (const h of await heard()) assert.ok(want.includes(h), 'each heard on its own channel only: ' + h);
+  const d = (await get('/api/status')).devices.sdrs[0];
+  assert.deepEqual([d.state, d.sampleRate, d.channels.length, d.channels.every(c => c.inBand)], ['running', 288000, 5, true]);
+  assert.match(log, /-s 288000/, 'rtl_sdr told 288 ksps');
 });

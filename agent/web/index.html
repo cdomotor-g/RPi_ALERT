@@ -31,10 +31,34 @@
 <div id="banner" class="banner" hidden></div>
 
 <main>
-  <!-- ── Overview: what is heard now; each card's settings folded under it ── -->
+  <!-- ── Overview: the plots, the counts, each receiver; each card's settings folded under it ── -->
   <section id="tab-dash" class="tab">
     <div id="pair-dash"></div>
+
+    <!-- The plots together at the top: this Pi, then what its radios hear. -->
+    <div class="card pi-card" id="pi-card">
+      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
+      <div class="pi-charts">
+        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
+        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
+        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
+      </div>
+      <div class="dim small" id="pi-note"></div>
+    </div>
+
+    <div class="card radio" id="radio" hidden>
+      <div class="card-head">
+        <h2>Radio <span class="dim small" id="radio-note"></span></h2>
+        <div class="legend" id="radio-legend"></div>
+      </div>
+      <canvas id="spec-c" class="spectrum" aria-label="Spectrum: what every stick hears now"></canvas>
+      <canvas id="wf-c" class="waterfall" aria-label="Waterfall: the last few minutes"></canvas>
+      <div class="dim small" id="radio-foot"></div>
+    </div>
+
+    <!-- The counts, then each receiver. -->
     <div class="stats" id="stats"></div>
+
 
     <div class="card" id="receivers">
       <div class="card-head">
@@ -123,16 +147,6 @@
       </div>
     </div>
 
-    <div class="card radio" id="radio" hidden>
-      <div class="card-head">
-        <h2>Radio <span class="dim small" id="radio-note"></span></h2>
-        <div class="legend" id="radio-legend"></div>
-      </div>
-      <canvas id="spec-c" class="spectrum" aria-label="Spectrum: what every stick hears now"></canvas>
-      <canvas id="wf-c" class="waterfall" aria-label="Waterfall: the last few minutes"></canvas>
-      <div class="dim small" id="radio-foot"></div>
-    </div>
-
     <div class="card" id="flood-card">
       <div class="card-head"><h2>Flood-Net</h2><a class="small" href="#requests">What it asked →</a></div>
       <div id="flood-now" class="kv"></div>
@@ -171,16 +185,9 @@
       </div>
     </div>
 
-    <div class="card pi-card" id="pi-card">
-      <div class="card-head"><h2>This Pi</h2><span class="dim small" id="pi-now"></span></div>
-      <div class="pi-charts">
-        <div><div class="chart-label">Temperature <b id="pi-temp"></b></div><canvas id="pi-temp-c" class="chart small-chart" aria-label="CPU temperature"></canvas></div>
-        <div><div class="chart-label">CPU load <b id="pi-load"></b></div><canvas id="pi-load-c" class="chart small-chart" aria-label="CPU load"></canvas></div>
-        <div><div class="chart-label">Memory in use <b id="pi-mem"></b></div><canvas id="pi-mem-c" class="chart small-chart" aria-label="Memory in use"></canvas></div>
-      </div>
-      <div class="dim small" id="pi-note"></div>
-
-      <div class="folds" aria-label="Settings for this Pi">
+    <div class="card" id="pi-settings-card">
+      <div class="card-head"><h2>This Pi</h2><span class="dim small">its settings</span></div>
+      <div class="folds folds-only" aria-label="Settings for this Pi">
         <div class="folds-h">Settings</div>
         <details class="fold" data-fold="location">
           <summary><span class="fold-t">Location</span><span class="fold-s" data-sum="location"></span></summary>

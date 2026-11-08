@@ -3,7 +3,7 @@ Do not edit them: change them in MegaNet and run agent/scripts/sync-meganet.sh, 
 exactly what floodwarning.net decodes.
 
 repository: https://github.com/cdomotor-g/MegaNet
-commit:     60c049853e4a6e950ec25e3090aacc35178c5120 (2026-11-03)
+commit:     ed3ed3bf4d40c6c4dd4038ef069a04de5fee427c (2026-11-08)
 
 alert-dsp.js    off-air ALERT decoder (Binary / Enhanced iFLOWS / ASCII), a port of agmurf/sdr-alert-decoder (MIT)
 quansheng.js    serial codec for the Quansheng UV-K5 V3 / UV-K1 ALERT receiver firmware (schema 2)

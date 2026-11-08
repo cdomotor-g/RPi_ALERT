@@ -275,7 +275,10 @@ footer a { margin-left: 14px; }
 .no-config .fold > .fold-body { display: none; }
 .no-config .fold > .fold-lock { display: block; }
 /* On the Pi's own screen the settings stay out of sight until a link asks for one. */
-.kiosk:not(.show-folds) .folds { display: none; }
+.kiosk:not(.show-folds) .folds, .kiosk:not(.show-folds) #pi-settings-card { display: none; }
+/* A card that is only settings (this Pi's): no rule or heading over them. */
+.folds-only { margin-top: 2px; padding-top: 0; border-top: 0; }
+.folds-only .folds-h { display: none; }
 .sub-fold { margin: 10px 0; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 8px; }
 .sub-fold > summary { cursor: pointer; font-weight: 600; font-size: .94em; }
 .sub-fold[open] > summary { margin-bottom: 4px; }

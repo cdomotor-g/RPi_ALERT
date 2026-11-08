@@ -54,8 +54,8 @@ request_token = yes
 #sdr_gain_db = 29.7
 #sdr_ppm = 0
 # The window a stick takes: auto (the narrowest that holds its channels — every
-# channel's decoder works through the whole of it), or exactly 240000, 960000,
-# 1200000, 1440000, 1920000 or 2400000 (a channel outside it is not decoded)
+# channel's decoder works through the whole of it), or exactly 240000, 288000,
+# 960000, 1200000, 1440000, 1920000 or 2400000 (a channel outside it is not decoded)
 #sdr_sample_rate = auto
 # With auto: the narrowest and the widest window it may take — none (no limit),
 # or one of the windows above. The widest keeps a stick's work down (a channel
