@@ -141,7 +141,9 @@ if [ "$current" != unknown ] && fetch_archive "v$current" old 2>/dev/null; then 
 # Is the agent up and answering as version $1? Two minutes to say so.
 healthy() {
   local port url _
-  port=$(node -p "(require('/etc/rpi-alert/config.json').web||{}).port||80" 2>/dev/null || echo 80)
+  # Plain JSON, never require(): the agent owns this file, and require() would run
+  # a .js file it pointed a symlink at, as root.
+  port=$(node -e "const f='/etc/rpi-alert/config.json';const fs=require('fs');if(fs.lstatSync(f).isSymbolicLink())throw 0;const p=((JSON.parse(fs.readFileSync(f,'utf8')).web)||{}).port;console.log(Number.isInteger(p)&&p>0&&p<65536?p:80)" 2>/dev/null || echo 80)
   for _ in $(seq 1 40); do
     sleep 3
     systemctl is-active --quiet rpi-alert.service || continue
