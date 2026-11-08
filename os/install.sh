@@ -174,7 +174,10 @@ ln -sf "$PREFIX/bin/rpi-alert" /usr/local/bin/rpi-alert
 ln -sf "$PREFIX/libexec/rpi-alert-update" /usr/local/sbin/rpi-alert-update
 
 install -d -o rpi-alert -g rpi-alert -m 0750 /etc/rpi-alert /var/lib/rpi-alert
-[ -f /etc/rpi-alert/config.json ] && chown rpi-alert:rpi-alert /etc/rpi-alert/config.json && chmod 0600 /etc/rpi-alert/config.json
+# The agent owns this directory, so config.json may be a link it planted: leave a link alone
+# (and take it away) rather than chown/chmod whatever it points at.
+if [ -L /etc/rpi-alert/config.json ]; then rm -f /etc/rpi-alert/config.json
+elif [ -f /etc/rpi-alert/config.json ]; then chown -h rpi-alert:rpi-alert /etc/rpi-alert/config.json && chmod 0600 /etc/rpi-alert/config.json; fi
 chown -R rpi-alert:rpi-alert /var/lib/rpi-alert
 
 # ── system integration ───────────────────────────────────────────────────────
