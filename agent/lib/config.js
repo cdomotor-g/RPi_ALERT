@@ -6,10 +6,9 @@
 // user. Nothing that reads settings for display gets the token back: redact()
 // replaces it with its first and last few characters.
 
-const fs = require('node:fs');
-const path = require('node:path');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
+const { readNoFollow, writeAtomic } = require('./safe-fs');
 const { MAX_CHANNELS, MAX_SPAN_HZ, RATES } = require('../web/sdr-plan');
 const { mhz } = require('../web/channels');
 
@@ -436,9 +435,12 @@ class Config extends EventEmitter {
     this.loadError = null;
   }
 
+  // Root reads and writes this file too (the SD card's settings at boot, sudo
+  // rpi-alert …) in a directory the agent owns: never through a link the agent
+  // could have put there (lib/safe-fs.js).
   load() {
     let raw = null;
-    try { raw = fs.readFileSync(this.file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') this.loadError = e.message; }
+    try { raw = readNoFollow(this.file, 4 * 1024 * 1024); } catch (e) { if (e.code !== 'ENOENT') this.loadError = e.message; }
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -454,18 +456,15 @@ class Config extends EventEmitter {
         if (older) { try { this.save(); } catch (_) {} }
       } catch (e) {
         this.loadError = 'settings file is not valid JSON (' + e.message + '); starting from defaults, the file is kept as .bad';
-        try { fs.copyFileSync(this.file, this.file + '.bad'); } catch (_) {}
+        try { writeAtomic(this.file + '.bad', raw, { mode: 0o600, owner: 'dir' }); } catch (_) {}
       }
     }
     return this;
   }
 
+  // As root, the file goes to the directory's owner (the agent's user).
   save() {
-    const dir = path.dirname(this.file);
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = this.file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    writeAtomic(this.file, JSON.stringify(this.data, null, 2) + '\n', { mode: 0o600, owner: 'dir' });
   }
 
   get() { return this.data; }

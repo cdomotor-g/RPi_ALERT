@@ -5,19 +5,29 @@
 // base station with no internet still times its readings correctly.
 //
 // Sentences are parsed by MegaNet's serial-gps.js (GGA, RMC, GST; any talker;
-// a sentence failing its checksum is dropped).
+// a sentence failing its checksum is dropped). Its time is taken only from an
+// RMC that carries a checksum at all (the parser lets one without pass) and
+// says its fix is valid (status A), with every date and time field in range;
+// lib/clock.js decides whether to believe it.
 
 const { Nmea } = require('../meganet-codecs');
 
 const STALE_MS = 10000;
 
+// hhmmss[.sss] and ddmmyy → UTC milliseconds, or null for anything out of range.
 function utcOf(time, date) {
-  if (!time || !date || date.length < 6) return null;
+  if (!/^\d{6}(\.\d{1,3})?$/.test(time || '') || !/^\d{6}$/.test(date || '')) return null;
   const hh = +time.slice(0, 2), mm = +time.slice(2, 4), ss = parseFloat(time.slice(4));
   const d = +date.slice(0, 2), mo = +date.slice(2, 4), y = 2000 + +date.slice(4, 6);
+  if (hh > 23 || mm > 59 || ss >= 61 || d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+  // 30 February is not a date (Date.UTC would roll it into March).
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  if (day.getUTCDate() !== d || day.getUTCMonth() !== mo - 1) return null;
   const ms = Date.UTC(y, mo - 1, d, hh, mm, Math.floor(ss), Math.round((ss % 1) * 1000));
   return Number.isFinite(ms) ? ms : null;
 }
+// A sentence that ends in its checksum (*hh), which Nmea.parse has checked.
+const SUMMED = /\*[0-9A-Fa-f]{2}$/;
 
 class GpsDriver {
   constructor(ctx) {
@@ -60,7 +70,7 @@ class GpsDriver {
       this.valid = p.valid;
       this.speed = p.knots != null ? p.knots * 0.514444 : null;
       this.course = p.course;
-      const utc = utcOf(p.time, p.date);
+      const utc = SUMMED.test(t) ? utcOf(p.time, p.date) : null;
       // A receiver's time is worth having only once it has a fix: before that
       // many report their firmware's build date.
       if (p.valid && utc) { this.utc = { ms: utc, at: process.hrtime.bigint() }; this.ctx.event('gps-time', this.utc); }

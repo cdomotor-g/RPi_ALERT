@@ -75,15 +75,28 @@ function displayConnected() {
   return names.some(n => read('/sys/class/drm/' + n + '/status') === 'connected');
 }
 
-// rpi-alert-priv update-status: the timer's state, whether an install is running,
-// then the last outcome (update-status.json, written by rpi-alert-update).
+// The last install's outcome, written by rpi-alert-update in root's own
+// directory and readable by all. 0.22.1 and earlier wrote it in the agent's
+// (where root reading it back could be led anywhere by a link); the update
+// from one of those still writes there, so the newer of the two is the answer.
+const UPDATE_STATUS = (process.env.RPI_ALERT_UPDATE_STATUS || '/var/lib/rpi-alert-update/status.json:/var/lib/rpi-alert/update-status.json').split(':');
+function lastUpdate(files) {
+  let best = null;
+  for (const f of files || UPDATE_STATUS) {
+    let j = null;
+    try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) {}
+    if (j && typeof j.state === 'string' && (!best || (Number(j.at) || 0) > (Number(best.at) || 0))) best = j;
+  }
+  return best;
+}
+
+// rpi-alert-priv update-status: the timer's state and whether an install is
+// running (systemd's answers); then the last outcome, read here.
 async function updateStatus() {
   const r = await priv('update-status');
   if (r.code !== 0) return { available: false, error: (r.stderr || '').trim().slice(0, 300) || 'not available on this machine' };
-  const [timer = '', running = '', ...rest] = r.stdout.split('\n');
-  let last = null;
-  try { last = JSON.parse(rest.join('\n')); } catch (_) {}
-  return { available: true, auto: timer.trim() === 'enabled', running: running.trim() === 'running', last: last && last.state ? last : null };
+  const [timer = '', running = ''] = r.stdout.split('\n');
+  return { available: true, auto: timer.trim() === 'enabled', running: running.trim() === 'running', last: lastUpdate() };
 }
 
 // rpi-alert-priv access-status: who may log in over SSH, and how (lib/access.js).
@@ -93,4 +106,4 @@ async function accessStatus() {
   try { return Object.assign({ available: true }, JSON.parse(r.stdout)); } catch (_) { return { available: false, error: 'unreadable answer' }; }
 }
 
-module.exports = { run, priv, privAvailable, info, addresses, displayConnected, updateStatus, accessStatus, PRIV };
+module.exports = { run, priv, privAvailable, info, addresses, displayConnected, updateStatus, lastUpdate, accessStatus, PRIV };

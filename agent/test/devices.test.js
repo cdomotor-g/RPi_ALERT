@@ -161,3 +161,56 @@ test('GPS: a fix, its accuracy, and the receiver\'s UTC time', () => {
   assert.ok(out.events.some(([t, d]) => t === 'gps-time' && d.ms === Date.UTC(2026, 9, 2, 12, 35, 19)));
   assert.equal(utcOf('123519.5', '021026'), Date.UTC(2026, 9, 2, 12, 35, 19, 500));
 });
+
+test('GPS: the time is taken only from a summed, valid RMC with every field in range', () => {
+  const { c, out } = ctx();
+  const g = new GpsDriver(c);
+  const times = () => out.events.filter(([t]) => t === 'gps-time').length;
+  // No checksum at all: the parser lets it through for the position, not for the time.
+  g.feed(Buffer.from('$GPRMC,123519,A,2727.000,S,15301.500,E,000.0,084.4,021026,,\r\n'));
+  assert.equal(times(), 0);
+  // No fix yet (status V): many receivers report their firmware's date then.
+  g.feed(Buffer.from(nmea('GPRMC,123519,V,,,,,,,010180,,')));
+  assert.equal(times(), 0);
+  g.feed(Buffer.from(nmea('GPRMC,123519,A,2727.000,S,15301.500,E,000.0,084.4,021026,,')));
+  assert.equal(times(), 1);
+  assert.equal(utcOf('123519', '300226'), null, '30 February');
+  assert.equal(utcOf('256000', '021026'), null);
+  assert.equal(utcOf('12351', '021026'), null);
+  assert.equal(utcOf('123519', '021326'), null);
+  assert.equal(utcOf('123519', '02102x'), null);
+  assert.equal(utcOf('235960.5', '311226'), Date.UTC(2026, 11, 31, 23, 59, 60, 500), 'a leap second still reads');
+});
+
+test('a receiver that throws on the bytes it was recognised by is logged, not fatal', () => {
+  const { PortSession } = require('../lib/devices/manager');
+  const errors = [];
+  const log = { debug() {}, info() {}, warn() {}, error: (m) => errors.push(String(m)) };
+  let attached = 0;
+  const agent = { log: { child: () => log }, clock: { trusted: () => true, now: () => Date.now() },
+    config: { get: () => ({ receivers: { ports: [] } }) },
+    state: { rememberPort() {} }, deviceAttached() { attached++; }, deviceReading() {}, deviceReception() {}, deviceEvent() {} };
+  const s = new PortSession({ agent }, { key: 'k', name: 'ttyUSB9' });
+  const GpsDriverProto = GpsDriver.prototype;
+  const feed = GpsDriverProto.feed;
+  GpsDriverProto.feed = () => { throw new Error('bad bytes'); };
+  try { assert.doesNotThrow(() => s.attach('gps', { how: 'test', bytes: [36, 71] })); }
+  finally { GpsDriverProto.feed = feed; }
+  assert.equal(s.state, 'running');
+  assert.equal(attached, 1);
+  assert.match(errors.join('\n'), /bad bytes/);
+});
+
+test('Quansheng: a flood of noise is read in pieces, and a reply that never ends is not all kept', () => {
+  const { c } = ctx();
+  const q = new QuanshengDriver(c);
+  const sizes = [];
+  const real = q.reader.feed.bind(q.reader);
+  q.reader.feed = (u8) => { sizes.push(u8.length); return real(u8); };
+  q.feed(Buffer.alloc(200000, 0xAB));
+  assert.ok(sizes.length >= 390 && Math.max(...sizes) <= 512);
+  q.cur = { lines: [], timer: null, resolve() {}, reject() {} };
+  q.touch = () => {};
+  for (let i = 0; i < 5000; i++) q.line('reply' + i);
+  assert.equal(q.cur.lines.length, 2000);
+});

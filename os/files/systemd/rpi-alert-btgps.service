@@ -2,7 +2,7 @@
 Description=RPi ALERT Bluetooth GPS link (/dev/rpi-alert-gps)
 Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/configuration.md
 # Turned on by gps_bluetooth in rpi-alert.conf, which writes the settings file.
-ConditionPathExists=/etc/rpi-alert/bluetooth-gps.conf
+ConditionPathExists=/etc/rpi-alert-btgps.conf
 After=bluetooth.service hciuart.service
 Wants=bluetooth.service
 

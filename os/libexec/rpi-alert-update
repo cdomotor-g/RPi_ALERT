@@ -3,21 +3,27 @@
 #
 #   rpi-alert-update --check          compare this Pi with the latest release
 #   sudo rpi-alert-update             install the latest release (even an older one)
-#   sudo rpi-alert-update --if-newer  …only if it is newer than this Pi (the nightly timer)
+#   sudo rpi-alert-update --if-newer  …only if it is newer than this Pi (every
+#                                     automatic route: the web page, MegaNet, the card, the timer)
+#   sudo rpi-alert-update --ref v0.21.0  install that release (signed, like the latest)
 #   sudo rpi-alert-update --ref main  install the current main branch (testing)
 #
-# The web page's "Install update" and the nightly timer run this through
-# rpi-alert-update.service, so restarting the agent mid-install does not stop it.
-# Before installing it fetches the version this Pi runs now as well; if the new
-# one does not come up and answer on its web page within two minutes, that
-# version is put back. Progress goes to /var/lib/rpi-alert/update-status.json
-# for the web page.
+# The web page's "Install update", MegaNet's and the nightly timer run this
+# through rpi-alert-update.service, so restarting the agent mid-install does
+# not stop it. Before installing it keeps a copy of what this Pi runs now; if
+# the new version does not come up and answer on its web page within two
+# minutes, that copy is put back — nothing downloaded, so nothing unchecked.
+# A release's tarball must carry the version its tag names. Progress goes to
+# /var/lib/rpi-alert-update/status.json (root's, readable by all) for the web page.
 #
 # Settings (/etc/rpi-alert), the queue and the receiver ids (/var/lib/rpi-alert)
 # are kept: install.sh never overwrites them.
 set -euo pipefail
 REPO=${RPI_ALERT_REPO:-cdomotor-g/RPi_ALERT}
-STATUS=/var/lib/rpi-alert/update-status.json
+# Root's own directory: the agent owns /var/lib/rpi-alert, and root writing
+# there would follow any link it planted.
+STATUS_DIR=/var/lib/rpi-alert-update
+STATUS=$STATUS_DIR/status.json
 CHECK=0; REF=""; IF_NEWER=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,7 +76,7 @@ started=$(date +%s)
 # state: running | ok | current | failed | rolled-back
 status() {
   local state=$1 msg=$2 to=${3:-}
-  install -d -m 0750 -o rpi-alert -g rpi-alert /var/lib/rpi-alert 2>/dev/null || true
+  install -d -m 0755 -o root -g root "$STATUS_DIR" 2>/dev/null || true
   printf '{"state":"%s","from":"%s","to":"%s","startedAt":%s,"at":%s,"message":"%s"}\n' \
     "$state" "$current" "$to" "$started" "$(date +%s)" "$(printf '%s' "$msg" | tr '"\\\n' "'/ ")" > "$STATUS.tmp"
   chmod 0644 "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
@@ -98,7 +104,8 @@ is_release() { case "$1" in v[0-9]*) return 0 ;; *) return 1 ;; esac; }
 # A real signing key is pinned (not the shipped placeholder)?
 signing_configured() { grep -q 'BEGIN PUBLIC KEY' "$PUBKEY" 2>/dev/null; }
 
-# The GitHub source archive for a branch or tag → $tmp/$2. Unverified.
+# The GitHub source archive for a branch (or a release on a Pi with no key
+# pinned yet) → $tmp/$2. Unverified.
 fetch_archive() { install -d "$tmp/$2"; curl -fsSL --max-time 300 "https://github.com/$REPO/archive/$1.tar.gz" | tar -xz -C "$tmp/$2" --strip-components=1; }
 
 # A release's signed source tarball + signature → verify against the pinned key
@@ -132,18 +139,42 @@ if ! get_tree "$REF" new; then
   fi
   exit 1
 fi
-# The way back, fetched now so it does not depend on the network later. The
-# rollback target is the version already running, so it is taken from the source
-# archive rather than requiring a signed asset — recovery must not be blockable.
+# A release is the version its tag names. The signature covers the tarball's
+# bytes, not the tag it hangs from: an older signed tarball put up again under
+# a newer tag would verify, so its own package.json has to agree with the tag
+# (and, on the automatic routes, be newer than this Pi).
+if is_release "$REF"; then
+  got=$(node -e 'const fs=require("fs");const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).version;if(typeof v!=="string")throw 0;process.stdout.write(v)' "$tmp/new/agent/package.json" 2>/dev/null || true)
+  if [ "v$got" != "$REF" ]; then
+    status failed "$REF holds version ${got:-unknown}, not ${REF#v} — not installing" "$REF"; exit 1
+  fi
+  if [ "$IF_NEWER" = 1 ] && ! newer "$got"; then
+    status failed "$REF is not newer than this Pi ($current) — not installing" "$REF"; exit 1
+  fi
+fi
+
+# The way back: what this Pi runs now, copied out of /opt/rpi-alert (root's,
+# and checked when it was installed) and laid out again as the source tree
+# install.sh reads. Putting it back needs no network and runs nothing that was
+# not already running here.
+snapshot() {
+  local o="$tmp/old"
+  [ -f "$PREFIX/package.json" ] && [ -f "$PREFIX/os/install.sh" ] && [ -f "$PREFIX/bin/rpi-alert" ] || return 1
+  install -d "$o/agent" "$o/os/libexec" &&
+    cp -a "$PREFIX/bin" "$PREFIX/lib" "$PREFIX/vendor" "$PREFIX/web" "$PREFIX/package.json" "$o/agent/" &&
+    cp -a "$PREFIX/os/." "$o/os/" &&
+    cp -a "$PREFIX/libexec/." "$o/os/libexec/"
+}
 back=""
-if [ "$current" != unknown ] && fetch_archive "v$current" old 2>/dev/null; then back="v$current"; fi
+if [ "$current" != unknown ] && snapshot 2>/dev/null; then back="$current"; fi
 
 # Is the agent up and answering as version $1? Two minutes to say so.
 healthy() {
   local port url _
   # Plain JSON, never require(): the agent owns this file, and require() would run
   # a .js file it pointed a symlink at, as root.
-  port=$(node -e "const f='/etc/rpi-alert/config.json';const fs=require('fs');if(fs.lstatSync(f).isSymbolicLink())throw 0;const p=((JSON.parse(fs.readFileSync(f,'utf8')).web)||{}).port;console.log(Number.isInteger(p)&&p>0&&p<65536?p:80)" 2>/dev/null || echo 80)
+  # Opened with O_NOFOLLOW, so a link swapped in after a check cannot be followed either.
+  port=$(node -e "const fs=require('fs'),C=fs.constants;const fd=fs.openSync('/etc/rpi-alert/config.json',C.O_RDONLY|C.O_NOFOLLOW|C.O_NONBLOCK);const st=fs.fstatSync(fd);if(!st.isFile()||st.size>4194304)throw 0;const p=((JSON.parse(fs.readFileSync(fd,'utf8')).web)||{}).port;console.log(Number.isInteger(p)&&p>0&&p<65536?p:80)" 2>/dev/null || echo 80)
   for _ in $(seq 1 40); do
     sleep 3
     systemctl is-active --quiet rpi-alert.service || continue
@@ -162,7 +193,7 @@ if bash "$tmp/new/os/install.sh" --upgrade && new=$(version) && healthy "$new"; 
 fi
 
 if [ -n "$back" ]; then
-  echo "The new version did not come up; putting $back back."
+  echo "The new version did not come up; putting $back back (the copy kept from this Pi)."
   if bash "$tmp/old/os/install.sh" --upgrade && healthy "$current"; then
     status rolled-back "$REF did not start properly, so $current was put back. See: journalctl -u rpi-alert-update" "$REF"
   else

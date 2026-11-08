@@ -18,6 +18,17 @@
 // check. While NTP or a GPS is trusted the agent keeps the RTC set (the root
 // helper's rtc-sync, hwclock) and remembers both in clock.json.
 //
+// A GPS's time is believed only when it is plausible. Not before this Pi last
+// knew the time to be right (time does not run backwards; a receiver with the
+// week-rollover bug reads about 20 years back), nor before 2025; not more than
+// 400 days past that last good time; within five minutes of network time or a
+// trusted RTC, when there is one; and steady — three times in a row, a
+// second apart, agreeing to two seconds, before the first is taken, and a full
+// minute of it before the clock is moved by more than a day. A receiver that
+// says otherwise is not used for the time (status().gpsNote says why), and
+// the clock waits for NTP. Its sentences are checked first (lib/devices/gps.js):
+// a checksum, a valid fix, every date and time field in range.
+//
 // So a reading that arrives while the clock is untrusted is held with a
 // monotonic timestamp (CLOCK_MONOTONIC, milliseconds since this boot, which
 // Node's hrtime reads and which does not jump when the wall clock is set) and
@@ -34,6 +45,12 @@ const { EventEmitter } = require('node:events');
 const GPS_FRESH_MS = 60 * 60 * 1000;
 const RTC_DIR = process.env.RPI_ALERT_RTC || '/sys/class/rtc/rtc0';
 const RTC_TRUST_DAYS = 60, RTC_AGREE_MS = 2000, KEEP_MS = 10 * 60 * 1000;
+const GPS_FLOOR_MS = Date.UTC(2025, 0, 1);            // the root helper's floor too
+const GPS_BACK_MS = 120e3;                            // slack below the last good time
+const GPS_AHEAD_MS = 400 * 86400e3;                   // most past the last good time
+const GPS_CROSS_MS = 5 * 60e3;                        // most from NTP or a trusted RTC
+const GPS_AGREE_MS = 2000, GPS_STEADY = 3;            // three in a row, to two seconds
+const GPS_BIG_MS = 86400e3, GPS_BIG_STEADY_MS = 60e3; // a day's jump: a minute of it
 
 function bootId() {
   try { return fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch (_) { return 'unknown'; }
@@ -46,7 +63,9 @@ class Clock extends EventEmitter {
     this.log = opts && opts.log;
     this.assume = !!(opts && opts.assumeSynced) || process.env.RPI_ALERT_ASSUME_CLOCK === '1';
     this.ntp = this.assume;
-    this.gps = null;           // { offset, atMono }
+    this.gps = null;           // { offset, atMono } — a GPS time believed
+    this.gpsCand = null;       // { offset, n, since } — one not yet steady
+    this.gpsNote = '';
     this.boot = bootId();
     this.timer = null;
     this.setter = opts && opts.setSystemTime;   // async (ms) => …, may be absent
@@ -163,12 +182,46 @@ class Clock extends EventEmitter {
     if (v && !had) { this.rtc = null; this.keep(); }
   }
 
+  // Why a GPS time of gpsMs is not to be believed now, or '' when it may be.
+  gpsDoubt(gpsMs) {
+    const at = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
+    const last = this.memory.lastGood || 0;
+    if (gpsMs < GPS_FLOOR_MS) return 'The GPS says ' + at(gpsMs) + ', before 2025 — not used for the time.';
+    if (last && gpsMs < last - GPS_BACK_MS) return 'The GPS says ' + at(gpsMs) + ', before this Pi last knew the time (' + at(last) + ') — not used for the time.';
+    if (last && gpsMs > last + GPS_AHEAD_MS) return 'The GPS says ' + at(gpsMs) + ', over 400 days past the last time this Pi knew (' + at(last) + ') — not used for the time.';
+    const ref = this.ntp ? ['network time', Date.now()] : this.rtc ? ['the RTC', Date.now() + this.rtc.offset] : null;
+    if (ref && Math.abs(gpsMs - ref[1]) > GPS_CROSS_MS) {
+      return 'The GPS is ' + Math.round(Math.abs(gpsMs - ref[1]) / 60000) + ' min out from ' + ref[0] + ' — not used for the time.';
+    }
+    return '';
+  }
+  setGpsNote(note) {
+    if (note === this.gpsNote) return;
+    this.gpsNote = note;
+    if (note && this.log) this.log.warn(note);
+  }
+
   // A GPS time: { ms (UTC from the receiver), at (hrtime bigint when it was read) }.
   gpsTime(t) {
     const age = Number((process.hrtime.bigint() - t.at) / 1000000n);
     const offset = t.ms + age - Date.now();
+    const now = mono();
+    // Already believed, and still saying the same: it goes on keeping the time.
+    const same = this.gps && now - this.gps.atMono < GPS_FRESH_MS && Math.abs(offset - this.gps.offset) <= GPS_AGREE_MS;
+    if (!same) {
+      const doubt = this.gpsDoubt(Date.now() + offset);
+      this.setGpsNote(doubt);
+      if (doubt) { this.gpsCand = null; return; }
+      const c = this.gpsCand;
+      if (!c || Math.abs(offset - c.offset) > GPS_AGREE_MS) { this.gpsCand = { offset, n: 1, since: now }; return; }
+      c.n++; c.offset = offset;
+      if (c.n < GPS_STEADY || (Math.abs(offset) > GPS_BIG_MS && now - c.since < GPS_BIG_STEADY_MS)) return;
+      this.gpsCand = null;
+      if (Math.abs(offset) > GPS_BIG_MS && !this.ntp) this.log && this.log.warn('the GPS puts the clock ' + Math.round(offset / 86400e3 * 10) / 10 + ' days from where it was');
+    }
+    this.setGpsNote('');
     const was = this.trusted();
-    this.gps = { offset, atMono: mono() };
+    this.gps = { offset, atMono: now };
     if (!this.ntp) {
       this.source = 'gps';
       this.rtc = null;
@@ -196,7 +249,7 @@ class Clock extends EventEmitter {
   status() {
     const info = this.rtcInfo();
     return { trusted: this.trusted(), source: this.trusted() ? this.source : 'none', ntp: this.ntp,
-      gpsOffsetMs: this.gps ? Math.round(this.gps.offset) : null, now: new Date(this.now()).toISOString(),
+      gpsOffsetMs: this.gps ? Math.round(this.gps.offset) : null, gpsNote: this.gpsNote || null, now: new Date(this.now()).toISOString(),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       // Whether the time would survive a power cut with no internet and no GPS.
       rtc: info ? Object.assign(info, { verifiedAt: this.memory.rtcVerifiedAt || null, trusted: !!this.rtc,

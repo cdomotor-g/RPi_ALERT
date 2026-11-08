@@ -149,7 +149,9 @@ class PortSession extends EventEmitter {
     this.log.info('identified: ' + this.name() + ' (' + this.how + ') at ' + (this.sp ? this.sp.baud : '?') + ' baud');
     this.agent.state.rememberPort(this.key, { type, baud: this.sp ? this.sp.baud : null });
     this.driver.onOpen();
-    if (info.bytes && info.bytes.length) this.driver.feed(Buffer.from(info.bytes));
+    // The bytes the sniffer heard, as the ones after them are: a driver that
+    // throws on them is logged, never the agent brought down.
+    if (info.bytes && info.bytes.length) { try { this.driver.feed(Buffer.from(info.bytes)); } catch (e) { this.log.error('driver: ' + (e.stack || e)); } }
     this.agent.deviceAttached(this);
     this.emit('change');
   }

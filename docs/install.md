@@ -139,16 +139,20 @@ Updates install over the network; the SD card never needs re-flashing for a new 
 - **Automatically:** tick *Install new releases automatically* there (or `auto_update = on` in
   `rpi-alert.conf`). A timer installs any newer release nightly, at a random time between 3 and 4 am.
 - **Once, from the SD card:** `update = now` in `rpi-alert.conf` installs the latest at the next boot.
-- **Over SSH:** `sudo rpi-alert-update` (`--ref main` for the development branch).
+- **Over SSH:** `sudo rpi-alert-update` (`--ref v0.21.0` for one release, `--ref main` for the
+  development branch).
 
-Only a release newer than the version the Pi runs is offered or installed automatically. A Pi
-running something newer than the latest release (installed with `--ref main`, or from a
-build-only image) is told it is ahead, and the nightly timer leaves it alone. `sudo
-rpi-alert-update` over SSH always installs the latest release, so it is also the way back to it.
+Only a release newer than the version the Pi runs is offered or installed by the web page,
+Flood-Net, `update = now` or the nightly timer: none of them ever puts an older release on a Pi. A
+Pi running something newer than the latest release (installed with `--ref main`, or from a
+build-only image) is told it is ahead, and is left alone. `sudo rpi-alert-update` over SSH always
+installs the latest release, so it is also the way back to it.
 
-Every route runs `rpi-alert-update.service`, which downloads the release and the version the Pi
-runs now, installs, and waits up to two minutes for the agent to answer as the new version. If it
-does not, the previous version is put back. Settings, the queue and the receiver ids are kept.
+Every route but SSH runs `rpi-alert-update.service`, which downloads the release and checks it — its
+signature, and that it holds the version its tag names — keeps a copy of the version the Pi runs
+now, installs, and waits up to two minutes for the agent to answer as the new version. If it does
+not, that copy is put back (nothing is downloaded to do it). Settings, the queue and the receiver
+ids are kept.
 The outcome shows under Overview → This Pi → System and updates; the detail is in `journalctl -u rpi-alert-update`.
 
 Pis on 0.3.0 or earlier have no install button yet: install this once over SSH

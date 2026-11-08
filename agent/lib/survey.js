@@ -35,6 +35,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const { EventEmitter } = require('node:events');
 const { mono } = require('./clock');
+const { writeAtomic } = require('./safe-fs');
 
 const TICK_MS = 30000, SAVE_MS = 5 * 60 * 1000, HISTORY = 10;
 const MOVE_M = 500, ANCHOR_ACC_M = 100;
@@ -289,11 +290,13 @@ class Survey extends EventEmitter {
 
     const c = a.clock.status();
     const rtc = c.rtc;
+    // A GPS whose time is not believed (lib/clock.js) says why.
+    const gn = c.gpsNote ? ' ' + c.gpsNote : '';
     if (c.source === 'gps') add('clock', 'good', 'Time from the GPS', 'Survives a power cut for as long as the GPS gets a fix.');
-    else if (c.source === 'rtc') add('clock', 'good', 'Time from the battery RTC', 'Checked against NTP or a GPS on ' + new Date(rtc.verifiedAt).toLocaleDateString() + '; it keeps time through a power cut.');
+    else if (c.source === 'rtc') add('clock', 'good', 'Time from the battery RTC', 'Checked against NTP or a GPS on ' + new Date(rtc.verifiedAt).toLocaleDateString() + '; it keeps time through a power cut.' + gn);
     else if (c.source === 'ntp' && rtc && rtc.usable) add('clock', 'good', 'Time from NTP, kept by the battery RTC', 'The RTC carries the time through a power cut with no internet.');
-    else if (c.trusted) add('clock', 'warn', 'Time from NTP only — until the next power cut', 'With no internet, GPS or battery RTC, a power cut loses the time: what is heard afterwards waits on the card until the time is known again in that same power-up, and is lost if it never is. A USB GPS (or a Pi 5 RTC battery, or an RTC board) closes the gap.' + (rtc && rtc.note ? ' ' + rtc.note : ''));
-    else add('clock', 'bad', 'The time is not known', 'Nothing heard can be timed until NTP or a GPS gives the time in this power-up. Join a network once (a phone hotspot will do), or plug in a USB GPS.' + (rtc && rtc.note ? ' ' + rtc.note : ''));
+    else if (c.trusted) add('clock', 'warn', 'Time from NTP only — until the next power cut', 'With no internet, GPS or battery RTC, a power cut loses the time: what is heard afterwards waits on the card until the time is known again in that same power-up, and is lost if it never is. A USB GPS (or a Pi 5 RTC battery, or an RTC board) closes the gap.' + (rtc && rtc.note ? ' ' + rtc.note : '') + gn);
+    else add('clock', 'bad', 'The time is not known', 'Nothing heard can be timed until NTP or a GPS gives the time in this power-up. Join a network once (a phone hotspot will do), or plug in a USB GPS.' + (rtc && rtc.note ? ' ' + rtc.note : '') + gn);
 
     const up = a.uplink.status();
     const info = await require('./system').info().catch(() => ({}));
@@ -348,8 +351,10 @@ class Survey extends EventEmitter {
 function requestFromCard(dataDir, o) {
   const name = cleanName(o.name);
   if (!name) return false;
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(path.join(dataDir, 'survey-request.json'), JSON.stringify({ name, hours: cleanHours(o.hours), readings: !!o.readings, at: os.hostname() }));
+  // Root writes this at boot into the agent's directory: a fresh file, never
+  // through a link, given to the directory's owner (lib/safe-fs.js).
+  writeAtomic(path.join(dataDir, 'survey-request.json'), JSON.stringify({ name, hours: cleanHours(o.hours), readings: !!o.readings, at: os.hostname() }),
+    { mode: 0o644, owner: 'dir' });
   return true;
 }
 

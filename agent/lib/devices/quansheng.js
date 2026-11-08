@@ -25,6 +25,8 @@ const { Quansheng: Q } = require('../meganet-codecs');
 const SILENCE_MS = 25000;
 const CLOCK_EVERY_MS = 60 * 60 * 1000;
 const LEGACY = /^ALERT,(\d+),(\d+),([A-Z0-9]*),(-?\d*),(.*)$/;
+const FEED_MAX = 512;           // bytes handed to the reader at a time
+const REPLY_LINES_MAX = 2000;   // lines kept of one console reply
 
 class QuanshengDriver {
   constructor(ctx) {
@@ -74,6 +76,13 @@ class QuanshengDriver {
   feed(chunk) {
     this.lastByte = Date.now();
     this.dtrToggles = 0;
+    // MegaNet's reader cuts its buffer from the front, a byte at a time over
+    // noise: in small pieces, its work stays in proportion to what arrives
+    // however much a faulty or hostile device sends at once.
+    if (chunk.length > FEED_MAX) {
+      for (let i = 0; i < chunk.length; i += FEED_MAX) this.feed(chunk.subarray(i, i + FEED_MAX));
+      return;
+    }
     const { lines, frames } = this.reader.feed(chunk);
     if (this.reader.bootloader && !this.bootloader) {
       this.bootloader = true;
@@ -93,7 +102,9 @@ class QuanshengDriver {
     }
     if (cls === 'debug') { this.ctx.log.debug('radio: ' + line); if (this.cur) this.touch(); return; }
     // data: a console reply line
-    if (this.cur) { this.cur.lines.push(line); this.touch(); this.data(line); }
+    // A reply has lines enough for any command (STAT, CFG…); more is a device
+    // that does not stop, and is not kept.
+    if (this.cur) { if (this.cur.lines.length < REPLY_LINES_MAX) this.cur.lines.push(line); this.touch(); this.data(line); }
   }
 
   record(line) {

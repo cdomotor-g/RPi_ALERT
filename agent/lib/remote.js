@@ -235,6 +235,24 @@ function fit(st) {
   return size(out) <= MAX_STATUS_BYTES ? out : { name: st.name, left_out: 'the status was too big for one check-in' };
 }
 
+// An answer too big for one check-in is cut down rather than thrown away: a
+// log keeps its newest lines that fit and says how many were left out;
+// anything else becomes a note of its size.
+function fitResult(result) {
+  const size = (o) => Buffer.byteLength(JSON.stringify(o === undefined ? null : o));
+  const n = size(result);
+  if (n <= MAX_RESULT_BYTES) return result;
+  const lines = result && typeof result === 'object' && Array.isArray(result.lines) ? result.lines : null;
+  if (lines && lines.length) {
+    const cut = (k) => Object.assign({}, result, { lines: lines.slice(lines.length - k), left_out: lines.length - k,
+      note: 'the oldest ' + (lines.length - k) + ' of ' + lines.length + ' lines left out — more than a check-in carries' });
+    let lo = 0, hi = lines.length - 1;   // the most newest lines that fit
+    while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (size(cut(mid)) <= MAX_RESULT_BYTES) lo = mid; else hi = mid - 1; }
+    if (lo > 0) return cut(lo);
+  }
+  return { truncated: true, note: 'the answer was ' + n + ' bytes — more than a check-in carries' };
+}
+
 function withTimeout(p, ms) {
   let t;
   return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('took longer than ' + ms / 1000 + ' s')), ms); })]).finally(() => clearTimeout(t));
@@ -558,8 +576,7 @@ class Remote extends EventEmitter {
     }
     h.ok = out.ok; h.error = out.error || null;
     if (!out.ok) this.log.warn('MegaNet asked to ' + h.label + ', and it was not done: ' + out.error);
-    const size = JSON.stringify(out.result === undefined ? null : out.result).length;
-    if (size > MAX_RESULT_BYTES) out.result = { truncated: true, note: 'the answer was ' + size + ' bytes — more than a check-in carries' };
+    out.result = fitResult(out.result);
     this.results.push(Object.assign({ id }, out));
     this.emit('change');
   }
@@ -592,4 +609,4 @@ class Remote extends EventEmitter {
   }
 }
 
-module.exports = { Remote, VERBS, checkPatch, droppedPpm, remoteConfig, receiverOf, fit, LOCAL_ONLY, MEGANET_REMOTE };
+module.exports = { Remote, VERBS, checkPatch, droppedPpm, remoteConfig, receiverOf, fit, fitResult, MAX_RESULT_BYTES, LOCAL_ONLY, MEGANET_REMOTE };

@@ -6,6 +6,7 @@
 #   kiosk start|stop          the full-screen dashboard on a connected monitor
 #   reboot | poweroff | restart-agent
 #   set-time <unix seconds>   from a GPS fix or the RTC, when there has been no NTP
+#                             (refused while NTP has the time, and outside 2025–2099)
 #   rtc-sync                  write the system time to the battery RTC (Pi 5, DS3231…),
 #                             while NTP or a GPS says it is right
 #   timezone <Area/City>
@@ -19,7 +20,8 @@
 #   update-check              is there a newer RPi ALERT release?
 #   update-install            install it now (rpi-alert-update.service, in the background)
 #   update-auto on|off        the nightly install-if-newer timer
-#   update-status             the last install's outcome and whether the timer is on
+#   update-status             whether the timer is on and an install is running (the
+#                             outcome the agent reads itself: /var/lib/rpi-alert-update/status.json)
 #   access-status             who may log in over SSH, and how (JSON; docs/access.md)
 #   access-sync               fetch the GitHub and MegaNet key lists now
 #   access-set meganet on|off | from private|any | password on|off|unchanged | ssh on|off
@@ -48,6 +50,10 @@ case "$verb" in
     [[ "${1:-}" =~ ^[0-9]{10}$ ]] || die "set-time <unix seconds>"
     # A GPS with the week-rollover bug reports a date ~20 years back: never take one.
     (( $1 > 1735689600 )) || die "refusing a time before 2025"
+    (( $1 < 4102444800 )) || die "refusing a time after 2099"
+    # Network time, once it has answered, is better than anything the agent
+    # could pass in — and a GPS or serial device the agent reads could be lying.
+    [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != yes ] || die "the clock is set over the network (NTP); not changing it"
     exec date -s "@$1" ;;
   rtc-sync)
     [ -e /dev/rtc0 ] || die "no RTC (/dev/rtc0)"
@@ -112,10 +118,11 @@ case "$verb" in
       *) die "update-auto on|off" ;;
     esac ;;
   update-status)
-    # Three lines: the timer (enabled|disabled), the installer (running|idle), the last outcome as JSON.
+    # Two lines: the timer (enabled|disabled), the installer (running|idle). The
+    # last outcome is root's file, readable by all; the agent reads it itself
+    # (it used to be read here, from the agent's own directory, as root).
     systemctl is-enabled rpi-alert-update-auto.timer 2>/dev/null || echo disabled
-    if systemctl is-active --quiet rpi-alert-update.service || systemctl is-active --quiet rpi-alert-update-auto.service; then echo running; else echo idle; fi
-    cat /var/lib/rpi-alert/update-status.json 2>/dev/null || echo '{}' ;;
+    if systemctl is-active --quiet rpi-alert-update.service || systemctl is-active --quiet rpi-alert-update-auto.service; then echo running; else echo idle; fi ;;
   access-status) exec /usr/bin/node /opt/rpi-alert/bin/rpi-alert-access status ;;
   # Through its own unit, so the hourly timer and this share one log
   # (journalctl -u rpi-alert-access); start waits for the oneshot to finish.

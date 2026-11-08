@@ -63,6 +63,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { Config, hashPassword } = require('./config');
+const { readNoFollow, writeAtomic } = require('./safe-fs');
 const Channels = require('../web/channels');
 
 const BOOT_DIRS = ['/boot/firmware', '/boot'];
@@ -77,7 +78,11 @@ const SECRET = new Set(['token', 'meganet_token', 'ingest_token', 'web_password'
 // Keys a card may give more than once, each line one more value.
 const MULTI = new Set(['ssh_key', 'ssh_authorized_key']);
 const BT_GPS_PORT = '/dev/rpi-alert-gps';
-const BT_GPS_CONF = process.env.RPI_ALERT_BTGPS_CONF || '/etc/rpi-alert/bluetooth-gps.conf';
+// Root's, beside /etc/rpi-alert rather than in it: the agent owns that
+// directory, and rpi-alert-btgps reads this file as root.
+const BT_GPS_CONF = process.env.RPI_ALERT_BTGPS_CONF || '/etc/rpi-alert-btgps.conf';
+// Where 0.22.1 and earlier kept it.
+const BT_GPS_CONF_OLD = '/etc/rpi-alert/bluetooth-gps.conf';
 
 function parse(text) {
   const out = {};
@@ -178,7 +183,11 @@ function toPatch(kv) {
         else notes.push('gps_bluetooth: expected a Bluetooth address like 58:A8:39:01:93:61, or off');
         break;
       }
-      case 'gps_bluetooth_pin': btPin = v.trim(); break;
+      case 'gps_bluetooth_pin': {
+        const pin = v.trim();
+        if (/^[0-9A-Za-z]{1,16}$/.test(pin)) btPin = pin; else notes.push('gps_bluetooth_pin: up to 16 letters and digits');
+        break;
+      }
       case 'hotspot': case 'wifi_hotspot': {
         const m = no(v) ? 'off' : /^(on|always)$/i.test(v.trim()) ? 'on' : yes(v) || /^auto$/i.test(v.trim()) ? 'auto' : null;
         if (m) set('hotspot.mode', m); else notes.push('hotspot: auto, on or off');
@@ -323,14 +332,13 @@ function hostKeys(dir) {
 function applyBtGps(b, log) {
   if (b.off) {
     sh('systemctl', ['disable', '--now', 'rpi-alert-btgps.service']);
-    try { fs.unlinkSync(BT_GPS_CONF); } catch (_) {}
+    for (const f of [BT_GPS_CONF, BT_GPS_CONF_OLD]) { try { fs.unlinkSync(f); } catch (_) {} }
     log('Bluetooth GPS removed');
     return;
   }
-  const text = '# Written from rpi-alert.conf at boot — see rpi-alert-btgps\naddress = ' + b.address + '\n' +
-    (b.pin ? 'pin = ' + b.pin + '\n' : '') + (b.channel ? 'channel = ' + b.channel + '\n' : '');
-  try { fs.writeFileSync(BT_GPS_CONF, text, { mode: 0o600 }); fs.chmodSync(BT_GPS_CONF, 0o600); }
+  try { writeAtomic(BT_GPS_CONF, btGpsText(b), { mode: 0o600 }); }
   catch (e) { log('could not write ' + BT_GPS_CONF + ': ' + e.message); return; }
+  try { fs.unlinkSync(BT_GPS_CONF_OLD); } catch (_) {}
   sh('rfkill', ['unblock', 'bluetooth']);
   // hciuart brings up the Pi's own Bluetooth chip; not every board has it.
   sh('systemctl', ['enable', '--now', '--no-block', 'hciuart.service']);
@@ -339,6 +347,39 @@ function applyBtGps(b, log) {
   sh('systemctl', ['restart', '--no-block', 'rpi-alert-btgps.service']);
   log(r1.ok && r2.ok ? 'Bluetooth GPS ' + b.address + ' — pairs and connects in the background, read as ' + BT_GPS_PORT
     : 'could not turn on the Bluetooth GPS: ' + [r1, r2].filter(r => !r.ok).map(r => r.out).join('; '));
+}
+
+function btGpsText(b) {
+  return '# Written from rpi-alert.conf at boot — see rpi-alert-btgps\naddress = ' + b.address + '\n' +
+    (b.pin ? 'pin = ' + b.pin + '\n' : '') + (b.channel ? 'channel = ' + b.channel + '\n' : '');
+}
+
+// The installer, on a Pi that had a Bluetooth GPS before 0.22.2: its settings
+// move from the agent's directory to root's file. Only the three settings go,
+// each checked as the card's are — never the old file as it stands, which the
+// agent could have changed or made a link. Returns what happened, in words.
+function moveBtGpsConf(from, to) {
+  from = from || BT_GPS_CONF_OLD; to = to || BT_GPS_CONF;
+  let text;
+  try { text = readNoFollow(from, 4096); } catch (e) {
+    if (e.code === 'ENOENT') return 'nothing to move';
+    try { fs.unlinkSync(from); } catch (_) {}
+    return 'not moved: ' + e.message;
+  }
+  const kv = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([a-z]+)\s*=\s*(.*?)\s*$/i.exec(line);
+    if (m) kv[m[1].toLowerCase()] = m[2];
+  }
+  const b = { address: String(kv.address || '').toUpperCase() };
+  if (/^[0-9A-Za-z]{1,16}$/.test(kv.pin || '')) b.pin = kv.pin;
+  const ch = Number(kv.channel);
+  if (Number.isInteger(ch) && ch >= 1 && ch <= 30) b.channel = ch;
+  try { fs.unlinkSync(from); } catch (_) {}
+  if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(b.address)) return 'not moved: no Bluetooth address in it';
+  if (fs.existsSync(to)) return 'kept ' + to;
+  writeAtomic(to, btGpsText(b), { mode: 0o600 });
+  return 'moved to ' + to;
 }
 
 // SSH access (lib/access.js): this runs as root, so the card may do what the
@@ -417,9 +458,9 @@ function main(args) {
       log('  ' + k + ': ' + (one.ok ? 'applied' : one.errors.join('; ')));
     }
   }
+  // save() gives the file to the agent's user, who owns its directory — on
+  // the file it has just written, never by name (a name could be a link).
   try { cfg.save(); } catch (e) { log('could not write the settings: ' + e.message); }
-  // The agent's own user owns its settings file.
-  sh('chown', ['rpi-alert:rpi-alert', cfg.file]);
   applySystem(system, log);
   if (system.survey && system.survey.name) {
     // Taken up by the agent as it starts, which is after this (survey.js).
@@ -427,7 +468,6 @@ function main(args) {
     const { DATA_DIR } = require('./state');
     try {
       requestFromCard(DATA_DIR, system.survey);
-      sh('chown', ['rpi-alert:rpi-alert', path.join(DATA_DIR, 'survey-request.json')]);
       log('site survey "' + system.survey.name + '" starts at this power-up');
     } catch (e) { log('could not start the survey: ' + e.message); }
   } else if (system.survey) log('note: survey_hours / survey_readings without survey = <name> — no survey started');
@@ -438,4 +478,4 @@ function main(args) {
   try { fs.appendFileSync(path.join(dir, 'rpi-alert-boot.log'), logLines.join('\r\n') + '\r\n'); } catch (_) {}
 }
 
-module.exports = { parse, toPatch, redactText, withBtGpsPort, applySsh, main, BT_GPS_PORT, MULTI };
+module.exports = { parse, toPatch, redactText, withBtGpsPort, applySsh, main, moveBtGpsConf, BT_GPS_PORT, BT_GPS_CONF, MULTI };

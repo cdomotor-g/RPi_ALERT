@@ -2,11 +2,14 @@
 Description=Install the latest RPi ALERT release (rolls back if it does not start)
 Documentation=https://github.com/cdomotor-g/RPi_ALERT/blob/main/docs/install.md
 # Its own unit, not a child of the agent: installing restarts the agent, and
-# that must not take the installer down with it.
+# that must not take the installer down with it. --if-newer: the web page,
+# MegaNet and update = now on the card never put an older release on a Pi
+# (one running ahead of the latest is left alone); over SSH, sudo
+# rpi-alert-update with no option still installs the latest, whatever it is.
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/rpi-alert/libexec/rpi-alert-update
+ExecStart=/opt/rpi-alert/libexec/rpi-alert-update --if-newer
 TimeoutStartSec=20min

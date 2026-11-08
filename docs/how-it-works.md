@@ -40,6 +40,7 @@ Chromium. The image turns off Bluetooth and triggerhappy, and caps the journal a
 | `rpi-alert-boot-config.service` | Applies `rpi-alert.conf` from the boot partition before the agent starts. |
 | `rpi-alert-kiosk.service` | cage + Chromium on tty7, started and stopped *by the agent* as a monitor is connected and disconnected (`/sys/class/drm/*/status`), so a headless Pi spends no memory on it. |
 | `/opt/rpi-alert/libexec/rpi-alert-priv` | The only thing the agent may run as root (sudoers): a fixed list of verbs — kiosk, reboot, Wi-Fi, hostname, time zone, set the clock from GPS, updates, SSH access status and settings — each argument checked. |
+| Files root touches | `/etc/rpi-alert` and `/var/lib/rpi-alert` belong to the agent's user, so root — the SD card's settings at boot, the installer, `sudo rpi-alert` — reads and writes there only through [`safe-fs.js`](../agent/lib/safe-fs.js): never through a link, always a fresh file renamed into place. What root alone reads is root's: the Bluetooth GPS's settings in `/etc/rpi-alert-btgps.conf`, the update's outcome in `/var/lib/rpi-alert-update/status.json` (readable by all; the agent reads it itself). |
 | `alert`, `rpi-alert-access` | The maintenance account — the same on every Pi, SSH keys only, sudo — and the root helper that keeps its key list (from the SD card, GitHub accounts, MegaNet's team keys); `rpi-alert-access.timer` refreshes the fetched lists hourly. [access.md](access.md) |
 | The hotspot | The Pi's own Wi-Fi network for a phone where there is no other ([`hotspot.js`](../agent/lib/hotspot.js)): a NetworkManager access point, `rpi-alert-hotspot`, the Pi at 10.42.0.1 with NetworkManager's DHCP, WPA2 with a password made on the Pi. In *auto*, up after three minutes with no network and down the moment Ethernet or a Wi-Fi network is connected; one radio cannot host and look at once, so with nobody on it it steps aside every ten minutes for a minute and a half to let NetworkManager join a network it knows. Read every 20 s without root (`nmcli`, `iw`); only up and down go through the root helper. |
 | udev / modprobe | RTL-SDR permissions, USB autosuspend off for receivers, ModemManager kept off serial receivers, DVB-T driver blacklisted. |
@@ -234,8 +235,8 @@ restart carries on asking.
 A Pi has no battery clock (a Pi 5 can have one) and boots at the time it last shut down. The agent
 trusts the clock when systemd-timesyncd says it is synchronised
 (`/run/systemd/timesync/synchronized`, or `timedatectl`'s NTPSynchronized), or when a GPS gives a
-valid time (and then also sets the system clock, at most every ten minutes, never to before 2025 —
-GPS week-rollover bugs), or — with neither — when a **battery RTC** can be believed: a Pi 5 with its
+time it can believe (and then also sets the system clock, at most every ten minutes), or — with
+neither — when a **battery RTC** can be believed: a Pi 5 with its
 RTC battery, or an RTC board (DS3231 and the like) on a Pi 3 or 4. That is an RTC seen to agree
 with NTP or a GPS to within two seconds in the last 60 days, that reads no earlier than the last time
 the agent knew the time to be right (one that lost its time starts again from 1970, or from where it
@@ -243,6 +244,17 @@ stopped). While NTP or a GPS is trusted the agent keeps the RTC set (`hwclock --
 the root helper) and remembers both in `/var/lib/rpi-alert/clock.json`. It is what lets a site
 survey with no internet and no GPS time what it hears across a power cut. The Quansheng radio's own
 clock is set from the Pi's once it is trusted.
+
+A GPS's time is believed only when it is plausible, because a receiver can be wrong (GPS
+week-rollover bugs read about 20 years back) or a device on a serial port can lie. The sentence must
+carry its checksum and a valid fix, with every date and time field in range; the time must not be
+before 2025 or before the last time the agent knew the time to be right (it does not run backwards),
+nor more than 400 days past it; it must be within five minutes of network time or a trusted RTC
+when there is one; and it must say the same three times in a row, to two seconds — a full minute of
+that before it moves the clock by more than a day (a Pi powered off for a week, then out on a hill
+with only its GPS, still gets the time, a minute later). Otherwise the agent waits for NTP, logs
+why, and the web page shows **GPS time not used** with the reason. The root helper sets the clock
+only between 2025 and 2099, and never while NTP has the time.
 
 ## Remote management
 

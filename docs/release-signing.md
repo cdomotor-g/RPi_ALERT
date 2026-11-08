@@ -121,7 +121,15 @@ node os/libexec/verify-release.js os/release-signing-key.pem \
 
 - **Covered:** the normal update path — the nightly `--if-newer` timer, the
   dashboard's *Install update*, and MegaNet's *install update* request all go
-  through `rpi-alert-update`, which verifies.
+  through `rpi-alert-update`, which verifies. The signature covers the
+  tarball's bytes, not the tag it hangs from, so the updater also checks that
+  the tarball's `package.json` holds the version its tag names (an older signed
+  tarball put up under a newer tag is refused), and the automatic routes only
+  ever install a newer version than the Pi runs.
+- **The way back:** if a new version does not start, the updater puts back a
+  copy of the version that was running, taken from `/opt/rpi-alert` before the
+  install — never a download — so a failed update cannot be steered into
+  running anything unsigned.
 - **Not covered:** `rpi-alert-update --ref <branch>` and the
   `bootstrap.sh | sudo bash` one-liner install a branch from the source archive,
   unverified, by design — they are the developer/testing paths. Treat push

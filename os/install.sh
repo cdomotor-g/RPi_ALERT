@@ -65,7 +65,7 @@ if [ "$UNINSTALL" = 1 ]; then
   rm -rf /etc/ssh/rpi-alert /var/lib/rpi-alert-access
   systemctl try-reload-or-restart ssh.service 2>/dev/null || true
   rm -rf "$PREFIX"
-  if [ "$PURGE" = 1 ]; then rm -rf /etc/rpi-alert /var/lib/rpi-alert /var/lib/rpi-alert-kiosk; userdel rpi-alert 2>/dev/null || true; userdel rpi-alert-kiosk 2>/dev/null || true; userdel -r alert 2>/dev/null || true; fi
+  if [ "$PURGE" = 1 ]; then rm -rf /etc/rpi-alert /etc/rpi-alert-btgps.conf /var/lib/rpi-alert /var/lib/rpi-alert-update /var/lib/rpi-alert-kiosk; userdel rpi-alert 2>/dev/null || true; userdel rpi-alert-kiosk 2>/dev/null || true; userdel -r alert 2>/dev/null || true; fi
   systemctl daemon-reload || true
   say "Done.$([ "$PURGE" = 1 ] || echo ' Settings kept in /etc/rpi-alert and data in /var/lib/rpi-alert (--purge removes them).')"
   exit 0
@@ -179,6 +179,15 @@ install -d -o rpi-alert -g rpi-alert -m 0750 /etc/rpi-alert /var/lib/rpi-alert
 if [ -L /etc/rpi-alert/config.json ]; then rm -f /etc/rpi-alert/config.json
 elif [ -f /etc/rpi-alert/config.json ]; then chown -h rpi-alert:rpi-alert /etc/rpi-alert/config.json && chmod 0600 /etc/rpi-alert/config.json; fi
 chown -R rpi-alert:rpi-alert /var/lib/rpi-alert
+# The updater's outcome: root's, readable by all (the agent reads it; it is
+# never written in the agent's own directory, where a link could lead root astray).
+install -d -m 0755 -o root -g root /var/lib/rpi-alert-update
+# 0.22.2 moved a Bluetooth GPS's settings from the agent's directory to root's
+# /etc/rpi-alert-btgps.conf: only its three settings move, each checked —
+# never the old file itself, which the agent could have changed or made a link.
+if [ -e /etc/rpi-alert/bluetooth-gps.conf ] || [ -L /etc/rpi-alert/bluetooth-gps.conf ]; then
+  say "Bluetooth GPS settings: $(node -e "console.log(require('$PREFIX/lib/bootconf').moveBtGpsConf())" 2>&1 || echo 'could not be moved — write gps_bluetooth in rpi-alert.conf again')"
+fi
 
 # ── system integration ───────────────────────────────────────────────────────
 say "Installing services, device rules and the root helper"
@@ -252,6 +261,8 @@ if [ "$IMAGE" = 0 ]; then
   for m in dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830 r820t; do modprobe -r "$m" 2>/dev/null || true; done
   systemctl restart rpi-alert.service
   systemctl start rpi-alert-access.timer 2>/dev/null || true
+  # A Bluetooth GPS link, if there is one, onto the new version of its bridge.
+  systemctl try-restart rpi-alert-btgps.service 2>/dev/null || true
   sleep 2
   host=$(hostname)
   ip4=$(hostname -I 2>/dev/null | awk '{print $1}')

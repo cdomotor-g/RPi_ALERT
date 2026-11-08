@@ -135,6 +135,8 @@ function renderHeader() {
   else chips.push(['ok', 'Flood-Net' + (m.label ? ': ' + m.label : '') + (m.lastOkAt ? ' · ' + ago(Date.now() - m.lastOkAt) : '')]);
   if (m.queued || m.waitingForClock) chips.push(['warn', (m.queued + m.waitingForClock) + ' waiting']);
   chips.push(s.clock.trusted ? ['ok', 'Clock: ' + s.clock.source] : ['warn', 'Clock: not set yet']);
+  // A GPS whose time is not believed (lib/clock.js): the reason on hover.
+  if (s.clock.gpsNote) chips.push(['warn', 'GPS time not used', s.clock.gpsNote]);
   if (s.hotspot && s.hotspot.active) chips.push(['ok', 'Hotspot: ' + s.hotspot.ssid + (s.hotspot.clients ? ' · ' + s.hotspot.clients + ' on it' : '')]);
   if (s.survey && s.survey.state === 'running') chips.push(['ok', 'Surveying: ' + s.survey.name + ' · ' + s.survey.addresses + ' heard']);
   else if (s.survey && s.survey.state === 'armed') chips.push(['warn', 'Survey starts at the next power-up']);
@@ -145,7 +147,7 @@ function renderHeader() {
   if (s.system.tempC != null) chips.push([s.system.tempC > 75 ? 'bad' : s.system.tempC > 65 ? 'warn' : 'ok', s.system.tempC + ' °C']);
   // An administrator has this base station open on MegaNet's Base Stations tab.
   if (s.remote && s.remote.watch && s.remote.state === 'ok') chips.push(['ok', 'Flood-Net: an administrator is looking']);
-  $('#chips').innerHTML = chips.map(([c, t]) => '<span class="chip ' + c + '">' + esc(t) + '</span>').join('');
+  $('#chips').innerHTML = chips.map(([c, t, why]) => '<span class="chip ' + c + '"' + (why ? ' title="' + esc(why) + '"' : '') + '>' + esc(t) + '</span>').join('');
 
   const banners = [];
   const ask = '<button type="button" data-act="token-request"' + (tr.state === 'asking' ? ' disabled' : '') + '>Request a token</button>';

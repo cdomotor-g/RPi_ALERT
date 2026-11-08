@@ -13,7 +13,7 @@
 # comes and goes: out of range, switched off, rebooted — this reconnects
 # (5 s, 10 s … 60 s) and the agent simply sees the sentences stop and start.
 #
-# Settings: /etc/rpi-alert/bluetooth-gps.conf, written from rpi-alert.conf at
+# Settings: /etc/rpi-alert-btgps.conf (root's), written from rpi-alert.conf at
 # boot (gps_bluetooth = <address>, gps_bluetooth_pin, gps_bluetooth_channel):
 #
 #     address = 58:A8:39:01:93:61
@@ -23,9 +23,9 @@
 # Installed as /opt/rpi-alert/libexec/rpi-alert-btgps; run by
 # rpi-alert-btgps.service, as root (pairing and /dev need it).
 
-import errno, grp, os, pty, re, select, socket, subprocess, sys, time, tty
+import errno, grp, os, pty, re, select, socket, stat, subprocess, sys, time, tty
 
-CONF = os.environ.get('RPI_ALERT_BTGPS_CONF', '/etc/rpi-alert/bluetooth-gps.conf')
+CONF = os.environ.get('RPI_ALERT_BTGPS_CONF', '/etc/rpi-alert-btgps.conf')
 LINK = os.environ.get('RPI_ALERT_BTGPS_LINK', '/dev/rpi-alert-gps')
 BACKOFF = [5, 10, 20, 30, 60]
 
@@ -35,8 +35,14 @@ def log(msg):
 
 
 def read_conf(path):
+    """key = value lines. Never through a link, and nothing but a small plain file."""
     out = {}
-    with open(path) as f:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_size > 4096:
+        os.close(fd)
+        raise OSError(errno.EINVAL, 'not a small plain file')
+    with os.fdopen(fd) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -213,8 +219,11 @@ def main():
         log('address "%s" is not a Bluetooth address (AA:BB:CC:DD:EE:FF)' % addr)
         sys.exit(2)
     pin = conf.get('pin', '')
+    if pin and not re.fullmatch(r'[0-9A-Za-z]{1,16}', pin):
+        log('the PIN is not up to 16 letters and digits — pairing without it')
+        pin = ''
     ch = conf.get('channel', '')
-    channels = [int(ch)] if ch.isdigit() else list(range(1, 11))
+    channels = [int(ch)] if re.fullmatch(r'[0-9]{1,2}', ch) and 1 <= int(ch) <= 30 else list(range(1, 11))
 
     sh('rfkill', 'unblock', 'bluetooth')
     master, slave, name = make_pty()
