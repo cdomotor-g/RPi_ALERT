@@ -79,7 +79,7 @@
           <form id="f-sdr" class="form fold-body">
             <label class="check"><input type="checkbox" name="enabled"> Use RTL-SDR sticks</label>
             <p class="hint">Each stick hears every channel in its <b>window</b> at once — a slice of the band — and each channel is a receiver of its own in Flood-Net.
-              The window is what a stick costs this Pi: every channel's decoder takes in the whole of it, so a wider one is more work for each channel and hears none of them better.
+              The window is what a stick costs this Pi: every channel's decoder takes in the whole of it, so a wider one is more work for each channel — and, the stick's samples being 8-bit, it hears weak bursts a little better (at 18 Bateson, 960 kHz's noise floor was 5–6 dB under 288 kHz's, and every channel heard more). Narrow a window to spare the Pi, not to hear better.
               <i>Automatic</i> takes the narrowest that holds the stick's channels, kept between <i>No narrower than</i> and <i>No wider than</i>: a widest keeps a stick light whatever it is given (a channel it cannot hold is not decoded, and says so), a narrowest shows more of the band on the waterfall. Or choose one window exactly.</p>
             <div id="sdr-budget" class="sdr-budget" aria-live="polite"></div>
             <div id="sdr-sticks"></div>

@@ -10,8 +10,10 @@
 // whole slice and filters its own channel out of it, so a channel in a
 // 960 kHz window is about three times the work of one in 240 kHz, and in
 // 1.92 MHz about five (COST). And the decoder itself works at 240 ksps
-// whatever the window (alert-dsp.js): a wider one hears no channel better,
-// it only holds channels further apart. So
+// whatever the window (alert-dsp.js) — a wider one hears weak bursts a little
+// better (8-bit samples: their noise spread wider, less of it in a channel;
+// 18 Bateson, November 2026: 960k's floor 5–6 dB under 288k's) — and
+// holds channels further apart. So
 //
 //   * automatic (sampleRate 0) is the narrowest window that holds every
 //     channel clear of the hard limits below, tuned for the most room within

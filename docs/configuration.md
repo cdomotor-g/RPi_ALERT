@@ -54,7 +54,13 @@ its frequency (*RTL-SDR · 151.525*), with its own MegaNet receiver id (`rpi-<ho
 stick's own channel keeps `rpi-<host>-sdr1`), its own decoder, squelch and counts.
 
 **The window.** Every channel's decoder takes in a stick's whole window, so the window is what a
-stick costs the Pi, and a wider one hears no channel better. *Automatic* is the narrowest that holds
+stick costs the Pi — and a wider one can hear weak bursts *better*, not worse: the stick's samples
+are 8-bit, and their noise is spread across the whole window, so the wider it is the less of that
+noise is left once a channel is filtered down to its own ±12 kHz. Measured at 18 Bateson
+(8 November 2026, the same five channels, 15 minutes each way): in 288 kHz each channel's noise
+floor was 5–6 dB higher than in 960 kHz (−64 against −70 dBFS) and the bursts 3–5 dB nearer it, and
+every channel heard fewer — 151.500 12 readings against 33 and 44, 151.5375 606 against 782 and
+722, 151.575 27 against 61 and 67. So narrow a window to spare the Pi, not to hear better. *Automatic* is the narrowest that holds
 the stick's channels: 240 kHz for channels within 162 kHz of each other, then 960 kHz, 1.2, 1.44,
 1.92 and 2.4 MHz. **288 kHz** (0.22) lies between 240 kHz and 960 kHz: five channels 75 kHz apart
 (151.500–151.575) fit in it with the DC spike 20 kHz clear, where 240 kHz holds four — at about
@@ -66,8 +72,7 @@ window is as wide as it samples; the decoder wants 240 kHz, which a whole multip
 take exactly that, and the nearest it can that holds five channels there is 288 kHz. The settings
 show each window's real edges in MHz. Signals outside a stick's channels but inside its window do
 not reach the decoders — each channel is filtered down to its own ±12 kHz — unless they are strong
-enough to overload the stick (its *ADC* level on the Overview near 0 dBFS); a narrower window
-mostly saves the Pi's work. Since 0.20 *No narrower than* and *No wider than* keep Automatic between two
+enough to overload the stick (its *ADC* level on the Overview near 0 dBFS). Since 0.20 *No narrower than* and *No wider than* keep Automatic between two
 windows: a widest keeps a stick light whatever channels it is given — a channel it cannot hold is
 not decoded, and the stick says which and what a wider window would cost — and a narrowest shows
 more of the band on the waterfall (limits that cross: the widest wins). A window chosen by hand is
