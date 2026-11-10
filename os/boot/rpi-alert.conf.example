@@ -105,6 +105,13 @@ request_token = yes
 #hotspot_ssid = Mt Mee survey
 #hotspot_password = choose-one-8-to-63-chars
 
+# ── Getting back online by itself ───────────────────────────────────────────
+# When the Pi loses touch with MegaNet it keeps what it hears, and works to
+# get the link back: it joins its Wi-Fi network again, restarts its
+# networking, and (full) reboots as the last resort — never during a survey.
+# full | network: all of that but the reboot | off
+#self_recovery = full
+
 # ── Site survey ─────────────────────────────────────────────────────────────
 # Leave this Pi at a candidate site for a few days: it starts listening at this
 # power-up, keeps everything on the card, and sends what it heard to MegaNet
