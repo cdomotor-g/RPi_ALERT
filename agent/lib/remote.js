@@ -419,6 +419,8 @@ class Remote extends EventEmitter {
       update: this.slow.update,
       access: accessOf(this.slow.access),
       remote: { mode: c.remote.mode, idle_s: c.remote.idleS },
+      // What it does by itself when it loses touch, and the last few times it did (lib/keeper.js).
+      recovery: a.keeper ? a.keeper.brief() : undefined,
       config: remoteConfig(c),
       survey: a.surveyBrief ? a.surveyBrief() : undefined,
     };

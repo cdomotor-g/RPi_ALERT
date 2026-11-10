@@ -19,7 +19,11 @@
 //         a minute and a half, to let NetworkManager join a network it knows
 //         (a base station whose router came back); with a phone on it, it
 //         stays. With no Wi-Fi network saved there is nothing to look for, and
-//         it stays.
+//         it stays. Stepping aside is not only waiting: the root helper's
+//         wifi-rejoin looks at what is in the air and joins a saved network by
+//         name (0.23) — NetworkManager left to itself stops trying one after
+//         some failures, and a base station whose router had only restarted
+//         then sat behind its own hotspot until somebody rebooted it.
 //   on    always (a Pi on Ethernet, or one that should never join Wi-Fi)
 //   off   never
 
@@ -147,7 +151,8 @@ class Hotspot extends EventEmitter {
     else if (mode === 'on') { want = true; this.st.note = 'Always on.'; }
     else want = this.autoWant(s, net, now);
     if (want && (!s.active || changed)) await this.up();
-    else if (!want && s.active) await this.down();
+    else if (!want && s.active) { if (this.rejoin) await this.aside(); else await this.down(); }
+    this.rejoin = false;
   }
 
   autoWant(s, net, now) {
@@ -156,6 +161,7 @@ class Hotspot extends EventEmitter {
     if (s.active) {
       if (!s.clients && s.saved && now - this.upAt > STAND_ASIDE_EVERY_MS) {
         this.asideUntil = now + STAND_ASIDE_MS;
+        this.rejoin = true;
         this.st.note = 'Nobody on the hotspot: stepping aside to look for a known Wi-Fi network.';
         return false;
       }
@@ -187,6 +193,29 @@ class Hotspot extends EventEmitter {
     this.st.active = false;
     this.log.info('hotspot down' + (this.st.connected.length ? ' — on a network' : ''));
     this.emit('change');
+  }
+
+  // Stepping aside: the hotspot comes down and a saved Wi-Fi network in range
+  // is joined by name (rpi-alert-priv wifi-rejoin does both). A helper from
+  // before 0.23 has no such verb: the hotspot comes down and NetworkManager
+  // is left to it, as before.
+  async aside() {
+    const r = await this.exec('wifi-rejoin');
+    if (r.code === 0) {
+      this.st.active = false;
+      this.log.info('hotspot down — ' + ((r.stdout || '').trim().split('\n').pop().slice(0, 80) || 'joined a known Wi-Fi network'));
+      this.emit('change');
+      return;
+    }
+    const why = (r.stderr || r.stdout || '').trim().split('\n').pop().slice(0, 160);
+    if (r.code === 3 || r.code === 4) {
+      // Nothing in range, or none would have it: the helper took the hotspot down to look.
+      this.st.active = false;
+      this.st.note = 'Stepped aside: ' + (why || 'no saved Wi-Fi network could be joined') + '.';
+      this.emit('change');
+      return;
+    }
+    await this.down();
   }
 
   // For the dashboard: without the password unless asked (the page asks once logged in).

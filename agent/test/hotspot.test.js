@@ -96,6 +96,44 @@ test('…and found one: stays down', async () => {
   assert.equal(r.hs.status().active, false);
 });
 
+test('stepping aside joins a saved network by name — NetworkManager alone may have given up on it', async () => {
+  const r = rig();
+  r.hs.exec = async (verb, ...args) => {
+    r.calls.push([verb, ...args]);
+    if (verb === 'hotspot-up') { r.w.active = true; return { code: 0, stdout: '', stderr: '' }; }
+    if (verb === 'wifi-rejoin') { r.w.active = false; r.w.connected = ['wlan0:wifi:Depot']; return { code: 0, stdout: 'joined Depot\n', stderr: '' }; }
+    return { code: 2, stdout: '', stderr: 'unexpected' };
+  };
+  r.hs.start(); r.hs.stop();
+  r.advance(3 * 60e3 + 1); await r.hs.tick();
+  r.advance(10 * 60e3 + 1); await r.hs.tick();
+  assert.deepEqual(r.calls.filter(c => c[0] !== 'read').map(c => c[0]), ['hotspot-up', 'wifi-rejoin']);
+  assert.equal(r.hs.status().active, false);
+  r.advance(30 * 60e3); await r.hs.tick();
+  assert.equal(r.ups(), 1, 'on its network: the hotspot stays down');
+  assert.match(r.hs.status().note, /On a network/);
+});
+
+test('…nothing in range: the hotspot comes back after its pause, and tries again ten minutes on', async () => {
+  const r = rig();
+  r.hs.exec = async (verb, ...args) => {
+    r.calls.push([verb, ...args]);
+    if (verb === 'hotspot-up') { r.w.active = true; return { code: 0, stdout: '', stderr: '' }; }
+    if (verb === 'wifi-rejoin') { r.w.active = false; return { code: 3, stdout: '', stderr: 'no saved Wi-Fi network is in range' }; }
+    return { code: 2, stdout: '', stderr: 'unexpected' };
+  };
+  r.hs.start(); r.hs.stop();
+  r.advance(3 * 60e3 + 1); await r.hs.tick();
+  r.advance(10 * 60e3 + 1); await r.hs.tick();
+  assert.match(r.hs.status().note, /no saved Wi-Fi network is in range/);
+  assert.equal(r.hs.status().active, false);
+  r.advance(91e3); await r.hs.tick();
+  assert.equal(r.ups(), 2, 'back up');
+  r.advance(10 * 60e3 + 1); await r.hs.tick();
+  assert.equal(r.calls.filter(c => c[0] === 'wifi-rejoin').length, 2);
+  assert.equal(r.downs(), 0, 'the helper takes the hotspot down itself');
+});
+
 test('a phone on it, or no Wi-Fi network saved: it does not step aside', async () => {
   const a = rig({ clients: 1 });
   a.hs.start(); a.hs.stop();

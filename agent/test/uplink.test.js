@@ -83,6 +83,78 @@ test('a refused token stops sending and keeps everything; a new token sends it',
   up.stop(); await m.close();
 });
 
+test('a token refused in passing does not stop a base station for good: it is tried again, by itself', async () => {
+  const m = await stub.start();
+  const { up } = rig(m);
+  up.load().start();
+  // The gateway's mistake: the same token, refused for a while.
+  m.tokens.delete('mgn_test_token');
+  for (let i = 0; i < 30; i++) up.addReading({ point: 'rpi-abc-qs1', protocol: 'alert', alert_id: 100 + i, value_raw: i, ts: Date.now() });
+  up.sendNow();
+  assert.ok(await until(() => up.status().tokenRefused));
+  assert.equal(up.status().queued, 30);
+  m.tokens.add('mgn_test_token');
+  const before = m.calls.length;
+  up.schedule(0); await wait(200);
+  assert.equal(m.calls.length, before, 'held: not asked again every few seconds');
+  assert.equal(up.status().tokenRefused, true);
+  // A quarter of an hour on.
+  up.refusedAt -= 16 * 60 * 1000;
+  up.schedule(0);
+  assert.ok(await until(() => up.status().accepted === 30));
+  assert.equal(up.status().tokenRefused, false);
+  const sizes = m.calls.filter(c => c.fn === 'ingest_http').slice(-2).map(c => c.body.payload.readings.length);
+  assert.deepEqual(sizes, [10, 20], 'the try is a few readings, the rest follow once it is taken');
+  up.stop(); await m.close();
+});
+
+test('a send that stops half-way leaves the queue able to try again', async () => {
+  const m = await stub.start();
+  const { up } = rig(m);
+  up.load().start();
+  const ack = up.readings.ack.bind(up.readings);
+  let n = 0;
+  up.readings.ack = (picked) => { if (n++ === 0) throw new Error('the card would not write'); return ack(picked); };
+  up.addReading({ point: 'rpi-abc-qs1', protocol: 'alert', alert_id: 7, value_raw: 8, ts: Date.now() });
+  up.sendNow();
+  assert.ok(await until(() => /stopped unexpectedly/.test(up.status().lastError)));
+  assert.equal(up.inflight, false);
+  assert.equal(up.status().queued, 1, 'kept');
+  up.sendNow();
+  assert.ok(await until(() => up.status().queued === 0));
+  assert.equal(up.status().lastError, '');
+  up.stop(); await m.close();
+});
+
+test('whether MegaNet can be reached: any answer counts, a refusal too; none starts the clock', async () => {
+  const m = await stub.start();
+  const { up, cfg } = rig(m, { meganet: { token: 'mgn_wrong' } });
+  const api = up.api;
+  assert.equal(api.unreachableSince, null);
+  assert.equal(api.lastAnswerAt, null);
+  assert.equal((await api.rpc('ingest_http', { readings: [] })).status, 401);
+  assert.ok(api.lastAnswerAt, 'a refusal says the path is there');
+  assert.equal(await api.reach(), true);
+  await m.close();
+  await assert.rejects(api.rpc('ingest_http', { readings: [] }));
+  const since = api.unreachableSince;
+  assert.ok(since && api.lastFailure);
+  await wait(15);
+  assert.equal(await api.reach(), false);
+  assert.equal(api.unreachableSince, since, 'counted from the first failure');
+  const m2 = await stub.start();
+  cfg.update({ meganet: { endpoints: [m2.url + '/rest/v1'] } });
+  assert.equal(await api.reach(), true);
+  assert.equal(api.unreachableSince, null);
+  await m2.close();
+});
+
+test('a request that neither answers nor fails is given up on', async () => {
+  const { deadline } = require('../lib/meganet');
+  await assert.rejects(deadline(new Promise(() => {}), 40), (e) => e.name === 'TimeoutError');
+  assert.equal(await deadline(Promise.resolve(5), 40), 5);
+});
+
 test('the second endpoint is used when the first cannot be reached, and remembered', async () => {
   const m = await stub.start();
   const { up } = rig(m, { meganet: { endpoints: ['http://127.0.0.1:9/rest/v1', m.url + '/rest/v1'] } });

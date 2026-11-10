@@ -182,6 +182,28 @@
             <div class="row-actions"><button>Save</button><span class="status small"></span></div>
           </form>
         </details>
+
+        <details class="fold" data-fold="recover">
+          <summary><span class="fold-t">Getting back online by itself</span><span class="fold-s" data-sum="recover"></span></summary>
+          <form id="f-recover" class="form fold-body">
+            <p class="hint">A base station that loses touch with Flood-Net keeps listening, and keeps what it hears to send later. This is what it
+              does to get the link back without anybody coming to it: after two minutes it joins its Wi-Fi network again, then renews the
+              connection, at fifteen minutes restarts the Pi's networking, and — if you allow it — reboots the Pi after 45 minutes.
+              Each reboot in one outage waits longer than the last (3 hours, 12, then a day), so a site whose router has died is not
+              rebooted over and over.</p>
+            <label>When it loses touch with Flood-Net
+              <select name="mode">
+                <option value="full">Do all of that — a reboot as the last resort</option>
+                <option value="network">Reconnect and restart its networking — never reboot</option>
+                <option value="off">Nothing — only keep what it hears</option>
+              </select></label>
+            <p class="hint small">It never reboots during a site survey, while somebody is on its hotspot, while an update installs, or if this Pi
+              has not reached Flood-Net in the last week. When the internet is there and it is Flood-Net that is not answering, it waits.</p>
+            <p class="small" id="recover-state" aria-live="polite"></p>
+            <div id="recover-history"></div>
+            <div class="row-actions"><button>Save</button><span class="status small"></span></div>
+          </form>
+        </details>
       </div>
     </div>
 
@@ -273,7 +295,7 @@
               <label>Password <input name="password" maxlength="63" autocomplete="off" spellcheck="false" class="mono"></label>
             </div>
             <p class="hint small"><b>Always on</b> takes the Wi-Fi radio: use it on a Pi on Ethernet, or one that should never join a Wi-Fi network.
-              In <b>auto</b>, with nobody on it, the hotspot steps aside every ten minutes for a minute and a half to let the Pi join a Wi-Fi network it knows.</p>
+              In <b>auto</b>, with nobody on it, the hotspot steps aside every ten minutes for a minute and a half and joins a Wi-Fi network the Pi knows, if one is in range.</p>
             <div class="row-actions"><button>Save</button><span class="status small"></span></div>
           </form>
         </details>

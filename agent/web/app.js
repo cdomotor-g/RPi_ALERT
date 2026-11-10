@@ -583,6 +583,10 @@ function renderFlood() {
   rows.push(['Stored there', esc(String(m.accepted || 0)) + (m.queued || m.waitingForClock ? ' · <span class="warn-t">' + esc(m.queued + m.waitingForClock) + ' waiting to send</span>' : ' · nothing waiting')]);
   rows.push(['Check-ins', esc((REMOTE_STATES[r.state] || r.state || '—') + (r.state === 'ok' && r.lastOkAt ? ', last ' + ago(Date.now() - r.lastOkAt) : ''))
     + (r.watch && r.state === 'ok' ? ' · an administrator has it open' : '')]);
+  // The link itself, only when there is something to say: lost now, or how it last came back.
+  const k = s.recover;
+  if (k && k.state === 'down') rows.push(['The link', '<span class="bad-t">lost ' + esc(ago(Date.now() - k.since)) + '</span>' + (k.note ? ' — ' + esc(k.note) : '')]);
+  else if (k && k.history && k.history.length) rows.push(['The link', esc('last lost ' + whenText(k.history[0].began) + ' for ' + spanText(k.history[0].ended - k.history[0].began) + '; back ' + howBack(k.history[0]))]);
   setHtml($('#flood-now'), rows.map(([k, v]) => '<div>' + esc(k) + '</div><div>' + v + '</div>').join(''));
 }
 
@@ -595,6 +599,16 @@ function renderFlood() {
 const AUDIO_SUM = { auto: 'automatic', live: 'the SDR\'s real audio only', synth: 'a re-made burst a reading', beep: 'a beep a reading', off: 'off' };
 const SCREEN_SUM = { auto: 'the dashboard when a monitor is in', on: 'the dashboard whenever a monitor is in', off: 'text console only' };
 const REMOTE_SUM = { manage: 'may see its health and manage it', report: 'sees its health only', off: 'nothing — no check-ins' };
+const RECOVER_SUM = { full: 'reconnects, and reboots as the last resort', network: 'reconnects — never reboots', off: 'off' };
+// What a step of lib/keeper.js was, looking back on it; and each kind of trouble.
+const RECOVER_STEP = { 'wifi-rejoin': 'joined its Wi-Fi network again', 'net-reconnect': 'renewed its network connection', 'net-restart': 'restarted its networking',
+  'restart-agent': 'restarted the agent', reboot: 'rebooted itself', power: 'was switched off and on by somebody', restart: 'the agent was restarted' };
+const RECOVER_TRIED = { 'wifi-rejoin': 'joining its Wi-Fi network', 'net-reconnect': 'renewing its network connection', 'net-restart': 'restarting its networking',
+  'restart-agent': 'restarting the agent', reboot: 'rebooting' };
+const RECOVER_KIND = { 'no-network': 'on no network', 'dead-link': 'on a network that passed nothing', names: 'could not look up Flood-Net\'s name',
+  agent: 'the agent alone could not reach Flood-Net', 'far-end': 'Flood-Net was not answering' };
+function spanText(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m < 1 ? 'under a minute' : m < 90 ? m + ' min' : m < 2880 ? (Math.round(m / 6) / 10) + ' h' : Math.round(m / 1440) + ' days'; }
+function howBack(h) { return h.how ? 'after it ' + (RECOVER_STEP[h.how] || h.how) : 'by itself'; }
 const LOC_SUM = { gps: 'a GPS fix', manual: 'coordinates typed in', station: 'at a station', none: 'not given' };
 
 function foldOpen(name) { const f = $('.fold[data-fold="' + name + '"]'); return !!(f && f.open); }
@@ -612,6 +626,7 @@ function renderFoldSums() {
     record: rec.freqHz && rec.freqHz.length ? rec.freqHz.map(f => Channels.mhz(f)).join(', ') + ' MHz · ' + (rec.files || 0) + ' kept' : 'off',
     meganet: !s.meganet.tokenSet ? 'no token yet' : (s.meganet.enabled ? 'sending' : 'sending off') + (s.meganet.label ? ' as “' + s.meganet.label + '”' : ''),
     remote: REMOTE_SUM[s.remote && s.remote.mode] || '',
+    recover: s.recover ? (s.recover.state === 'down' ? 'the link is lost — working on it' : RECOVER_SUM[s.recover.mode] || '') : '',
     location: (LOC_SUM[s.location.source] || s.location.source) + (s.location.source === 'station' && s.location.stationName ? ': ' + s.location.stationName : ''),
     audio: c ? (c.audio.enabled === false ? 'off' : (AUDIO_SUM[c.audio.mode] || c.audio.mode) + ' · volume ' + c.audio.volume + ' %') : (AUDIO_SUM[s.audio && s.audio.mode] || ''),
     display: SCREEN_SUM[s.kiosk && s.kiosk.mode] || '',
@@ -637,6 +652,7 @@ function foldOpened(f) {
     if (name === 'hotspot') renderHotspot();
   }
   if (name === 'remote') renderRemote();
+  if (name === 'recover') renderRecover();
 }
 $$('.fold').forEach(f => f.addEventListener('toggle', () => { if (f.open) foldOpened(f); }));
 // Until the settings are read (the password, where one is asked), a fold says
@@ -1367,6 +1383,7 @@ function fillForms() {
 
   $('#f-display').kiosk.value = c.kiosk.mode;
   if (c.remote) $('#f-remote').mode.value = c.remote.mode;
+  if (c.recover) $('#f-recover').mode.value = c.recover.mode;
   $('#f-system').timezone.value = c.system.timezone || (S.status ? S.status.clock.timezone : '');
   $('#pw-state').textContent = c.web.passwordSet
     ? 'A password is set. Other computers must log in to change settings; this Pi\'s own screen does not.'
@@ -1436,6 +1453,23 @@ async function save(form, patch, extra) {
     fillForms();
     refresh();
   } catch (e) { flash(form, e.message, false); }
+}
+
+// Getting back online by itself: what it is doing now, and the last few times the link was lost.
+function renderRecover() {
+  const k = S.status && S.status.recover, el = $('#recover-state');
+  if (!k || !el) return;
+  el.textContent = k.state === 'down' ? 'Now: no answer from Flood-Net since ' + whenText(k.since) + '. ' + (k.note || '')
+    : k.state === 'off' ? 'Now: off.'
+    : 'Now: in touch' + (k.lastReachedAt ? ' — Flood-Net last answered ' + ago(Date.now() - k.lastReachedAt) : '') + '.' + (k.note ? ' ' + k.note : '');
+  el.className = 'small ' + (k.state === 'down' ? 'status bad' : '');
+  const steps = (h) => (h.steps || []).map(st => esc((st.ok ? (RECOVER_STEP[st.what] || st.what) : (RECOVER_TRIED[st.what] || st.what) + ' did not work' + (st.note ? ' (' + st.note + ')' : ''))
+    + (st.n > 1 ? ', ' + st.n + ' times' : ''))).join('; ');
+  const rows = (k.history || []).map(h => '<tr><td>' + esc(whenText(h.began)) + '</td><td>' + esc(spanText(h.ended - h.began)) + '</td><td>' + esc(RECOVER_KIND[h.kind] || '—')
+    + '</td><td>' + esc(howBack(h)) + (h.steps && h.steps.length ? '<div class="dim small" style="white-space:normal;max-width:36em">' + steps(h) + '</div>' : '') + '</td></tr>');
+  setHtml($('#recover-history'), rows.length
+    ? '<div class="table-wrap"><table><thead><tr><th>Lost</th><th>For</th><th title="What kind of trouble it found when it looked">Why</th><th title="What brought the link back, and everything it tried">Back</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>'
+    : '<p class="dim small">It has not lost touch with Flood-Net since this was installed.</p>');
 }
 
 function renderHotspot() {
@@ -1747,6 +1781,7 @@ async function refresh() {
     renderCharts();
     if (S.tab === 'survey') loadSurvey();
     if (S.config) { if (foldOpen('ports')) renderPortOverrides(); if (foldOpen('sdr')) sdrRender(); if (foldOpen('hotspot')) renderHotspot(); }
+    if (foldOpen('recover')) renderRecover();
   } catch (e) {
     $('#host').textContent = 'not connected — ' + e.message;
   }
@@ -1922,6 +1957,10 @@ async function accessSet(body, confirmText) {
 }
 
 function bindRemote() {
+  $('#f-recover').addEventListener('submit', (e) => {
+    e.preventDefault();
+    save(e.target, { recover: { mode: e.target.mode.value } });
+  });
   $('#f-remote').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;

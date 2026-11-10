@@ -9,6 +9,7 @@
 //   remote            MegaNet's Base Stations tab: health out, a few requests in
 //   survey            a site survey: what this Pi hears at a candidate site, tallied
 //   hotspot           its own Wi-Fi network when it has no other, for a phone
+//   keeper            gets the link to MegaNet back by itself when it is lost
 //   web/server        the dashboard and settings, on port 80
 //
 // A reading's life: a driver decodes it → deviceReading() times it (arrival,
@@ -26,6 +27,7 @@ const { TokenRequest } = require('./token-request');
 const { Remote } = require('./remote');
 const { Survey } = require('./survey');
 const { Hotspot } = require('./hotspot');
+const { Keeper } = require('./keeper');
 const { History } = require('./history');
 const { Recorder } = require('./recorder');
 const { Stations } = require('./stations');
@@ -42,6 +44,9 @@ const RECENT = 500;
 // Enough for the dashboard's half hour on a busy stick with four channels.
 const BURSTS = 2000;
 const KIOSK_MIN_MB = 900;
+// A main loop that answers nothing for this long is taken to have hung
+// (watchdog() below).
+const WATCHDOG_MS = 3 * 60 * 1000;
 // Measuring what a channel costs (sdr-bench.js) waits this long after the
 // start, for the decoders and the page to settle.
 const BENCH_AFTER_MS = 90 * 1000;
@@ -75,6 +80,8 @@ class Agent extends EventEmitter {
     this.remote = new Remote(this, opts.remote);
     this.survey = new Survey(this).load();
     this.hotspot = new Hotspot(this, opts.hotspot);
+    // Notices the link to MegaNet gone and works to get it back (recover.mode).
+    this.keeper = new Keeper(this, opts.keeper).load();
     this.history = new History(this).load();
     this.recent = [];
     this.bursts = [];
@@ -110,6 +117,8 @@ class Agent extends EventEmitter {
     this.devices.on('change', () => this.emit('devices'));
     this.remote.start();
     this.remote.on('change', () => this.emit('remote'));
+    this.keeper.start();
+    this.keeper.on('change', () => { this.remote.wantFull = true; this.emit('devices'); });
     this.config.on('change', (changed) => {
       this.log.info('settings changed: ' + changed.join(', '));
       this.emit('config', changed);
@@ -126,6 +135,7 @@ class Agent extends EventEmitter {
 
   async stop() {
     this.timers.forEach(clearInterval);
+    this.keeper.stop();
     this.remote.stop();
     this.survey.stop();
     this.history.stop();
@@ -357,15 +367,24 @@ class Agent extends EventEmitter {
     else { process.env.TZ = tz; this.log.info('time zone ' + tz); }
   }
 
-  // systemd's watchdog (WatchdogSec= in the unit): a stalled event loop stops
-  // the pings and systemd restarts the agent.
+  // systemd's watchdog: a main loop that stalls stops the pings, and systemd
+  // kills and restarts the agent (the decoders are threads of their own, so a
+  // stalled loop still hears — and sends nothing). The unit gives no
+  // WatchdogSec: the agent asks for the watchdog itself, over the same
+  // notify socket its pings then use (WATCHDOG_USEC=, systemd 236 and later).
+  // Where a message cannot get through — an older systemd, a socket the
+  // service cannot reach — nothing is ever armed, so a watchdog that cannot
+  // be fed is a watchdog that is not there, never one that kills a healthy
+  // agent every three minutes. (A WatchdogSec in the unit is honoured too.)
   watchdog() {
-    const usec = Number(process.env.WATCHDOG_USEC);
-    if (!process.env.NOTIFY_SOCKET || !usec) return;
+    if (!process.env.NOTIFY_SOCKET) return;
+    const usec = Number(process.env.WATCHDOG_USEC) || WATCHDOG_MS * 1000;
     const { execFile } = require('node:child_process');
-    const ping = () => execFile('systemd-notify', ['WATCHDOG=1'], () => {});
-    ping();
-    this.timers.push(setInterval(ping, Math.max(1000, usec / 3000)));
+    const tell = (...what) => execFile('systemd-notify', what, { timeout: 20000 }, () => {});
+    tell('WATCHDOG=1', 'WATCHDOG_USEC=' + usec);
+    const t = setInterval(() => tell('WATCHDOG=1'), Math.max(1000, usec / 6000));
+    t.unref?.();
+    this.timers.push(t);
   }
 
   // ── for the web page and the CLI ──────────────────────────────────────────
@@ -379,7 +398,7 @@ class Agent extends EventEmitter {
       kiosk: Object.assign({ mode: this.config.get().kiosk.mode }, this.kiosk), system: await system.info(),
       board: this.board, passwordSet: !!this.config.get().web.passwordHash,
       remote: this.remote.statusForPage(),
-      survey: this.surveyBrief(), hotspot: this.hotspot.status(false), recordings: this.recorder.status(),
+      survey: this.surveyBrief(), hotspot: this.hotspot.status(false), recover: this.keeper.status(), recordings: this.recorder.status(),
       sdrCost: this.sdrCost,
     };
   }

@@ -172,8 +172,14 @@ filters the stick's whole stream on its own (one stick, several channels, is don
   small writable partition.
 - **GPS-disciplined time with chrony** (PPS where the GPS has it) instead of the agent's own setting
   of the clock.
-- **systemd watchdog for the agent** (the code is there; the unit leaves it off until it has run on
-  hardware).
+- **Getting back online by itself, further** (the keeper, the agent's own watchdog and the
+  hotspot's joining by name are done, in 0.23 — [how-it-works.md](how-it-works.md)): send the last
+  lines of the *previous* boot's journal with the first check-in after an outage (the Pi's own
+  account of a night it spent cut off is in `keeper.json`; NetworkManager's and the kernel's is
+  still only on the card); Wi-Fi power saving off for the built-in radio, if the record shows
+  dead links; a second saved network (a phone's hotspot) as a way out; a name server of its own
+  when the router's stops answering. A watcher on MegaNet's side that reads these records and acts
+  on them is MegaNet's [EPIC #288](https://github.com/cdomotor-g/MegaNet/issues/288).
 - **Remote management, further** (the Base Stations tab and SSH access are done, in 0.7 —
   [remote-management.md](remote-management.md), [access.md](access.md)): per-station team keys
   rather than one list for the fleet; an alert when a base station goes quiet (now MegaNet's

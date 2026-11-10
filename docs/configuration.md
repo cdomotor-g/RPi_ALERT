@@ -317,6 +317,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `update` | now | install the latest release once, at this boot |
 | `hotspot` | auto / on / off | `hotspot.mode`: the Pi's own Wi-Fi network for a phone where there is no other (auto: after three minutes with no network) |
 | `hotspot_ssid`, `hotspot_password` | text | its name (RPi-ALERT-… if absent) and password (8–63 characters, no spaces; made on the Pi if absent) — the password wiped from the card |
+| `self_recovery` | full / network / off | `recover.mode`: what the Pi does by itself when it loses touch with MegaNet (full if absent) |
 | `survey` | the site's name | start a site survey at this power-up ([survey.md](survey.md)) |
 | `survey_hours` | e.g. 72, or 0 | hours of listening before it ends itself (0: until ended); 72 if absent |
 | `survey_readings` | yes / no | send the survey's readings to MegaNet too (no: only its receptions) |
@@ -360,6 +361,7 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `remote.idleS` | 60 | How often to check in with MegaNet while nobody has the base station open (30–900 s) |
 | `hotspot.mode` | auto | The Pi's own Wi-Fi network: auto — up after three minutes with no network (neither Ethernet nor a Wi-Fi network joined), down the moment there is one, and, with nobody on it, stepping aside every ten minutes for a minute and a half so the Pi can join a Wi-Fi network it knows; on — always (it takes the Wi-Fi radio); off. Set on the Pi only: MegaNet sees whether a password is set, never the password, and cannot change any of it |
 | `hotspot.ssid` | — | Its name; empty is `RPi-ALERT-` and the first four of the host id |
+| `recover.mode` | full | What the Pi does by itself when no MegaNet door has answered for two minutes (0.23, [how-it-works.md](how-it-works.md)): `full` — join its saved Wi-Fi network again, renew the connection, restart NetworkManager at fifteen minutes, and reboot the Pi after 45 (each reboot in one outage after a longer wait: 3 h, 12 h, a day; never in a survey, with a phone on the hotspot, during an update, or a Pi that has not reached MegaNet in a week); `network` — all of that but the reboot; `off` — only keep what is heard, as before 0.23. MegaNet's Base Stations tab can change it; `rpi-alert recover` shows what it is doing and the last times the link was lost |
 | `hotspot.password` | made on the Pi | WPA2, 8–63 characters, no spaces; made the first time the agent starts (`xxxx-xxxx-xxxx`) and shown on the Overview, `rpi-alert hotspot` and the Survey page |
 
 Environment variables (for development and tests): `RPI_ALERT_CONFIG`, `RPI_ALERT_DATA`,

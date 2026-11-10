@@ -31,13 +31,13 @@
   },
   "status": {
     "phase": "beta",
-    "updated": "2026-11-08",
-    "summary": "Version 0.22.2 hardens what root does on the agent's behalf: settings and survey files in the agent's directories are never read or written through a link, the Bluetooth GPS's settings and the update's outcome live in root's own files, a failed update puts back a copy of the version that was running instead of an unsigned download, a release must hold the version its tag names, and the web page, Flood-Net and the card never install an older release. A GPS's time is believed only when plausible and steady. 18 Bateson runs one RTL-SDR stick with five channels; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "updated": "2026-11-11",
+    "summary": "Version 0.23.0 gets a base station back online by itself: when no Flood-Net door answers it finds out what kind of trouble it is, joins its Wi-Fi again by name, renews the connection, restarts its networking and, as the last resort, reboots the Pi — each reboot in one outage after a longer wait — and keeps a record of every outage that survives the reboot and goes to Flood-Net's Base Stations tab. The agent's main loop has a watchdog of its own, a refused token is tried again every quarter of an hour, and a request can no longer hang. Out of one base station cut off for a night on 10 November 2026. 18 Bateson runs one RTL-SDR stick with five channels; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
+      "v0.23.0: gets back online by itself — rejoin Wi-Fi, renew, restart networking, reboot as the last resort; a record of every outage; the agent's own watchdog",
       "v0.22.2: security fixes — root never follows a link in the agent's directories; signed-only rollback; no automatic downgrade; GPS time bounded",
       "v0.22.0: a 288 kHz window; the Overview's plots at the top",
       "v0.21.0: the web page — settings folded into the Overview's cards, a tab for each kind of log, the last 10 bursts",
-      "v0.20.0: a narrowest and a widest window for Automatic, on the Pi and in Flood-Net",
       "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)"
     ],
     "next": [
@@ -46,6 +46,7 @@
       "Dashboard falls back to polling when its event stream fails; reloads after an update",
       "Show the health it already sends: disk, load, memory, throttling, network in words",
       "A support bundle: journal, status and settings with secrets taken out",
+      "After an outage, send the previous boot's log with the first check-in (Flood-Net EPIC #288 would read it)",
       "Confirm actions that can cut you off; Wi-Fi password in a password field",
       "Set-up page writes the card file's advanced keys and edits an existing one"
     ],

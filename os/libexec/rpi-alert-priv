@@ -17,6 +17,10 @@
 #   hotspot-up <ssid> <password>   the Pi's own Wi-Fi network: an access point, the Pi
 #                             at 10.42.0.1 (whether it is up the agent reads without root)
 #   hotspot-down
+#   wifi-rejoin               take the hotspot down and join a saved Wi-Fi network that is
+#                             in range, by name (exit 3: none in range; 4: none would have it)
+#   net-reconnect             renew each network connection the Pi has (not the hotspot)
+#   net-restart               restart NetworkManager
 #   update-check              is there a newer RPi ALERT release?
 #   update-install            install it now (rpi-alert-update.service, in the background)
 #   update-auto on|off        the nightly install-if-newer timer
@@ -109,6 +113,59 @@ case "$verb" in
     command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
     if nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx rpi-alert-hotspot; then exec nmcli connection down rpi-alert-hotspot; fi
     exit 0 ;;
+  # The three below are what the agent does by itself when it has lost touch
+  # with MegaNet (lib/keeper.js, lib/hotspot.js). None takes an argument:
+  # which networks, and their passwords, are NetworkManager's own.
+  wifi-rejoin)
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    dev=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')
+    [ -n "$dev" ] || die "this Pi has no Wi-Fi"
+    hs=$(nmcli -g connection.uuid connection show rpi-alert-hotspot 2>/dev/null || true)
+    if nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx rpi-alert-hotspot; then nmcli connection down rpi-alert-hotspot >/dev/null 2>&1 || true; fi
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    # What is in the air now, a name a line.
+    seen=$(nmcli --escape no -t -f SSID device wifi list ifname "$dev" --rescan yes 2>/dev/null || true)
+    # A radio that has just stopped being an access point may refuse the first scan.
+    if [ -z "$(printf '%s' "$seen" | tr -d '[:space:]')" ]; then
+      sleep 4
+      seen=$(nmcli --escape no -t -f SSID device wifi list ifname "$dev" --rescan auto 2>/dev/null || true)
+    fi
+    tried=0
+    # Saved networks, the one used most recently first. NetworkManager left to
+    # itself stops trying a network after some failures; asked by name it tries.
+    while IFS=: read -r _ uuid type; do
+      [ "$type" = 802-11-wireless ] && [ -n "$uuid" ] && [ "$uuid" != "$hs" ] || continue
+      [ "$(nmcli -g 802-11-wireless.mode connection show uuid "$uuid" 2>/dev/null)" = ap ] && continue
+      ssid=$(nmcli --escape no -g 802-11-wireless.ssid connection show uuid "$uuid" 2>/dev/null) || continue
+      [ -n "$ssid" ] || continue
+      # In range — or hidden, which a scan never shows.
+      if ! printf '%s\n' "$seen" | grep -Fxq -- "$ssid" && [ "$(nmcli -g 802-11-wireless.hidden connection show uuid "$uuid" 2>/dev/null)" != yes ]; then continue; fi
+      tried=$((tried + 1))
+      if nmcli --wait 30 connection up uuid "$uuid" ifname "$dev" >/dev/null 2>&1; then echo "joined $ssid"; exit 0; fi
+      [ "$tried" -ge 3 ] && break
+    done < <(nmcli -t -f TIMESTAMP,UUID,TYPE connection show 2>/dev/null | sort -t: -k1,1nr)
+    if [ "$tried" = 0 ]; then echo "no saved Wi-Fi network is in range" >&2; exit 3; fi
+    echo "in range, but could not be joined: $tried saved Wi-Fi network(s)" >&2; exit 4 ;;
+  net-reconnect)
+    command -v nmcli >/dev/null || die "NetworkManager (nmcli) is not installed"
+    hs=$(nmcli -g connection.uuid connection show rpi-alert-hotspot 2>/dev/null || true)
+    n=0; ok=0
+    while IFS=: read -r dev type state uuid; do
+      case "$type" in wifi|ethernet) ;; *) continue ;; esac
+      case "$state" in connected*) ;; *) continue ;; esac
+      [ -n "$uuid" ] && [ "$uuid" != "$hs" ] || continue
+      n=$((n + 1))
+      if nmcli --wait 45 connection up uuid "$uuid" ifname "$dev" >/dev/null 2>&1; then ok=$((ok + 1)); fi
+    done < <(nmcli -t -f DEVICE,TYPE,STATE,CON-UUID device 2>/dev/null)
+    [ "$n" -gt 0 ] || die "there is no network connection to renew"
+    [ "$ok" -gt 0 ] || die "the network connection could not be renewed"
+    echo "renewed $ok of $n"; exit 0 ;;
+  net-restart)
+    # Only where NetworkManager already runs the network: never start it beside another.
+    systemctl is-active --quiet NetworkManager.service || die "NetworkManager does not run this Pi's network"
+    systemctl restart NetworkManager.service || die "NetworkManager could not be restarted"
+    if command -v nmcli >/dev/null; then nmcli radio wifi on >/dev/null 2>&1 || true; fi
+    echo "NetworkManager restarted"; exit 0 ;;
   update-check) exec /opt/rpi-alert/libexec/rpi-alert-update --check ;;
   update-install) exec systemctl start --no-block rpi-alert-update.service ;;
   update-auto)

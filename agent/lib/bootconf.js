@@ -42,6 +42,9 @@
 //   hotspot = auto                    the Pi's own Wi-Fi network when it has no other: auto | on | off
 //   hotspot_ssid = Mt Mee survey      its name (RPi-ALERT-<host> if absent)
 //   hotspot_password = …              its password (made on the Pi if absent); removed from the card
+//   self_recovery = full              what the Pi does by itself when it loses touch with MegaNet:
+//                                     full (rejoin, restart its networking, reboot as the last
+//                                     resort) | network (all but the reboot) | off
 //   survey = Mt Mee repeater site     start a site survey at this power-up (docs/survey.md): what
 //   survey_hours = 72                 it hears is kept and tallied, and goes to MegaNet as receptions
 //   survey_readings = no              when it is next on a network; readings too only if yes
@@ -191,6 +194,11 @@ function toPatch(kv) {
       case 'hotspot': case 'wifi_hotspot': {
         const m = no(v) ? 'off' : /^(on|always)$/i.test(v.trim()) ? 'on' : yes(v) || /^auto$/i.test(v.trim()) ? 'auto' : null;
         if (m) set('hotspot.mode', m); else notes.push('hotspot: auto, on or off');
+        break;
+      }
+      case 'self_recovery': case 'recover': case 'recovery': {
+        const m = no(v) ? 'off' : yes(v) ? 'full' : String(v).trim().toLowerCase();
+        if (['full', 'network', 'off'].includes(m)) set('recover.mode', m); else notes.push('self_recovery: full, network or off');
         break;
       }
       case 'hotspot_ssid': case 'hotspot_name': set('hotspot.ssid', v.trim()); break;

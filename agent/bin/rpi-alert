@@ -38,6 +38,9 @@
 //   rpi-alert access meganet on|off | from private|any | password-login on|off|unchanged
 //                    | ssh on|off | sync
 //   sudo rpi-alert access alert-password [--none] a password for the alert account (the console)
+//   rpi-alert recover [full|network|off]
+//                                    what the Pi does by itself when it loses touch with MegaNet,
+//                                    what it is doing now, and the last times the link was lost
 //   rpi-alert hotspot [auto|on|off] the Pi's own Wi-Fi network for a phone where there is no
 //                                    other: whether it is up, its name and password, and its mode
 //   rpi-alert survey                 the site survey: whether one is running, what it has heard,
@@ -84,6 +87,7 @@ async function main() {
     case 'remote': return remote(argv[1]);
     case 'survey': return survey(argv.slice(1));
     case 'hotspot': return hotspot(argv[1]);
+    case 'recover': case 'recovery': return recover(argv[1]);
     case 'access': return access(argv.slice(1));
     case 'record': case 'recordings': return record(argv.slice(1));
     case 'readings': return readings(Number(argv[1]) || 20);
@@ -121,6 +125,11 @@ function daemon() {
   };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
+  // Node gives each address of a name a quarter of a second to connect before
+  // moving on to the next: too short for a satellite or a poor cellular link,
+  // where every address but the last is given up on — and the last may be one
+  // (IPv6, say) the network cannot reach at all. A second each.
+  try { require('node:net').setDefaultAutoSelectFamilyAttemptTimeout(1000); } catch (_) {}
   process.on('uncaughtException', (e) => { agent.log.error('uncaught: ' + (e && e.stack || e)); try { agent.uplink.persistNow(); } catch (_) {} process.exit(1); });
   process.on('unhandledRejection', (e) => { agent.log.error('unhandled rejection: ' + (e && e.stack || e)); });
 }
@@ -174,6 +183,8 @@ function render(s, readingsList) {
     out.push('          code ' + C.b + tr.code + C.x + ' — on MegaNet: Admin → Ingest tokens → Approve (expires in ' + Math.max(1, Math.round(tr.expiresInS / 60)) + ' min; QR code: rpi-alert request-token)');
   } else if (tr.last && tr.last.status !== 'approved' && Date.now() - tr.last.at < 3600000) out.push('          ' + C.y + tr.last.message + C.x);
   if (m.lastError && tr.state !== 'pending') out.push('          ' + C.y + m.lastError + C.x);
+  const k = s.recover;
+  if (k && k.state === 'down') out.push('Link      ' + C.r + 'lost ' + ago(Date.now() - k.since) + C.x + (k.note ? '  ' + k.note : ''));
   out.push('Clock     ' + (s.clock.trusted ? C.g + 'ok (' + s.clock.source + ')' : C.y + 'not yet trusted — readings are held until NTP or GPS sets it') + C.x + C.d + '  ' + s.clock.now + ' ' + s.clock.timezone + C.x);
   const loc = s.location;
   out.push('Location  ' + (loc.source === 'none' ? C.y + 'not set' + C.x : loc.source + (loc.lat != null ? ' ' + loc.lat.toFixed(5) + ', ' + loc.lon.toFixed(5) : '')));
@@ -569,6 +580,32 @@ async function remote(mode) {
     for (const h of r.history) console.log('  ' + new Date(h.at).toLocaleTimeString() + '  ' + h.label + (h.detail ? C.d + ' (' + h.detail + ')' + C.x : '') + '  ' + (h.ok ? C.g + 'done' : C.r + 'not done: ' + h.error) + C.x);
   }
   if (!mode) console.log(C.d + '\nChange it: rpi-alert remote manage | report | off' + C.x);
+}
+
+// ── getting back online by itself ────────────────────────────────────────────
+
+async function recover(mode) {
+  if (mode) {
+    if (!['full', 'network', 'off'].includes(mode)) throw new Error('rpi-alert recover full | network | off');
+    const r = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: { recover: { mode } } }) });
+    if (r.errors && r.errors.length) throw new Error(r.errors.join('; '));
+  }
+  const k = (await api('/api/status')).recover;
+  const what = { full: 'reconnects, restarts its networking, and reboots the Pi as the last resort', network: 'reconnects and restarts its networking — never reboots', off: 'nothing: it only keeps what it hears' };
+  const step = { 'wifi-rejoin': 'joined its Wi-Fi again', 'net-reconnect': 'renewed its connection', 'net-restart': 'restarted its networking', 'restart-agent': 'restarted the agent',
+    reboot: 'rebooted itself', power: 'switched off and on by somebody', restart: 'the agent was restarted' };
+  const span = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m < 90 ? m + ' min' : (Math.round(m / 6) / 10) + ' h'; };
+  console.log(C.b + 'When it loses touch with MegaNet' + C.x + '  ' + what[k.mode] + C.d + '  (mode ' + k.mode + ')' + C.x);
+  console.log('  Now   ' + (k.state === 'down' ? C.r + 'no answer since ' + new Date(k.since).toLocaleString() + C.x : k.state === 'off' ? C.y + 'off' + C.x : C.g + 'in touch' + C.x
+    + (k.lastReachedAt ? C.d + ', MegaNet last answered ' + ago(Date.now() - k.lastReachedAt) + C.x : '')));
+  if (k.note) console.log('        ' + k.note);
+  for (const st of k.steps || []) console.log('        ' + new Date(st.t).toLocaleTimeString() + '  ' + (step[st.what] || st.what) + (st.ok ? '' : C.y + '  did not work' + (st.note ? ': ' + st.note : '') + C.x));
+  if ((k.history || []).length) console.log(C.d + '  Before:' + C.x);
+  for (const h of k.history || []) {
+    console.log('    ' + new Date(h.began).toLocaleString() + '  for ' + span(h.ended - h.began) + '  back ' + (h.how ? 'after: ' + (step[h.how] || h.how) : 'by itself')
+      + C.d + ((h.steps || []).length ? '  [' + h.steps.map(st => (step[st.what] || st.what) + (st.ok ? '' : ' ✗') + (st.n > 1 ? ' ×' + st.n : '')).join(', ') + ']' : '') + C.x);
+  }
+  if (!mode) console.log(C.d + '\nChange it: rpi-alert recover full | network | off   (or Overview → Flood-Net → Getting back online by itself; self_recovery on the SD card)' + C.x);
 }
 
 // ── the hotspot ──────────────────────────────────────────────────────────────

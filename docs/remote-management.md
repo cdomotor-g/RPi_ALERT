@@ -38,7 +38,13 @@ POST <endpoint>/rpc/base_station_checkin    apikey · X-Ingest-Token · Content-
   administrator opens the base station: the receivers and their settings, the uplink, the clock,
   where it is, the software and its update state, who may log in over SSH (fingerprints and
   comments, never a key), and the settings — less the ingest token (not even masked) and the web
-  password.
+  password. Since 0.23 it also carries **`recovery`**: what the Pi does by itself when it loses
+  touch (`mode`: full, network or off), and the last five times it did — when the link was lost
+  and came back, what kind of trouble it found (`no-network`, `dead-link`, `names`, `agent`,
+  `far-end`), each step it took and whether it worked, and what brought the link back (`how`:
+  a step's name, `power` when somebody switched the Pi off and on, or null when it came back by
+  itself). A check-in cannot be made while the link is down, so this is always the story told
+  afterwards.
 - MegaNet's answer says when to check in next: a minute normally (± 10 %, so a fleet started by one
   power cut does not check in in step), **every five seconds while an administrator has this base
   station open** (MegaNet stops asking for that three minutes after they close it), and at once

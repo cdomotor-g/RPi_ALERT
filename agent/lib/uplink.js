@@ -11,7 +11,10 @@
 //     what frequency and how strongly (MegaNet 0050).
 //   * Retrying is always safe: ingest() stores the same reading once.
 //   * 401/403: the token is mistyped or revoked. Stop, keep everything, say
-//     so — and start again the moment a new token is saved.
+//     so — and start again the moment a new token is saved. One small batch
+//     is tried again every quarter of an hour all the same: a refusal that
+//     was a gateway's passing mistake must not stop a base station for good
+//     (before 0.23 it did, until the agent was restarted).
 //   * 400: this agent misread the contract. The batch would fail the same way
 //     for ever, so it is dropped and logged.
 //   * Anything else: keep it, back off (10 s doubling to 5 min), try again —
@@ -32,6 +35,7 @@ const { Spool } = require('./spool');
 
 const BATCH = 1000, BATCH_MIN = 100, WINDOW = 3000, FLUSH_MS = 5000, RX_FLUSH_MS = 10000, BACKOFF_MAX = 5 * 60 * 1000;
 const REPORT_MS = 15 * 60 * 1000;
+const REFUSED_MS = 15 * 60 * 1000;   // a refused token is tried again this often
 const MIN_FREE_MB = 256, ROOM_CHECK_MS = 60000;
 
 class Uplink {
@@ -55,6 +59,7 @@ class Uplink {
       untimedDropped: 0,
     };
     this.backoff = 0;
+    this.refusedAt = 0;
     this.inflight = false;
     this.rxInflight = false;
     this.timer = null;
@@ -84,7 +89,7 @@ class Uplink {
     this.clock.on('trusted', () => this.timeHeld());
     this.cfg.on('change', (changed) => {
       if (changed.some(p => p.startsWith('meganet.'))) {
-        this.st.tokenRefused = false; this.st.lastError = ''; this.backoff = 0; this.st.label = '';
+        this.accepted(true); this.st.lastError = ''; this.backoff = 0; this.st.label = '';
         this.reportAll(true);
         this.schedule(0);
         this.scheduleRx(1000);
@@ -99,11 +104,34 @@ class Uplink {
 
   stop() {
     this.stopped = true;
-    clearTimeout(this.timer); clearTimeout(this.rxTimer); clearInterval(this.reportTimer);
+    clearTimeout(this.timer); clearTimeout(this.rxTimer); clearInterval(this.reportTimer); clearTimeout(this.refusedTimer);
     this.persistNow();
   }
 
   enabled() { const m = this.cfg.get().meganet; return m.enabled && !!m.token; }
+
+  // The token was refused: nothing more is sent until it is tried again, a
+  // quarter of an hour on — or at once when the settings change.
+  refused(msg) {
+    this.refusedAt = Date.now();
+    if (!this.st.tokenRefused) { this.st.tokenRefused = true; this.st.lastError = msg; this.log.error(msg); }
+    this.again();
+  }
+  again() {
+    clearTimeout(this.refusedTimer);
+    if (this.stopped) return;
+    this.refusedTimer = setTimeout(() => { this.schedule(0); this.scheduleRx(1000); this.reportAll(true); }, REFUSED_MS + 1000);
+    if (this.refusedTimer.unref) this.refusedTimer.unref();
+  }
+  // MegaNet took something: the token is good (again). again: only about to
+  // try — new settings, or Send now.
+  accepted(again) {
+    if (this.st.tokenRefused && !again) this.log.info('MegaNet takes the ingest token again — sending what was kept');
+    this.st.tokenRefused = false; this.refusedAt = 0;
+    clearTimeout(this.refusedTimer);
+  }
+  // Refused, and not yet time to try again.
+  held() { return this.st.tokenRefused && Date.now() - this.refusedAt < REFUSED_MS; }
 
   // ── in ──────────────────────────────────────────────────────────────────
 
@@ -161,18 +189,28 @@ class Uplink {
     if (this.timer && this.timerAt <= at) return;
     clearTimeout(this.timer);
     this.timerAt = at;
-    this.timer = setTimeout(() => { this.timer = null; this.flush(); }, at - Date.now());
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      // Whatever goes wrong in a send, the queue is left able to try again.
+      this.flush().catch((e) => {
+        this.inflight = false;
+        this.st.lastError = 'A send stopped unexpectedly (' + ((e && e.message) || e) + ') — keeping ' + this.readings.length + ', trying again.';
+        this.bump();
+      });
+    }, at - Date.now());
   }
 
   async flush() {
-    if (this.inflight || !this.readings.length || !this.enabled() || this.st.tokenRefused) return;
+    if (this.inflight || !this.readings.length || !this.enabled() || this.held()) return;
     const win = this.readings.peek(WINDOW);
     if (!win.length) return;
     const first = win[0].item;
     const picked = [];
+    // A refused token is tried again with a few readings, not a thousand.
+    const most = this.st.tokenRefused ? Math.min(this.batch, 10) : this.batch;
     for (const e of win) {
       if (e.item.point === first.point && e.item.protocol === first.protocol) picked.push(e);
-      if (picked.length >= this.batch) break;
+      if (picked.length >= most) break;
     }
     const batch = picked.map(e => e.item);
     const lines = batch.map(r => r.line).filter(Boolean);
@@ -195,6 +233,7 @@ class Uplink {
     this.st.endpoint = res.endpoint;
     const out = res.body;
     if (res.status === 200 && out && typeof out.accepted === 'number') {
+      this.accepted();
       this.readings.ack(picked);
       this.batch = Math.min(BATCH, this.batch * 2);
       this.st.posted += batch.length; this.st.accepted += out.accepted; this.st.duplicates += out.duplicates || 0;
@@ -209,10 +248,8 @@ class Uplink {
       this.persistSoon();
       if (this.readings.length) this.schedule(0);
     } else if (res.status === 401 || res.status === 403) {
-      this.st.tokenRefused = true;
-      this.st.lastError = 'MegaNet refused the ingest token (' + res.status + ') — it is mistyped or has been revoked. Nothing is lost: '
-        + this.readings.length + ' readings are kept to send once a working token is saved.';
-      this.log.error(this.st.lastError);
+      this.refused('MegaNet refused the ingest token (' + res.status + ') — it is mistyped or has been revoked. Nothing is lost: '
+        + this.readings.length + ' readings are kept to send once a working token is saved (and it is tried again every quarter of an hour).');
     } else if (res.status === 400) {
       this.readings.ack(picked);
       this.st.lastError = 'MegaNet refused a batch of ' + batch.length + ' as malformed (' + ((out && (out.message || out.hint)) || res.status) + ') — dropped.';
@@ -232,7 +269,7 @@ class Uplink {
     this.schedule(this.backoff);
   }
 
-  sendNow() { this.backoff = 0; this.st.tokenRefused = false; this.schedule(0); this.scheduleRx(0); this.reportAll(true); }
+  sendNow() { this.backoff = 0; this.accepted(true); this.schedule(0); this.scheduleRx(0); this.reportAll(true); }
 
   // ── receptions out ──────────────────────────────────────────────────────
 
@@ -242,11 +279,11 @@ class Uplink {
     if (this.rxTimer && this.rxTimerAt <= at) return;     // as schedule(): never put off
     clearTimeout(this.rxTimer);
     this.rxTimerAt = at;
-    this.rxTimer = setTimeout(() => { this.rxTimer = null; this.flushRx(); }, ms);
+    this.rxTimer = setTimeout(() => { this.rxTimer = null; this.flushRx().catch((e) => { this.rxInflight = false; this.st.rxError = 'Receptions not sent (' + ((e && e.message) || e) + ') — kept, and tried again.'; this.scheduleRx(60000); }); }, ms);
   }
 
   async flushRx() {
-    if (this.rxInflight || !this.receptions.length || !this.enabled() || this.st.tokenRefused) return;
+    if (this.rxInflight || !this.receptions.length || !this.enabled() || this.st.tokenRefused) return;   // refused: the readings' own retry finds out first
     if (this.st.rxMissing && Date.now() - this.st.rxMissing < 3600000) return;
     const win = this.receptions.peek(WINDOW);
     if (!win.length) return;
@@ -305,7 +342,7 @@ class Uplink {
 
   async reportOne(pointId, force) {
     const p = this.points.get(pointId);
-    if (!p || !p.active || !this.enabled() || this.st.tokenRefused) return;
+    if (!p || !p.active || !this.enabled() || this.held()) return;
     const payload = p.describe();
     if (!payload) return;
     const sig = JSON.stringify(payload);
@@ -316,6 +353,7 @@ class Uplink {
     try {
       const res = await this.api.rpc('report_ingest_point', payload);
       if (res.status === 200 && res.body) {
+        this.accepted();
         p.lastReport = Date.now(); p.lastSig = sig;
         this.st.label = res.body.label || this.st.label;
         this.st.reportError = '';
@@ -324,7 +362,7 @@ class Uplink {
         this.st.reportError = 'MegaNet cannot record receiver descriptions yet (migration 0045 is not applied there). Readings still go.';
       } else if (res.status === 401 || res.status === 403) {
         this.st.reportError = 'The ingest token was refused.';
-        if (!this.st.tokenRefused) { this.st.tokenRefused = true; this.st.lastError = 'MegaNet refused the ingest token (' + res.status + ').'; this.log.error(this.st.lastError); }
+        this.refused('MegaNet refused the ingest token (' + res.status + ') — nothing is lost; it is tried again every quarter of an hour.');
       } else {
         this.st.reportError = 'Receiver description not recorded (' + res.status + ((res.body && res.body.message) ? ': ' + res.body.message : '') + ').';
       }

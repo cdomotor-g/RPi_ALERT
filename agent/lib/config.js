@@ -49,6 +49,7 @@ const KIOSK_MODES = ['auto', 'on', 'off'];
 const LOC_SOURCES = ['none', 'manual', 'station', 'gps'];
 const REMOTE_MODES = ['manage', 'report', 'off'];
 const HOTSPOT_MODES = ['auto', 'on', 'off'];
+const RECOVER_MODES = ['full', 'network', 'off'];
 const HOTSPOT_SSID = /^[A-Za-z0-9._ -]{1,32}$/, HOTSPOT_PASSWORD = /^[\x21-\x7e]{8,63}$/;
 
 function defaults() {
@@ -179,6 +180,12 @@ function defaults() {
     // RPi-ALERT-<first four of the host id> when left empty; the password is made
     // on the Pi the first time and shown on its dashboard. Set on the Pi only.
     hotspot: { mode: 'auto', ssid: '', password: '' },
+    // Getting back in touch with MegaNet by itself when the link is lost
+    // (lib/keeper.js): full — join the Wi-Fi again, renew the connection,
+    // restart the Pi's networking, and as the last resort reboot the Pi;
+    // network — all of that but the reboot; off — only keep what is heard, as
+    // before 0.23.
+    recover: { mode: 'full' },
   };
 }
 
@@ -341,6 +348,7 @@ function validate(c) {
   const rm = c.remote || {};
   need(REMOTE_MODES.includes(rm.mode), 'remote.mode: one of ' + REMOTE_MODES.join(', '));
   need(Number.isInteger(rm.idleS) && rm.idleS >= 30 && rm.idleS <= 900, 'remote.idleS: 30–900 seconds');
+  need(RECOVER_MODES.includes((c.recover || {}).mode), 'recover.mode: one of ' + RECOVER_MODES.join(', '));
   return errs;
 }
 
