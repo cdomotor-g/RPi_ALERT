@@ -39,7 +39,7 @@ function rig(opts) {
     return { code: 0, stdout: '', stderr: '' };
   };
   const k = new Keeper(agent, { exec, now: () => t, mono: () => m,
-    probe: { net: async () => w.net, internet: async () => w.internet, names: async () => w.names, fresh: async () => w.fresh, updating: () => w.updating } }).load();
+    probe: { net: async () => w.net, internet: async () => w.internet, door: async () => !!w.door, names: async () => w.names, fresh: async () => w.fresh, updating: () => w.updating } }).load();
   const r = { dir, k, w, api, calls, config, advance(ms) { t += ms; m += ms; }, wall(ms) { t += ms; }, now: () => t,
     // Half-minute looks, as the agent takes them, for this long.
     async run(ms) { for (let i = 0; i < ms / 30e3; i++) { r.advance(30e3); await k.tick(); } },
@@ -123,6 +123,28 @@ test('a blip under two minutes is not an outage', async () => {
   await r.run(5 * MIN);
   assert.deepEqual(r.calls, []);
   assert.equal(r.k.status().history.length, 0);
+});
+
+test('requests timing out on a slow database, while a door still answers, are not an outage — nothing recorded, nothing hurried', async () => {
+  const r = await reachedRig();
+  // The queue's requests fail (no answer in time); the small request the keeper makes is answered.
+  for (let i = 0; i < 40; i++) {
+    if (r.api.unreachableSince == null) r.api.unreachableSince = r.now();   // another post timed out
+    await r.run(30e3);
+  }
+  assert.deepEqual(r.calls, []);
+  assert.equal(r.k.status().state, 'ok');
+  assert.equal(r.k.status().history.length, 0, 'no outage is recorded');
+  assert.equal(r.w.sent, 0, 'and the queue is not told to send at once');
+  assert.match(r.k.status().note, /answering, slowly or with errors/);
+});
+
+test('a network that lets nothing out but MegaNet\'s own door: the door taking a connection means the trouble is its far side — no restart', async () => {
+  const r = await reachedRig({ world: { internet: false, door: true, names: true, fresh: false, net: { wifi: null, active: false, clients: 0, saved: 0, connected: ['eth0:ethernet:Office'] } } });
+  r.lose();
+  await r.run(6 * HOUR);
+  assert.deepEqual(r.calls, []);
+  assert.equal(r.k.status().kind, 'far-end');
 });
 
 test('on a network that passes nothing: the connection is renewed at five minutes, then every fifteen', async () => {

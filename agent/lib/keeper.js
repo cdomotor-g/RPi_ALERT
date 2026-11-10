@@ -30,6 +30,9 @@
 //   the internet is there and     nothing: the trouble is MegaNet's, and a
 //   MegaNet answers nobody        fleet rebooting itself would not mend it
 //
+// And none of it starts while a door answers at all: requests timing out on
+// a slow database are not an outage, and are not hurried.
+//
 // A reboot is the last resort and is held back hard: only in mode 'full';
 // only for a base station that has reached MegaNet in the last week (there is
 // a link to get back — a Pi on a hill for a survey never had one); never
@@ -116,6 +119,8 @@ function names(host) {
   if (!host || net.isIP(host)) return Promise.resolve(true);
   return deadline(dns.promises.lookup(host), 8000).then(() => true, () => false);
 }
+// Does MegaNet's own door take a connection (its name looked up, port 443)?
+function door(host) { return host ? tcp(host, 443, 6000) : Promise.resolve(false); }
 // Does another program on this Pi get any answer from MegaNet? → true, false,
 // or null when there is no curl to ask with.
 async function fresh(url) {
@@ -138,7 +143,7 @@ class Keeper extends EventEmitter {
     this.log = agent.log.child('keeper');
     this.file = path.join(agent.dataDir, 'keeper.json');
     this.exec = opts.exec || ((verb, ...a) => system.priv(verb, ...a));
-    this.probe = Object.assign({ net: hotspot.readStatus, internet, names, fresh, updating }, opts.probe || {});
+    this.probe = Object.assign({ net: hotspot.readStatus, internet, door, names, fresh, updating }, opts.probe || {});
     this.now = opts.now || Date.now;
     this.mono = opts.mono || (() => Math.round(performance.now()));
     // Kept on disk: when MegaNet last answered; reboots and agent restarts
@@ -225,14 +230,19 @@ class Keeper extends EventEmitter {
     // that at most, since that moment is wall-clock time and the wall clock
     // can be set.
     if (this.downMono == null) this.downMono = mono - Math.min(Math.max(0, this.now() - (api.unreachableSince || this.now())), 2 * TICK_MS);
+    // Ask here before believing it: the queue may be backing off for five
+    // minutes, and requests that time out on a slow database look, from the
+    // queue, just like a dead network — while a door that answers this small
+    // request says the path is there. Then there is no outage to record, and
+    // nothing to hurry: a struggling database is not helped by being asked
+    // again at once.
     if (!this.out) {
       if (mono - this.downMono < FIRST_MS) return;
+      if (await api.reach()) { this.downMono = null; return this.say('Flood-Net is answering, slowly or with errors: what is heard is kept and sent as it can be.'); }
       this.out = { since: api.unreachableSince || this.now(), sinceMono: this.downMono, kind: null, steps: [], last: {} };
       this.log.warn('no answer from Flood-Net for ' + mins(mono - this.downMono) + (api.lastFailure ? ' (' + api.lastFailure + ')' : '') + ' — finding out why');
-    }
+    } else if (await api.reach()) return this.reached(this.now());
     const o = this.out;
-    // The queue may be backing off for five minutes: ask here.
-    if (await api.reach()) return this.reached(this.now());
     const see = await this.look(api);
     if (see.kind !== o.kind) { o.kind = see.kind; this.log.warn(KIND[see.kind]); this.emit('change'); }
     await this.act(o, this.mono() - o.sinceMono, see, mode);
@@ -243,9 +253,16 @@ class Keeper extends EventEmitter {
     const ep = api.endpoints()[0] || { url: '' };
     let host = '';
     try { host = new URL(ep.url).hostname; } catch (_) {}
-    const [nm, online] = await Promise.all([Promise.resolve().then(() => this.probe.net()).catch(() => null), Promise.resolve().then(() => this.probe.internet()).catch(() => false)]);
+    // The internet is there if an address out on it takes a connection — or
+    // MegaNet's own door does: a network that lets nothing out but that door
+    // (some offices') must not look like no network when the door's far side
+    // is what is wrong.
+    const ask = (fn) => Promise.resolve().then(fn).catch(() => false);
+    const [nm, far, door] = await Promise.all([Promise.resolve().then(() => this.probe.net()).catch(() => null),
+      ask(() => this.probe.internet()), ask(() => this.probe.door(host))]);
+    const online = !!far || !!door;
     const n = nm && !nm.error ? nm : { wifi: null, active: false, clients: 0, saved: 0, connected: [] };
-    const see = { net: n, internet: !!online, names: null, fresh: null };
+    const see = { net: n, internet: online, names: null, fresh: null };
     if (!online) { see.kind = (n.connected || []).length ? 'dead-link' : 'no-network'; return see; }
     see.names = await Promise.resolve().then(() => this.probe.names(host)).catch(() => false);
     see.fresh = see.names ? await Promise.resolve().then(() => this.probe.fresh(ep.url)).catch(() => null) : false;
