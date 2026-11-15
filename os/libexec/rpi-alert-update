@@ -45,6 +45,8 @@ newer() {
   [ "$current" = unknown ] && return 0
   [ "$1" != "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$1" | sort -V | tail -1)" = "$1" ]
 }
+# A version as releases are numbered: 0.23.1, or 0.24.0-rc.1.
+is_version() { printf '%s' "$1" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?'; }
 # The latest release's version: GitHub's API, tried again on a timeout or a
 # 5xx, and if it still does not answer (it also allows only 60 calls an hour
 # from one address) the releases page's redirect to the latest tag. One failed
@@ -57,6 +59,10 @@ latest_release() {
     v=$(curl -fsS -o /dev/null --max-time 20 --retry 2 --retry-delay 3 -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null \
       | sed -n 's#.*/releases/tag/v\{0,1\}\([^/?#]*\).*#\1#p' || true)
   fi
+  # Only a version is a release. A tag that is not one (a word, a branch's
+  # name) would not be fetched as a signed release below, so it is no release
+  # at all here: no update, rather than an unverified one.
+  is_version "$v" || v=""
   printf '%s' "$v"
 }
 latest=$(latest_release)
@@ -89,6 +95,8 @@ if [ -z "$REF" ]; then
   if [ "$IF_NEWER" = 1 ] && [ "$latest" = "$current" ]; then status current "RPi ALERT $current is the latest release." "$current"; exit 0; fi
   if [ "$IF_NEWER" = 1 ] && ! newer "$latest"; then status current "RPi ALERT $current is ahead of the latest release ($latest); nothing to install." "$current"; exit 0; fi
   REF="v$latest"
+  # The automatic routes install a release, never the unsigned branch path.
+  is_release "$REF" || { status failed "the latest release's tag ($latest) is not a version — not installing" "$REF"; exit 1; }
 fi
 
 tmp=$(mktemp -d)
@@ -100,7 +108,7 @@ VERIFY=${RPI_ALERT_VERIFY:-$PREFIX/libexec/verify-release.js}
 
 # A release tag is "v" + a version; anything else (a branch, for --ref) is the
 # unsigned testing path.
-is_release() { case "$1" in v[0-9]*) return 0 ;; *) return 1 ;; esac; }
+is_release() { case "$1" in v*) is_version "${1#v}" ;; *) return 1 ;; esac; }
 # A real signing key is pinned (not the shipped placeholder)?
 signing_configured() { grep -q 'BEGIN PUBLIC KEY' "$PUBKEY" 2>/dev/null; }
 
