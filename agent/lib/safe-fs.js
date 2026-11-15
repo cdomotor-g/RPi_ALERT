@@ -76,4 +76,26 @@ function writeAtomic(file, data, opts) {
   try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} throw e; }
 }
 
-module.exports = { readNoFollow, writeAtomic };
+// Give a file its owner and mode in one step on the file itself, never through
+// a link: install.sh, as root, on config.json in the agent's own directory,
+// where the agent could swap a link in between a test and a chmod. A link is
+// removed; anything that is not a plain file with one name is left alone.
+// Returns what it did: 'set', 'link removed', 'none' or 'left'.
+function ownNoFollow(file, uid, gid, mode) {
+  let fd;
+  try { fd = fs.openSync(file, C.O_RDONLY | NOFOLLOW | NONBLOCK); }
+  catch (e) {
+    if (e.code === 'ENOENT') return 'none';
+    if (e.code === 'ELOOP') { fs.unlinkSync(file); return 'link removed'; }
+    throw e;
+  }
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.nlink > 1) return 'left';
+    fs.fchownSync(fd, uid, gid);
+    fs.fchmodSync(fd, mode);
+    return 'set';
+  } finally { fs.closeSync(fd); }
+}
+
+module.exports = { readNoFollow, writeAtomic, ownNoFollow };

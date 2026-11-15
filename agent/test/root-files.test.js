@@ -133,3 +133,31 @@ test('an oversize log for MegaNet keeps its newest lines and says how many were 
   assert.equal(fitResult(small), small);
   assert.equal(fitResult({ blob: 'x'.repeat(MAX_RESULT_BYTES + 10) }).truncated, true);
 });
+
+test('ownNoFollow: sets a plain file\'s mode on the file itself; a link is removed and its target untouched', () => {
+  const { ownNoFollow } = require('../lib/safe-fs');
+  const d = tmp();
+  const s = secret(d);
+  fs.chmodSync(s, 0o644);
+  const f = path.join(d, 'config.json');
+  const uid = process.getuid(), gid = process.getgid();
+  assert.equal(ownNoFollow(f, uid, gid, 0o600), 'none');
+  fs.symlinkSync(s, f);
+  assert.equal(ownNoFollow(f, uid, gid, 0o600), 'link removed');
+  assert.equal(fs.statSync(s).mode & 0o777, 0o644, 'the target keeps its mode');
+  assert.equal(fs.existsSync(f), false);
+  fs.linkSync(s, f);
+  assert.equal(ownNoFollow(f, uid, gid, 0o600), 'left', 'a hard link is left alone');
+  assert.equal(fs.statSync(s).mode & 0o777, 0o644);
+  fs.unlinkSync(f);
+  fs.writeFileSync(f, '{}', { mode: 0o644 });
+  assert.equal(ownNoFollow(f, uid, gid, 0o600), 'set');
+  assert.equal(fs.statSync(f).mode & 0o777, 0o600);
+});
+
+test('install.sh sets config.json\'s owner and mode only through ownNoFollow, never chmod on the path', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', '..', 'os', 'install.sh'), 'utf8');
+  assert.doesNotMatch(sh, /chmod[^\n]*\/etc\/rpi-alert\/config\.json/);
+  assert.doesNotMatch(sh, /chown[^\n]*\/etc\/rpi-alert\/config\.json/);
+  assert.match(sh, /ownNoFollow\(/);
+});

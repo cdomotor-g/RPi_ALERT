@@ -175,9 +175,13 @@ ln -sf "$PREFIX/libexec/rpi-alert-update" /usr/local/sbin/rpi-alert-update
 
 install -d -o rpi-alert -g rpi-alert -m 0750 /etc/rpi-alert /var/lib/rpi-alert
 # The agent owns this directory, so config.json may be a link it planted: leave a link alone
-# (and take it away) rather than chown/chmod whatever it points at.
-if [ -L /etc/rpi-alert/config.json ]; then rm -f /etc/rpi-alert/config.json
-elif [ -f /etc/rpi-alert/config.json ]; then chown -h rpi-alert:rpi-alert /etc/rpi-alert/config.json && chmod 0600 /etc/rpi-alert/config.json; fi
+# (and take it away) rather than chown/chmod whatever it points at. One step on the file
+# itself (safe-fs ownNoFollow), because the agent is still running and could swap a link in
+# between a test here and a chmod.
+node -e 'const [m,f,u,g]=process.argv.slice(1);require(m).ownNoFollow(f,+u,+g,0o600)' \
+  "$PREFIX/lib/safe-fs" /etc/rpi-alert/config.json "$(id -u rpi-alert)" "$(id -g rpi-alert)" \
+  || warn "could not set the owner of /etc/rpi-alert/config.json"
+
 chown -R rpi-alert:rpi-alert /var/lib/rpi-alert
 # The updater's outcome: root's, readable by all (the agent reads it; it is
 # never written in the agent's own directory, where a link could lead root astray).
