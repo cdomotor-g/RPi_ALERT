@@ -43,7 +43,7 @@ async function api(path, opts) {
   const res = await fetch(path, init);
   let body = null;
   try { body = await res.json(); } catch (_) {}
-  if (res.status === 401 && body && body.login) { askLogin(); throw new Error('log in first'); }
+  if (res.status === 401 && body && body.login) { if (body.all) S.loginAll = true; askLogin(body.all); throw new Error('log in first'); }
   if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
   return body;
 }
@@ -1661,8 +1661,10 @@ function renderLog() {
 
 // ── login ───────────────────────────────────────────────────────────────────
 
-function askLogin() {
+// all: this base station shows nothing without a login (web.requireLogin).
+function askLogin(all) {
   const d = $('#login');
+  if (all === true) $('#login-hint').textContent = 'This base station asks for its web page password before it shows anything.';
   if (!d.open) d.showModal();
 }
 $('#login-cancel').addEventListener('click', () => $('#login').close());
@@ -1670,8 +1672,9 @@ $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
     await api('/api/login', { method: 'POST', body: { password: $('#login-pw').value } });
-    $('#login').close(); $('#login-pw').value = '';
-    await refresh(); loadConfig(); connectEvents();
+    $('#login').close(); $('#login-pw').value = ''; $('#login-status').textContent = '';
+    // The readings and the graphs too: where everything needs a login, none came before it.
+    await refresh(); loadConfig(); loadReadings(); loadHistory(); connectEvents();
   } catch (err) { $('#login-status').textContent = err.message; $('#login-status').className = 'status small bad'; }
 });
 
@@ -1772,6 +1775,7 @@ function wireSurvey() {
 async function refresh() {
   try {
     S.status = await api('/api/status');
+    S.loginAll = !!(S.status.auth && S.status.auth.all);
     // The kiosk is left open for months: a new version, installed from
     // Flood-Net or overnight, is its page too once the agent is back.
     if (KIOSK && S.version && S.status.version && S.status.version !== S.version) { location.reload(); return; }
@@ -1783,8 +1787,13 @@ async function refresh() {
     if (S.config) { if (foldOpen('ports')) renderPortOverrides(); if (foldOpen('sdr')) sdrRender(); if (foldOpen('hotspot')) renderHotspot(); }
     if (foldOpen('recover')) renderRecover();
   } catch (e) {
-    $('#host').textContent = 'not connected — ' + e.message;
+    if (e.message === 'log in first') $('#host').innerHTML = 'Log in to see this base station. <button type="button" class="small" data-login>Log in</button>';
+    else $('#host').textContent = 'not connected — ' + e.message;
   }
+}
+
+async function loadReadings() {
+  try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); renderCharts(true); } catch (_) {}
 }
 
 function connectEvents() {
@@ -1808,7 +1817,12 @@ function connectEvents() {
   es.addEventListener('remote', () => refresh());
   es.addEventListener('survey', () => { refresh(); if (S.tab === 'survey') loadSurvey(true); });
   es.addEventListener('log', (e) => { S.logLines.push(JSON.parse(e.data)); if (S.logLines.length > 600) S.logLines.splice(0, 100); if (S.tab === 'log') logPaced(); });
-  es.onerror = () => { $('#host').textContent = 'reconnecting…'; };
+  es.onerror = () => {
+    $('#host').textContent = 'reconnecting…';
+    // Refused, not dropped, where nothing is shown without a login
+    // (web.requireLogin): the login has ended, or never was — ask for it.
+    if (es.readyState === 2 && S.loginAll) refresh();
+  };
 }
 
 // ── software updates ────────────────────────────────────────────────────────
@@ -2027,7 +2041,7 @@ window.addEventListener('resize', debounce(() => renderCharts(true), 200));
   // Read at once where no password is asked (this Pi's own screen, or logged
   // in): the folds' lines and forms are filled. Elsewhere, a fold opened asks.
   if (S.status && S.status.auth && S.status.auth.authed) loadConfig().catch(() => {});
-  try { const r = await api('/api/readings?limit=500'); S.readings = r.readings; S.bursts = r.bursts; renderReadings(); renderCharts(true); } catch (_) {}
+  await loadReadings();
   loadHistory();
   setInterval(loadHistory, 60 * 1000);
   connectEvents();

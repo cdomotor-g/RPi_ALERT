@@ -27,6 +27,12 @@
 //   audio_volume = 80
 //   kiosk = auto                      auto | on | off
 //   web_password = …                  stored hashed; removed from the card
+//   web_bind = 127.0.0.1              the address the dashboard listens on (absent: every interface;
+//                                     127.0.0.1 keeps it off the network — rpi-alert still reaches it)
+//   web_hosts = bs01.council.example  more names the dashboard answers to: its name in your DNS
+//   web_behind_proxy = no             yes: a reverse proxy on this machine publishes it over HTTPS
+//   web_require_login = settings      all: nothing is read without the password (settings: only
+//                                     the settings need it)
 //   timezone = Australia/Brisbane
 //   hostname = rpi-alert
 //   wifi_ssid = …                     a Wi-Fi network to join (Raspberry Pi Imager can do this too)
@@ -65,7 +71,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { Config, hashPassword } = require('./config');
+const { Config, hashPassword, bindOk, hostsOk } = require('./config');
 const { readNoFollow, writeAtomic } = require('./safe-fs');
 const Channels = require('../web/channels');
 
@@ -172,6 +178,29 @@ function toPatch(kv) {
       case 'kiosk': case 'display': set('kiosk.mode', no(v) ? 'off' : yes(v) ? 'on' : String(v).trim().toLowerCase()); break;
       case 'timezone': case 'time_zone': set('system.timezone', v.trim()); system.timezone = v.trim(); break;
       case 'web_password': case 'password': set('web.passwordHash', hashPassword(v)); break;
+      // 0.24, the dashboard on a managed network: where it listens, the names
+      // it answers to, a proxy in front of it, a login for everything. One
+      // that cannot be read is left as it was, like any other.
+      case 'web_bind': case 'web_listen': {
+        const b = v.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+        const addr = /^(all|any|every|\*|0\.0\.0\.0|::)?$/.test(b) ? '' : /^(local|localhost|loopback)$/.test(b) ? '127.0.0.1' : b;
+        if (addr === '' || bindOk(addr)) set('web.bind', addr);
+        else notes.push(k + ': one of this computer\'s addresses, such as 127.0.0.1 (or all) — not changed');
+        break;
+      }
+      case 'web_hosts': case 'web_host': {
+        const list = no(v) || /^none$/i.test(v.trim()) ? [] : v.toLowerCase().split(/[\s,;]+/).filter(Boolean);
+        if (hostsOk(list)) set('web.hosts', list); else notes.push(k + ': host names with commas between them, such as bs01.council.example — not changed');
+        break;
+      }
+      case 'web_behind_proxy': case 'behind_proxy':
+        if (yes(v) || no(v)) set('web.behindProxy', yes(v)); else notes.push(k + ': yes or no — not changed');
+        break;
+      case 'web_require_login': case 'require_login': {
+        const m = yes(v) ? 'all' : no(v) ? 'settings' : String(v).trim().toLowerCase();
+        if (m === 'all' || m === 'settings') set('web.requireLogin', m); else notes.push(k + ': all or settings — not changed');
+        break;
+      }
       case 'hostname': system.hostname = v.trim().toLowerCase(); break;
       case 'wifi_ssid': case 'wifi': system.wifiSsid = v; break;
       case 'wifi_password': case 'wifi_psk': system.wifiPassword = v; break;

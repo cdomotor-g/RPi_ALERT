@@ -57,7 +57,7 @@ const MAX_RX_IN_BEAT = 12;
 
 // Of the settings, these are this base station's alone.
 const LOCAL_ONLY = {
-  web: 'the web page\'s password and port',
+  web: 'the web page\'s password and port, where it listens and who it lets in',
   hotspot: 'its own Wi-Fi network and its password',
   remote: 'what MegaNet may do',
   version: null,

@@ -7,6 +7,7 @@
 // replaces it with its first and last few characters.
 
 const crypto = require('node:crypto');
+const net = require('node:net');
 const { EventEmitter } = require('node:events');
 const { readNoFollow, writeAtomic } = require('./safe-fs');
 const { MAX_CHANNELS, MAX_SPAN_HZ, RATES } = require('../web/sdr-plan');
@@ -50,6 +51,11 @@ const LOC_SOURCES = ['none', 'manual', 'station', 'gps'];
 const REMOTE_MODES = ['manage', 'report', 'off'];
 const HOTSPOT_MODES = ['auto', 'on', 'off'];
 const RECOVER_MODES = ['full', 'network', 'off'];
+const LOGIN_MODES = ['settings', 'all'];
+// A name the dashboard may be asked for by (web.hosts): a DNS name, as a
+// browser sends it in Host.
+const HOST_NAME = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+const MAX_WEB_HOSTS = 16;
 const HOTSPOT_SSID = /^[A-Za-z0-9._ -]{1,32}$/, HOTSPOT_PASSWORD = /^[\x21-\x7e]{8,63}$/;
 
 function defaults() {
@@ -161,7 +167,22 @@ function defaults() {
       device: 'default',
       volume: 80,
     },
-    web: { port: 80, passwordHash: '' },
+    // The dashboard. The four after the password are for a base station on a
+    // managed network (0.24); each is as before 0.24 until it is set, and each
+    // is set on the base station itself — never from another computer's
+    // browser, and never from MegaNet:
+    //   bind          the address it listens on. '': every interface. An address:
+    //                 that one, and this machine's own 127.0.0.1 beside it, which
+    //                 the rpi-alert command and the screen use — so 127.0.0.1
+    //                 alone keeps it off the network.
+    //   hosts         more names it answers to (its name in an organisation's
+    //                 DNS), beside its addresses, its host name and *.local.
+    //   behindProxy   a reverse proxy on this machine publishes it (HTTPS): a
+    //                 request the proxy forwarded is never the machine's own,
+    //                 and its caller's address is the one the proxy saw.
+    //   requireLogin  settings: looking needs no password, the settings do.
+    //                 all: nothing is read without one.
+    web: { port: 80, passwordHash: '', bind: '', hosts: [], behindProxy: false, requireLogin: 'settings' },
     kiosk: { mode: 'auto' },
     system: { timezone: '' },
     // MegaNet's Base Stations tab (lib/remote.js). The base station checks in
@@ -341,7 +362,12 @@ function validate(c) {
   need(AUDIO_MODES.includes(a.mode), 'audio.mode: one of ' + AUDIO_MODES.join(', '));
   need(typeof a.device === 'string' && /^[\w:,=.-]+$/.test(a.device), 'audio.device: an ALSA device name such as default or plughw:CARD=Headphones');
   need(num(a.volume, 0, 100) !== undefined, 'audio.volume: 0–100');
-  need(num((c.web || {}).port, 1, 65535) !== undefined, 'web.port: 1–65535');
+  const w = c.web || {};
+  need(num(w.port, 1, 65535) !== undefined, 'web.port: 1–65535');
+  need(w.bind === '' || bindOk(w.bind), 'web.bind: one of this machine\'s addresses, such as 127.0.0.1 (the dashboard off the network), or empty for every interface');
+  need(hostsOk(w.hosts), 'web.hosts: a list of up to ' + MAX_WEB_HOSTS + ' host names, such as ["bs01.council.example"]');
+  need(typeof w.behindProxy === 'boolean', 'web.behindProxy: true or false');
+  need(LOGIN_MODES.includes(w.requireLogin), 'web.requireLogin: one of ' + LOGIN_MODES.join(', '));
   need(KIOSK_MODES.includes((c.kiosk || {}).mode), 'kiosk.mode: one of ' + KIOSK_MODES.join(', '));
   const tz = (c.system || {}).timezone;
   need(tz === '' || /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(tz), 'system.timezone: e.g. Australia/Brisbane');
@@ -350,6 +376,24 @@ function validate(c) {
   need(Number.isInteger(rm.idleS) && rm.idleS >= 30 && rm.idleS <= 900, 'remote.idleS: 30–900 seconds');
   need(RECOVER_MODES.includes((c.recover || {}).mode), 'recover.mode: one of ' + RECOVER_MODES.join(', '));
   return errs;
+}
+
+// An address the dashboard can be told to listen on: one address. "Every
+// interface" is the empty setting, never an address — not 0.0.0.0 or ::, under
+// any spelling: beside an address the agent also listens on 127.0.0.1, which
+// "every address" cannot be had beside.
+function bindOk(v) {
+  if (typeof v !== 'string' || !net.isIP(v)) return false;
+  if (net.isIPv4(v)) return v !== '0.0.0.0';
+  // An IPv6 address as a URL spells it: :: for every way of writing none, and
+  // ::ffff:0:0 for IPv4's 0.0.0.0 inside it. A %zone (fe80::1%eth0) names the
+  // interface an address is on and is left off for the test: "::%eth0" is
+  // still every address.
+  try { return !['[::]', '[::ffff:0:0]'].includes(new URL('http://[' + v.split('%')[0] + ']/').hostname); } catch (_) { return false; }
+}
+// More names for the dashboard: names only — an address needs no listing.
+function hostsOk(list) {
+  return Array.isArray(list) && list.length <= MAX_WEB_HOSTS && list.every(h => typeof h === 'string' && HOST_NAME.test(h) && !net.isIP(h));
 }
 
 // A stick's channels, its own first: [{ freqHz, format }], each more channel
@@ -448,22 +492,43 @@ class Config extends EventEmitter {
   // could have put there (lib/safe-fs.js).
   load() {
     let raw = null;
-    try { raw = readNoFollow(this.file, 4 * 1024 * 1024); } catch (e) { if (e.code !== 'ENOENT') this.loadError = e.message; }
+    try { raw = readNoFollow(this.file, 4 * 1024 * 1024); } catch (e) {
+      if (e.code !== 'ENOENT') {
+        // There, and not to be read at all: what it set for the dashboard
+        // cannot be known, so it is taken to have closed it.
+        this.data = defaults();
+        for (const k of Object.keys(CAUTIOUS)) setPath(this.data, k, CAUTIOUS[k]);
+        this.loadError = e.message + '; starting from defaults — but for the dashboard, the cautious values, since what the file set cannot be known: '
+          + CAUTIOUS_WORDS;
+      }
+    }
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
+        if (!isObj(parsed)) throw new Error('it is not a set of settings in { }');
         const merged = merge(defaults(), parsed);
+        const slip = slips(parsed, merged);
         const older = !(parsed && parsed.version >= 3) && carryOver(merged, parsed);
         // Lists replace rather than merge, and a missing endpoint list means the default.
         if (!Array.isArray(merged.meganet.endpoints) || !merged.meganet.endpoints.length) merged.meganet.endpoints = MEGANET_ENDPOINTS.slice();
-        const errs = validate(merged);
-        if (errs.length) this.loadError = 'settings file has problems (defaults used for them): ' + errs.join('; ');
+        const errs = slip.errs.concat(validate(merged));
+        if (errs.length) {
+          this.loadError = 'settings file has problems (defaults used for them' + (slip.cautious || errs.some(e => /^web\.(bind|behindProxy|requireLogin)\b/.test(e))
+            ? '; for the dashboard\'s own, the cautious value: ' + CAUTIOUS_WORDS : '') + '): ' + errs.concat(slip.notes).join('; ');
+        } else if (slip.notes.length) this.loadError = 'settings file: ' + slip.notes.join('; ');
         this.data = errs.length ? repair(merged) : merged;
         const ch = channelErrors(this.data);
         if (ch.length) this.loadError = (this.loadError ? this.loadError + '; ' : '') + 'channels one stick cannot hear together (only those that fit are decoded): ' + ch.join('; ');
         if (older) { try { this.save(); } catch (_) {} }
       } catch (e) {
-        this.loadError = 'settings file is not valid JSON (' + e.message + '); starting from defaults, the file is kept as .bad';
+        // Not to be read as a whole: a comma too many, a comment, half a file.
+        // Everything starts from its default, as before — except what the
+        // file's own text shows it set for the dashboard (closedInText).
+        const closed = closedInText(raw);
+        this.data = defaults();
+        for (const k of closed) setPath(this.data, k, CAUTIOUS[k]);
+        this.loadError = 'settings file is not valid JSON (' + e.message + '); starting from defaults'
+          + (closed.length ? ' — but for ' + closed.join(', ') + ', which the file set: the cautious value (' + CAUTIOUS_WORDS + ')' : '') + ', the file is kept as .bad';
         try { writeAtomic(this.file + '.bad', raw, { mode: 0o600, owner: 'dir' }); } catch (_) {}
       }
     }
@@ -503,6 +568,68 @@ class Config extends EventEmitter {
   }
 }
 
+// A dashboard setting that is there but cannot be read — a slip of the hand
+// in config.json — must not open what it was written to close: it becomes the
+// cautious value, not the default. (One that is absent is the default.)
+const CAUTIOUS = { 'web.bind': '127.0.0.1', 'web.behindProxy': true, 'web.requireLogin': 'all' };
+const CAUTIOUS_WORDS = 'this machine only, a proxy in front, a login for everything';
+
+// Slips in a settings file that reads as JSON, beyond a value that makes no
+// sense (validate): set right in c, the settings as read. → { errs: what was
+// wrong, notes: what is only said, cautious: one of the dashboard's own went
+// to its cautious value }.
+//   * A group of settings that is not one — "web": "off", "meganet": "off":
+//     the group goes back to as it comes, the dashboard's own to cautious.
+//   * One of the dashboard's own under another spelling — require_login, as
+//     rpi-alert.conf has it, or behindproxy — with the setting itself absent:
+//     somebody meant to set it, so it is the cautious value until it is spelt
+//     right.
+//   * Any other key under web that the agent does not know: said, and left.
+const plainKey = (k) => String(k).toLowerCase().replace(/[^a-z]/g, '').replace(/^web/, '');
+function slips(parsed, c) {
+  const errs = [], notes = [];
+  let cautious = false;
+  const walk = (d, o, pre) => {
+    for (const k of Object.keys(d)) {
+      if (!isObj(d[k])) continue;
+      const p = pre ? pre + '.' + k : k;
+      if (isObj(o[k])) { walk(d[k], o[k], p); continue; }
+      errs.push(p + ': a group of settings, in { }');
+      o[k] = JSON.parse(JSON.stringify(d[k]));
+      for (const q of Object.keys(CAUTIOUS)) if (q.startsWith(p + '.')) { setPath(c, q, CAUTIOUS[q]); cautious = true; }
+    }
+  };
+  walk(defaults(), c, '');
+  const web = isObj(parsed.web) ? parsed.web : {};
+  const known = Object.keys(defaults().web), odd = [];
+  for (const k of Object.keys(web)) {
+    if (known.includes(k)) continue;
+    const meant = Object.keys(CAUTIOUS).find(q => plainKey(q) === plainKey(k));
+    if (meant && !Object.prototype.hasOwnProperty.call(web, meant.slice(4))) {
+      errs.push('web.' + k + ' is not a setting — ' + meant + ' is how it is spelt');
+      setPath(c, meant, CAUTIOUS[meant]);
+      cautious = true;
+    } else odd.push('web.' + k);
+  }
+  if (odd.length) notes.push('not settings the agent knows, and ignored: ' + odd.join(', '));
+  return { errs, notes, cautious };
+}
+
+// A settings file that cannot be read as a whole: which of the dashboard's
+// own its text shows it set to something other than "as it comes" — the key,
+// under any spelling, wherever it stands, followed by anything but the
+// default. → their paths.
+const AS_IT_COMES = { 'web.bind': /^""/, 'web.behindProxy': /^false\b/, 'web.requireLogin': /^"settings"/ };
+const IN_TEXT = { 'web.bind': 'bind', 'web.behindProxy': 'behind[_-]?proxy', 'web.requireLogin': 'require[_-]?login' };
+function closedInText(raw) {
+  const text = String(raw);
+  return Object.keys(IN_TEXT).filter(k => {
+    const re = new RegExp('\\b(?:web[_.-]?)?' + IN_TEXT[k] + '["\']?\\s*[:=]\\s*', 'gi');
+    for (let m = re.exec(text); m; m = re.exec(text)) if (!AS_IT_COMES[k].test(text.slice(re.lastIndex, re.lastIndex + 16))) return true;
+    return false;
+  });
+}
+
 // Fields that fail validation go back to their defaults, one by one.
 function repair(c) {
   const d = defaults();
@@ -521,7 +648,7 @@ function repair(c) {
     setPath(trial, p, getPath(out, p));
     return validate(trial).length === 0;
   };
-  for (const p of leafPaths(d)) if (!probe(p)) setPath(out, p, getPath(d, p));
+  for (const p of leafPaths(d)) if (!probe(p)) setPath(out, p, p in CAUTIOUS ? CAUTIOUS[p] : getPath(d, p));
   return validate(out).length ? d : out;
 }
 function leafPaths(o, pre) {
@@ -546,4 +673,5 @@ function changedPaths(a, b) {
 module.exports = {
   Config, defaults, validate, stickErrors, channelsOf, channelErrors, merge, maskToken, hashPassword, checkPassword, getPath, setPath,
   CONFIG_PATH, DECODERS, WATCHES, MEGANET_ENDPOINTS, MEGANET_APIKEY, ALERT_CHANNELS_HZ, SDR_FORMATS, FORMAT_NAMES, STICK_FIELDS, PORT_TYPES, AUDIO_MODES, KIOSK_MODES, LOC_SOURCES, REMOTE_MODES,
+  LOGIN_MODES, bindOk, hostsOk,
 };

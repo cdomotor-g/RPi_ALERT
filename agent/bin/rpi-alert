@@ -12,7 +12,10 @@
 //                                    terminal with a light background)
 //   rpi-alert token [mgn_…]          set (or check) the MegaNet ingest token by hand
 //   rpi-alert config get [key]       print settings (e.g. receivers.sdr.freqHz)
-//   rpi-alert config set key value   change one (value as JSON, or plain text)
+//   rpi-alert config set key value   change one (value as JSON, or plain text). On a managed
+//                                    network: web.bind 127.0.0.1 (the dashboard off the network),
+//                                    web.hosts bs01.council.example (a name it answers to),
+//                                    web.behindProxy true, web.requireLogin all
 //   rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
 //   rpi-alert sdr <stick> <setting> <value>
 //                                    a stick's own setting: freq (the channels it hears, MHz:
@@ -274,8 +277,16 @@ async function config(sub, key, value) {
     if (!key) throw new Error('rpi-alert config set <key> <value>');
     let v = value;
     try { v = JSON.parse(value); } catch (_) {}
+    // The dashboard's names, as they are typed: one, or several with commas; none for none.
+    if (key === 'web.hosts' && typeof v === 'string') v = /^(none|)$/i.test(v.trim()) ? [] : v.toLowerCase().split(/[\s,;]+/).filter(Boolean);
     const r = await post('/api/config', { config: patchFor(key, v) });
     console.log(r.changed.length ? 'Saved: ' + r.changed.join(', ') : 'Unchanged.');
+    // The address and the port are taken when the agent starts.
+    if (r.changed.some(k => k === 'web.bind' || k === 'web.port')) console.log('The dashboard moves there when the agent next starts: sudo systemctl restart rpi-alert');
+    // What the agent cannot see for itself: whether the proxy adds its header to every request.
+    if (r.changed.includes('web.behindProxy') && v === true) {
+      console.log('Now check the proxy, from another computer: curl -H \'Host: localhost\' http(s)://<the proxy>/api/config must answer "log in first", not the settings (docs/configuration.md).');
+    }
     return;
   }
   throw new Error('rpi-alert config get [key] | set <key> <value>');
