@@ -195,3 +195,67 @@ test('while NTP has the time, a GPS far from it is noted and never moves the clo
   assert.ok(Math.abs(c.now() - Date.now()) < 100);
   c.stop();
 });
+
+// ── is anybody keeping the time? (0.24) ──────────────────────────────────────
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+async function until(fn, ms) { const t0 = Date.now(); while (Date.now() - t0 < (ms || 5000)) { if (await fn()) return true; await wait(20); } return false; }
+
+test('clock: systemd\'s tools installed but systemd not running (a container) is as no systemd — the clock is trusted', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rpa-clock-'));
+  const tool = (name, script) => { const f = path.join(dir, name); fs.writeFileSync(f, '#!/bin/sh\n' + script + '\n', { mode: 0o755 }); return f; };
+  // timedatectl as it answers in a container: "System has not been booted with systemd as init system".
+  const down = tool('timedatectl-down', 'echo "System has not been booted with systemd as init system (PID 1). Can\'t operate." >&2; exit 1');
+  const mk = (run, timedatectl) => new Clock({ log: quiet, dataDir: fs.mkdtempSync(path.join(dir, 'data-')), rtcDir: path.join(dir, 'no-rtc'), systemdRun: run, timedatectl });
+  const prev = process.env.RPI_ALERT_ASSUME_CLOCK; delete process.env.RPI_ALERT_ASSUME_CLOCK;
+  try {
+    // /run/systemd is there (its tools made it) but systemd does not run this computer: no "system" in it.
+    const notBooted = path.join(dir, 'run-container'); fs.mkdirSync(path.join(notBooted, 'journal'), { recursive: true });
+    const a = mk(notBooted, down);
+    let fired = 0; a.on('trusted', () => fired++);
+    a.check();
+    assert.deepEqual([a.trusted(), a.status().source, fired], [true, 'ntp', 1], 'trusted at once, as with no timedatectl at all');
+    assert.equal(a.timer, null, 'and not asked again');
+    a.stop();
+    // No /run/systemd at all, and no timedatectl: as before.
+    const none = mk(path.join(dir, 'run-none'), path.join(dir, 'no-such-timedatectl'));
+    none.check();
+    assert.equal(none.trusted(), true);
+    none.stop();
+
+    // systemd runs this computer (a Raspberry Pi, any server): as before — its answer decides.
+    const booted = path.join(dir, 'run-pi'); fs.mkdirSync(path.join(booted, 'system'), { recursive: true });
+    const no = mk(booted, tool('timedatectl-no', 'echo no'));
+    no.check();
+    await wait(300);
+    assert.equal(no.trusted(), false, 'not synchronised yet: readings are held');
+    no.stop();
+    const yes = mk(booted, tool('timedatectl-yes', 'echo yes'));
+    yes.check();
+    assert.ok(await until(() => yes.trusted(), 3000));
+    yes.stop();
+    const failing = mk(booted, down);
+    failing.check();
+    await wait(300);
+    assert.equal(failing.trusted(), false, 'systemd is running and its tool fails: asked again, not assumed');
+    assert.ok(failing.timer, 'in half a minute');
+    failing.stop();
+    // systemd-timesyncd's own mark still answers first.
+    fs.mkdirSync(path.join(booted, 'timesync')); fs.writeFileSync(path.join(booted, 'timesync', 'synchronized'), '');
+    const marked = mk(booted, down);
+    marked.check();
+    assert.equal(marked.trusted(), true);
+    marked.stop();
+  } finally { if (prev !== undefined) process.env.RPI_ALERT_ASSUME_CLOCK = prev; }
+});
+
+// RPI_ALERT_ASSUME_CLOCK stays, for a container whose host keeps the time some other way.
+test('clock: RPI_ALERT_ASSUME_CLOCK=1 still trusts the clock without asking anything', () => {
+  const prev = process.env.RPI_ALERT_ASSUME_CLOCK;
+  process.env.RPI_ALERT_ASSUME_CLOCK = '1';
+  try {
+    const c = new Clock({ systemdRun: path.join(os.tmpdir(), 'rpa-nowhere'), timedatectl: path.join(os.tmpdir(), 'rpa-nothing') });
+    c.check();
+    assert.deepEqual([c.trusted(), c.status().source], [true, 'assumed']);
+  } finally { if (prev === undefined) delete process.env.RPI_ALERT_ASSUME_CLOCK; else process.env.RPI_ALERT_ASSUME_CLOCK = prev; }
+});

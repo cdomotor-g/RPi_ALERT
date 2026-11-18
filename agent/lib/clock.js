@@ -44,6 +44,9 @@ const { EventEmitter } = require('node:events');
 
 const GPS_FRESH_MS = 60 * 60 * 1000;
 const RTC_DIR = process.env.RPI_ALERT_RTC || '/sys/class/rtc/rtc0';
+// systemd's own directory under /run. `system` is in it while systemd runs
+// this computer — the test systemd's own tools make (sd_booted).
+const SYSTEMD_RUN = '/run/systemd';
 const RTC_TRUST_DAYS = 60, RTC_AGREE_MS = 2000, KEEP_MS = 10 * 60 * 1000;
 const GPS_FLOOR_MS = Date.UTC(2025, 0, 1);            // the root helper's floor too
 const GPS_BACK_MS = 120e3;                            // slack below the last good time
@@ -71,6 +74,8 @@ class Clock extends EventEmitter {
     this.setter = opts && opts.setSystemTime;   // async (ms) => …, may be absent
     this.syncRtc = opts && opts.syncRtc;        // async () => …: write the system time to the RTC
     this.rtcDir = (opts && opts.rtcDir) || RTC_DIR;
+    this.systemdRun = (opts && opts.systemdRun) || SYSTEMD_RUN;
+    this.timedatectl = (opts && opts.timedatectl) || 'timedatectl';
     this.file = opts && opts.dataDir ? path.join(opts.dataDir, 'clock.json') : null;
     this.memory = { lastGood: 0, rtcVerifiedAt: 0 };
     this.rtc = null;           // { offset } while the RTC is what the time is trusted on
@@ -161,8 +166,13 @@ class Clock extends EventEmitter {
     if (this.assume) return;
     // systemd-timesyncd marks a sync here; timedatectl answers for chrony and
     // anything else that sets the kernel's sync flag.
-    if (fs.existsSync('/run/systemd/timesync/synchronized')) { this.setNtp(true); return again(600000); }
-    execFile('timedatectl', ['show', '-p', 'NTPSynchronized', '--value'], { timeout: 5000 }, (err, out) => {
+    if (fs.existsSync(path.join(this.systemdRun, 'timesync', 'synchronized'))) { this.setNtp(true); return again(600000); }
+    // systemd's tools are installed but systemd does not run this computer (a
+    // container, 0.24): timedatectl is there and can only fail, for ever, and
+    // every reading would be held for a clock nobody will vouch for. As with
+    // no systemd at all, below: whatever does run it keeps its time.
+    if (!fs.existsSync(path.join(this.systemdRun, 'system'))) { this.setNtp(true); return; }
+    execFile(this.timedatectl, ['show', '-p', 'NTPSynchronized', '--value'], { timeout: 5000 }, (err, out) => {
       if (err) {
         // No systemd (a development machine): trust the clock, as every PC does.
         if (err.code === 'ENOENT') { this.setNtp(true); return; }
