@@ -30,7 +30,7 @@ lib/state.js               receiver ids, what each port was, and every RTL-SDR s
 lib/stations.js            MegaNet's register, for names — and the frequencies its stations use, to offer a stick
 lib/recorder.js            recordings: every burst on chosen channels kept as 240 ksps IQ (.iq8 + .json), newest first
 lib/audio.js               live SDR audio, re-synthesised bursts, beeps — via aplay
-lib/bootconf.js            /boot/firmware/rpi-alert.conf
+lib/bootconf.js            /boot/firmware/rpi-alert.conf (off a Pi: /etc/rpi-alert.conf)
 lib/web/server.js, web/    the dashboard, API and SSE; web/qr.js draws QR codes (page and CLI); web/channels.js reads
                            and writes channel lists ("151.5, 152.4 EIF": page, CLI and the boot-partition file);
                            web/sdr-plan.js picks a stick's window and where to tune (DC spike, mirror images) for

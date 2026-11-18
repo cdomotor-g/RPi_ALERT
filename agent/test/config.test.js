@@ -180,3 +180,40 @@ test('settings: the narrowest and widest window automatic may take (0.20), share
   assert.deepEqual([patch.receivers.sdr.sampleRateMin, patch.receivers.sdr.sampleRateMax], [0, 960000]);
   assert.ok(c.update(patch).ok, 'the SD card\'s patch passes validation');
 });
+
+test('settings file: a Wi-Fi network is joined on whichever Wi-Fi device the computer has', () => {
+  // What NetworkManager lists, and what is asked of it.
+  const join = (devices, s) => {
+    const calls = [], said = [];
+    const run = (cmd, args) => { calls.push([cmd].concat(args)); return args[0] === '-t' ? devices : { ok: true, out: '' }; };
+    boot.applyWifi(s || { wifiSsid: 'Depot', wifiPassword: 'correct-horse' }, (m) => said.push(m), { run });
+    return { calls, said, ifname: (calls.find(c => c[2] === 'add') || [])[8] };
+  };
+  // A Raspberry Pi: its one Wi-Fi device, as before 0.24 named it — the same connection as it made.
+  const pi = join({ ok: true, out: 'eth0:ethernet\nwlan0:wifi\nlo:loopback\np2p-dev-wlan0:wifi-p2p' });
+  assert.deepEqual(pi.calls, [
+    ['nmcli', '-t', '-f', 'DEVICE,TYPE', 'device'],
+    ['nmcli', 'connection', 'delete', 'rpi-alert-wifi'],
+    ['nmcli', 'connection', 'add', 'type', 'wifi', 'con-name', 'rpi-alert-wifi', 'ifname', 'wlan0', 'ssid', 'Depot', 'connection.autoconnect', 'yes', 'wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', 'correct-horse'],
+    ['nmcli', 'radio', 'wifi', 'on'],
+    ['nmcli', 'connection', 'up', 'rpi-alert-wifi'],
+  ]);
+  assert.deepEqual(pi.said, ['Wi-Fi network "Depot" added (joins when in range)']);
+  // A Pi with a USB Wi-Fi adapter beside its own: its own, still — the first by name.
+  assert.equal(join({ ok: true, out: 'wlan1:wifi\nwlan0:wifi\neth0:ethernet' }).ifname, 'wlan0');
+  // Another computer: the device it has.
+  assert.equal(join({ ok: true, out: 'enp1s0:ethernet\nwlp2s0:wifi\nlo:loopback' }).ifname, 'wlp2s0');
+  // None listed (yet), or NetworkManager not answering: no device named — it comes up on whichever there is.
+  assert.equal(join({ ok: true, out: 'eth0:ethernet\nlo:loopback' }).ifname, '*');
+  assert.equal(join({ ok: false, out: 'NetworkManager is not running' }).ifname, '*');
+  // No device is named anywhere in what a base station runs: NetworkManager chooses it.
+  const root = path.join(__dirname, '..', '..');
+  const scripts = (dir) => fs.readdirSync(path.join(root, dir), { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? scripts(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const all = scripts('agent/lib').concat(scripts('agent/bin'), scripts('os/libexec'), 'os/install.sh');
+  assert.ok(all.includes(path.join('agent', 'lib', 'bootconf.js')) && all.includes(path.join('os', 'libexec', 'rpi-alert-priv')));
+  for (const f of all) assert.doesNotMatch(fs.readFileSync(path.join(root, f), 'utf8').replace(/^\s*(\/\/|#).*$/gm, ''), /wlan\d/, f);
+  const open = []; boot.applyWifi({ wifiSsid: 'Open' }, () => {}, { run: (c, a) => { open.push(a); return { ok: false, out: 'no' }; } });
+  assert.equal(open.length, 3, 'not added: not brought up');
+  assert.ok(!open[2].includes('wifi-sec.psk'));
+});

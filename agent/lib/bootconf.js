@@ -67,6 +67,10 @@
 // Once applied the file is renamed rpi-alert.conf.applied with the secrets
 // blanked out, and what happened is appended to rpi-alert-boot.log beside it.
 // To change something later, write a new rpi-alert.conf.
+//
+// A computer that is not a Raspberry Pi has no such partition: there the same
+// file is /etc/rpi-alert.conf, looked for when no boot partition holds one
+// (ETC_CONF, below).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -75,8 +79,16 @@ const { Config, hashPassword, bindOk, hostsOk } = require('./config');
 const { readNoFollow, writeAtomic } = require('./safe-fs');
 const Channels = require('../web/channels');
 
-const BOOT_DIRS = ['/boot/firmware', '/boot'];
+const BOOT_DIRS = (process.env.RPI_ALERT_BOOT_DIRS || '/boot/firmware:/boot').split(':');
 const NAMES = ['rpi-alert.conf', 'rpi-alert.txt', 'rpi-alert.conf.txt'];
+// The same file where there is no boot partition (0.24). It is applied as
+// root, and can give the alert account a key or a password: so it is root's
+// own, in /etc — beside /etc/rpi-alert rather than in it, as the Bluetooth
+// GPS's is below: the agent, the part that faces the network, owns that
+// directory, and a file there could be one it put there. And it is applied
+// only when it is a plain file of root's that nobody else can write
+// (readRootsOwn).
+const ETC_CONF = process.env.RPI_ALERT_ETC_CONF || '/etc/rpi-alert.conf';
 // Every key that carries a secret, under every spelling the parser accepts
 // (see the `case` list below) — redactText matches the exact normalised key, so
 // an alias left out here would leave its value in plain text on the card
@@ -306,15 +318,7 @@ function applySystem(s, log) {
     const r = sh('timedatectl', ['set-timezone', s.timezone]);
     log(r.ok ? 'time zone ' + s.timezone : 'could not set time zone ' + s.timezone + ': ' + r.out);
   }
-  if (s.wifiSsid) {
-    const name = 'rpi-alert-wifi';
-    sh('nmcli', ['connection', 'delete', name]);
-    const args = ['connection', 'add', 'type', 'wifi', 'con-name', name, 'ifname', 'wlan0', 'ssid', s.wifiSsid, 'connection.autoconnect', 'yes'];
-    if (s.wifiPassword) args.push('wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', s.wifiPassword);
-    const r = sh('nmcli', args);
-    if (r.ok) { sh('nmcli', ['radio', 'wifi', 'on']); sh('nmcli', ['connection', 'up', name]); }
-    log(r.ok ? 'Wi-Fi network "' + s.wifiSsid + '" added (joins when in range)' : 'could not add Wi-Fi "' + s.wifiSsid + '": ' + r.out);
-  }
+  if (s.wifiSsid) applyWifi(s, log);
   if (s.btGps) applyBtGps(s.btGps, log);
   if (s.access) applyAccess(s.access, log);
   if (s.ssh) applySsh(s.ssh, log);
@@ -327,6 +331,26 @@ function applySystem(s, log) {
     const r = sh('systemctl', ['start', '--no-block', 'rpi-alert-update.service']);
     log(r.ok ? 'installing the latest release (see Overview → This Pi → System and updates on the web page)' : 'could not start the update: ' + r.out);
   }
+}
+
+// A Wi-Fi network to join, on the Wi-Fi device NetworkManager lists — the
+// first by name where there are several: on a Raspberry Pi the device that
+// was named here before 0.24, and the same connection as it made; wlp2s0 and
+// the like on other computers, where a connection made for the Pi's device
+// never came up. Where none is listed yet (its driver comes up later in the
+// boot) the connection names no device ("*"), and comes up on whichever
+// there is.
+function applyWifi(s, log, opt) {
+  const run = (opt && opt.run) || sh;
+  const name = 'rpi-alert-wifi';
+  const list = run('nmcli', ['-t', '-f', 'DEVICE,TYPE', 'device']);
+  const dev = (list.ok ? String(list.out).split('\n') : []).map(l => /^([\w.-]+):wifi$/.exec(l.trim())).filter(Boolean).map(m => m[1]).sort()[0] || '*';
+  run('nmcli', ['connection', 'delete', name]);
+  const args = ['connection', 'add', 'type', 'wifi', 'con-name', name, 'ifname', dev, 'ssid', s.wifiSsid, 'connection.autoconnect', 'yes'];
+  if (s.wifiPassword) args.push('wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', s.wifiPassword);
+  const r = run('nmcli', args);
+  if (r.ok) { run('nmcli', ['radio', 'wifi', 'on']); run('nmcli', ['connection', 'up', name]); }
+  log(r.ok ? 'Wi-Fi network "' + s.wifiSsid + '" added (joins when in range)' : 'could not add Wi-Fi "' + s.wifiSsid + '": ' + r.out);
 }
 
 // SSH on or off. On a card's first boot this runs before the host keys exist:
@@ -458,10 +482,32 @@ function withBtGpsPort(current, btGps) {
   return btGps && btGps.address ? rest.concat(BT_GPS_PORT) : rest;
 }
 
-function redactText(text) {
+// where: what the secrets were removed from — the card, or (in /etc) the file.
+// /etc/rpi-alert.conf is applied as root and can give the alert account a
+// key, a password and sudo: so it is read only when it is a plain file of
+// root's that nobody else can write — on the file as opened, never through a
+// link. (Run by somebody who is not root, as the tests do: theirs.) One that
+// is not is left where it is, and said.
+function readRootsOwn(file) {
+  const C = fs.constants;
+  let fd;
+  try { fd = fs.openSync(file, C.O_RDONLY | (C.O_NOFOLLOW || 0) | (C.O_NONBLOCK || 0)); }
+  catch (e) { throw new Error(file + (e.code === 'ELOOP' ? ' is a link' : ' cannot be opened (' + (e.code || e.message) + ')') + ' — not applied'); }
+  try {
+    const st = fs.fstatSync(fd);
+    const me = typeof process.getuid === 'function' ? process.getuid() : 0;
+    if (!st.isFile()) throw new Error(file + ' is not a plain file — not applied');
+    if (st.uid !== 0 && st.uid !== me) throw new Error(file + ' is not root\'s file (its owner is user ' + st.uid + ') — not applied. It can add SSH keys: sudo chown root:root ' + file);
+    if (st.mode & 0o022) throw new Error(file + ' can be written by others than its owner (mode ' + (st.mode & 0o777).toString(8) + ') — not applied. It can add SSH keys: sudo chmod 600 ' + file);
+    if (st.size > 1024 * 1024) throw new Error(file + ' is larger than 1 MB — not applied');
+    return fs.readFileSync(fd, 'utf8');
+  } finally { fs.closeSync(fd); }
+}
+
+function redactText(text, where) {
   return String(text).split(/\r?\n/).map(l => {
     const m = /^(\s*)([A-Za-z][\w.-]*)(\s*[=:]\s*)(.*)$/.exec(l);
-    if (m && SECRET.has(m[2].toLowerCase().replace(/-/g, '_')) && m[4].trim()) return m[1] + m[2] + m[3] + '(applied — removed from the card)';
+    if (m && SECRET.has(m[2].toLowerCase().replace(/-/g, '_')) && m[4].trim()) return m[1] + m[2] + m[3] + '(applied — removed from ' + (where || 'the card') + ')';
     return l;
   }).join('\n');
 }
@@ -471,12 +517,16 @@ function main(args) {
   if (!file) {
     for (const d of BOOT_DIRS) for (const n of NAMES) { const f = path.join(d, n); if (!file && fs.existsSync(f)) file = f; }
   }
-  if (!file) { console.log('no rpi-alert.conf on the boot partition — nothing to apply'); return; }
+  // No boot partition, or nothing on it: root's file in /etc.
+  const etc = !file && fs.existsSync(ETC_CONF);
+  if (etc) file = ETC_CONF;
+  if (!file) { console.log('no rpi-alert.conf on the boot partition or at ' + ETC_CONF + ' — nothing to apply'); return; }
   const dir = path.dirname(file);
   const logLines = [];
   const log = (s) => { logLines.push(s); console.log(s); };
   log('— ' + new Date().toISOString() + ' applying ' + file);
-  const text = fs.readFileSync(file, 'utf8');
+  let text;
+  try { text = etc ? readRootsOwn(file) : fs.readFileSync(file, 'utf8'); } catch (e) { console.log(e.message); return; }
   const { patch, system, notes } = toPatch(parse(text));
   notes.forEach(n => log('note: ' + n));
   const cfg = new Config().load();
@@ -508,6 +558,15 @@ function main(args) {
       log('site survey "' + system.survey.name + '" starts at this power-up');
     } catch (e) { log('could not start the survey: ' + e.message); }
   } else if (system.survey) log('note: survey_hours / survey_readings without survey = <name> — no survey started');
+  if (etc) {
+    // In /etc: root's eyes only, and no log beside it — what happened is what
+    // this printed, in the journal (journalctl -u rpi-alert-boot-config).
+    try {
+      writeAtomic(file + '.applied', '# Applied ' + new Date().toISOString() + ' — see journalctl -u rpi-alert-boot-config\n' + redactText(text, 'this file'), { mode: 0o600 });
+      fs.unlinkSync(file);
+    } catch (e) { log('could not rename ' + file + ': ' + e.message); }
+    return;
+  }
   try {
     fs.writeFileSync(path.join(dir, 'rpi-alert.conf.applied'), '# Applied ' + new Date().toISOString() + ' — see rpi-alert-boot.log\n' + redactText(text));
     fs.unlinkSync(file);
@@ -515,4 +574,4 @@ function main(args) {
   try { fs.appendFileSync(path.join(dir, 'rpi-alert-boot.log'), logLines.join('\r\n') + '\r\n'); } catch (_) {}
 }
 
-module.exports = { parse, toPatch, redactText, withBtGpsPort, applySsh, main, moveBtGpsConf, BT_GPS_PORT, BT_GPS_CONF, MULTI };
+module.exports = { parse, toPatch, redactText, withBtGpsPort, applySsh, applyWifi, main, moveBtGpsConf, BT_GPS_PORT, BT_GPS_CONF, ETC_CONF, MULTI };

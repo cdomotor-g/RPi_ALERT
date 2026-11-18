@@ -161,3 +161,111 @@ test('install.sh sets config.json\'s owner and mode only through ownNoFollow, ne
   assert.doesNotMatch(sh, /chown[^\n]*\/etc\/rpi-alert\/config\.json/);
   assert.match(sh, /ownNoFollow\(/);
 });
+
+// ── the settings file where there is no boot partition (0.24) ────────────────
+// /etc/rpi-alert.conf: root's own, beside the agent's directory and never in
+// it — it can give the alert account a key, and the agent could put a file in
+// a directory of its own.
+
+function importer(conf) {
+  const dir = tmp();
+  const etc = path.join(dir, 'etc'), mine = path.join(etc, 'rpi-alert'), bootDir = path.join(dir, 'boot');
+  fs.mkdirSync(mine, { recursive: true }); fs.mkdirSync(bootDir);
+  const file = path.join(etc, 'rpi-alert.conf');
+  if (conf != null) fs.writeFileSync(file, conf, { mode: 0o600 });
+  const env = Object.assign({}, process.env, { RPI_ALERT_CONFIG: path.join(mine, 'config.json'), RPI_ALERT_ETC_CONF: file, RPI_ALERT_BOOT_DIRS: bootDir, RPI_ALERT_DATA: path.join(dir, 'data') });
+  const run = () => require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'rpi-alert'), 'import-boot-config'], { env, encoding: 'utf8' });
+  const settings = () => JSON.parse(fs.readFileSync(path.join(mine, 'config.json'), 'utf8'));
+  return { dir, etc, mine, bootDir, file, run, settings };
+}
+
+test('settings file: /etc/rpi-alert.conf is applied where no boot partition holds one', () => {
+  const i = importer('name = Council depot\nweb_bind = 127.0.0.1\nweb_require_login = all\nhotspot = off\nself_recovery = off\nremote_management = report\nweb_password = hunter2hunter2\n');
+  const r = i.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /applying .*etc\/rpi-alert\.conf/);
+  assert.match(r.stdout, /settings changed: .*web\.bind/);
+  const c = i.settings();
+  assert.deepEqual([c.name, c.web.bind, c.web.requireLogin, c.hotspot.mode, c.recover.mode, c.remote.mode], ['Council depot', '127.0.0.1', 'all', 'off', 'off', 'report']);
+  // As on a card: applied once, and the secrets blanked in what is left of it.
+  assert.equal(fs.existsSync(i.file), false);
+  const applied = fs.readFileSync(i.file + '.applied', 'utf8');
+  assert.match(applied, /^# Applied .* — see journalctl -u rpi-alert-boot-config\n/);
+  assert.match(applied, /web_password = \(applied — removed from this file\)/);
+  assert.ok(!applied.includes('hunter2'));
+  assert.equal(fs.statSync(i.file + '.applied').mode & 0o777, 0o600, 'root\'s eyes only');
+  // What happened is in the journal, where it was printed: nothing else is left in /etc.
+  assert.deepEqual(fs.readdirSync(i.etc).sort(), ['rpi-alert', 'rpi-alert.conf.applied']);
+  // Nothing there: nothing happens, and it says where it looked.
+  const again = i.run();
+  assert.equal(again.status, 0);
+  assert.match(again.stdout, /no rpi-alert\.conf on the boot partition or at .*rpi-alert\.conf — nothing to apply/);
+});
+
+test('settings file: a boot partition\'s file comes first, and is applied as it always was', () => {
+  const i = importer('name = From etc\n');
+  fs.writeFileSync(path.join(i.bootDir, 'rpi-alert.conf'), 'name = From the card\r\nweb_password = hunter2hunter2\r\n');
+  assert.equal(i.run().status, 0);
+  assert.equal(i.settings().name, 'From the card');
+  assert.match(fs.readFileSync(path.join(i.bootDir, 'rpi-alert.conf.applied'), 'utf8'), /^# Applied .* — see rpi-alert-boot\.log\n[^]*web_password = \(applied — removed from the card\)/);
+  assert.match(fs.readFileSync(path.join(i.bootDir, 'rpi-alert-boot.log'), 'utf8'), /settings changed: name, web password\r\n/);
+  assert.ok(fs.existsSync(i.file), 'the other waits for a boot with no card file');
+  assert.equal(i.run().status, 0);
+  assert.equal(i.settings().name, 'From etc');
+});
+
+test('settings file: /etc/rpi-alert.conf is applied only when it is root\'s own and nobody else can write it', () => {
+  const key = 'ssh_key = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPlanted somebody\nname = Planted\n';
+  const refused = (i, why) => {
+    const r = i.run();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, why);
+    assert.match(r.stdout, /not applied/);
+    assert.equal(fs.existsSync(path.join(i.mine, 'config.json')), false, 'nothing was set');
+    assert.equal(fs.existsSync(i.file + '.applied'), false);
+    assert.ok(fs.lstatSync(i.file), 'and it is left where it was, for its owner to see');
+  };
+  // Anybody in its group, or anybody at all, may write it: what it says could be theirs.
+  for (const mode of [0o660, 0o606, 0o666, 0o622]) {
+    const i = importer(key);
+    fs.chmodSync(i.file, mode);
+    refused(i, /can be written by others than its owner \(mode \d+\).*sudo chmod 600/);
+  }
+  // A link to a file somewhere else: not followed.
+  const linked = importer(null);
+  const target = path.join(linked.dir, 'elsewhere.conf');
+  fs.writeFileSync(target, key, { mode: 0o600 });
+  fs.symlinkSync(target, linked.file);
+  refused(linked, /rpi-alert\.conf is a link/);
+  // Not a file at all.
+  const folder = importer(null);
+  fs.mkdirSync(folder.file);
+  refused(folder, /is not a plain file/);
+  // Another user's file (as root only: nobody else can give a file away).
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    const theirs = importer(key);
+    fs.chownSync(theirs.file, 65534, 65534);
+    refused(theirs, /is not root's file \(its owner is user 65534\).*sudo chown root:root/);
+  }
+  // Root's own, readable by all but written by root alone (0644, as a file in /etc often is): applied.
+  const ok = importer('name = Council depot\n');
+  fs.chmodSync(ok.file, 0o644);
+  assert.equal(ok.run().status, 0);
+  assert.equal(ok.settings().name, 'Council depot');
+});
+
+test('settings file: one in the agent\'s own directory is never applied', () => {
+  // Whatever it is — root's file moved there, a link, the agent's own: that directory is not looked in.
+  const i = importer(null);
+  fs.writeFileSync(path.join(i.mine, 'rpi-alert.conf'), 'ssh_key = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPlanted attacker\nname = Planted\n');
+  const r = i.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /nothing to apply/);
+  assert.equal(fs.existsSync(path.join(i.mine, 'config.json')), false);
+  assert.ok(fs.existsSync(path.join(i.mine, 'rpi-alert.conf')), 'and it is left where it was');
+  // The systemd unit that runs this at boot looks where the code looks, and nowhere in that directory.
+  const unit = fs.readFileSync(path.join(__dirname, '..', '..', 'os', 'files', 'systemd', 'rpi-alert-boot-config.service'), 'utf8');
+  assert.match(unit, /^ConditionPathExists=\|\/etc\/rpi-alert\.conf$/m);
+  assert.doesNotMatch(unit, /^ConditionPathExists=.*\/etc\/rpi-alert\//m);
+  assert.equal(require('../lib/bootconf').ETC_CONF, process.env.RPI_ALERT_ETC_CONF || '/etc/rpi-alert.conf');
+});

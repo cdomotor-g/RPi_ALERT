@@ -9,6 +9,8 @@ ConditionPathExists=|/boot/firmware/rpi-alert.conf
 ConditionPathExists=|/boot/firmware/rpi-alert.txt
 ConditionPathExists=|/boot/firmware/rpi-alert.conf.txt
 ConditionPathExists=|/boot/rpi-alert.conf
+# A computer with no boot partition: the same file, root's own, in /etc.
+ConditionPathExists=|/etc/rpi-alert.conf
 
 [Service]
 Type=oneshot

@@ -60,7 +60,8 @@
 //   rpi-alert log [n]                the agent's recent log (journalctl -u rpi-alert for all of it)
 //   rpi-alert test-audio [alert|alert2|beep]
 //   rpi-alert send-now               retry MegaNet now (skip any back-off)
-//   rpi-alert import-boot-config     apply /boot/firmware/rpi-alert.conf (root; done at every boot)
+//   rpi-alert import-boot-config     apply /boot/firmware/rpi-alert.conf — off a Pi, /etc/rpi-alert.conf
+//                                    (root; done at every boot)
 //   rpi-alert version
 //
 // Everything but `daemon`, `import-boot-config` and the SSH keys of `sudo
