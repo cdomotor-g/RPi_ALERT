@@ -452,6 +452,10 @@ month later could still lock an address out for half an hour.) There is no limit
 somebody with many addresses gets four tries from each, held back only by the work of checking a
 password (scrypt). The counts are in memory, for the 5,000 addresses counted most recently. The
 password itself is 6 characters or more — ten letters and digits, when the agent made it.
+The lock-out slows guessing; it does not stop slow guessing for ever. With the lock capped at 15
+minutes, one address can still try about a hundred passwords a day — about 3,000 a month. The
+password the agent makes is safe against that; one chosen by hand should be long (four or more
+unrelated words, or 12 characters or more), never a word or a name.
 Callers who share one address share its lock-out: an office behind one address, or a proxy that
 does not say whom it forwards for — one of them guessing keeps the others out, the right password
 included, for as long as the guessing goes on. The `rpi-alert` command on the base station is never
@@ -467,18 +471,28 @@ starts (`settings file has problems …`, `settings file is not valid JSON …`)
   another spelling with the right one absent (`require_login`, `behindproxy`): that setting is the
   cautious value. Any other key under `web` that the agent does not know is named in the log and
   ignored.
-- `"web": "off"`, or anything else where the group of settings in `{ }` belongs: all three are the
+- `"web": "off"`, `"web": null`, or anything else where the group of settings in `{ }` belongs: all three are the
   cautious values. (The same slip in another group — `"meganet": "off"` — costs that group its
   settings and leaves the rest of the file alone.)
 - A file that cannot be read as JSON at all — a comma too many, a comment, half a file: every
   setting starts from as it comes, as before 0.24 (the token and the password are lost with it; the
   file is kept as `config.json.bad`), **except** those of the three that the file's text shows it
-  set to something other than as it comes. A file that never set them leaves them as they come.
+  set to something other than as it comes. The agent reads that from the text alone, so it errs
+  towards closing: a setting's name with any value but as it comes — even one that only appears
+  inside another setting's text — counts as set.
 - A file that is there and cannot be opened (a link, another user's file): all three are the
   cautious values, since what it set cannot be known.
 
 A setting that is not there at all is as it comes. The cautious values keep the dashboard on the
-computer itself until the file is put right: `rpi-alert` over SSH still reaches it.
+computer itself: `rpi-alert` over SSH still reaches it. They are **written into `config.json`**
+the next time the agent saves it, so putting the slip right is not enough to open the dashboard
+again — set each of the three back by hand once the file is right, if that is what you want:
+
+```
+rpi-alert config set web.bind ''                  then: sudo systemctl restart rpi-alert
+rpi-alert config set web.behindProxy false
+rpi-alert config set web.requireLogin settings
+```
 
 ## The command line
 
