@@ -20,6 +20,38 @@ receivers. For sites with dirty power, a UPS HAT keeps the Pi up through brownou
 only when it is non-empty, the journal capped at 64 MB). An industrial or high-endurance card is
 worth it for a remote site.
 
+## Computers that are not a Raspberry Pi
+
+The agent itself runs on any Debian or Ubuntu computer with Node.js 18.17 or newer — Debian 12 and
+13, Ubuntu 24.04 (Ubuntu 22.04's own Node.js is too old) — an ordinary 64-bit PC or an ARM board.
+It is plain JavaScript with no compiled parts and no npm packages, its whole test suite passes on a
+PC (Ubuntu 24.04, Node.js 18 and 22), and what only a Pi has — the under-voltage warning, the
+board's name, a Pi 5's clock battery — is simply left out where it is not there. What is written
+for a Pi is what goes round the agent: the SD-card images, and `os/install.sh`, which is made for
+Raspberry Pi OS (it makes the `alert` account, caps the system's journal, and counts on
+NetworkManager for Wi-Fi and the hotspot) and has not been run on anything else. So the supported
+way to install RPi ALERT on another computer is
+[open-ALERT](https://github.com/cdomotor-g/open-ALERT)'s firmware layer, which takes a signed
+RPi ALERT release unchanged and puts its own service round it; that layer's own notes say what it
+has been tried on. From 0.24 the agent has what that needs of it: it joins a Wi-Fi network on
+whichever Wi-Fi device NetworkManager lists, not on the Pi's by name, reads its settings file from
+`/etc/rpi-alert.conf` where there is no boot partition, trusts the clock where systemd does not run the computer (a container), and has the
+dashboard's settings for an organisation's network
+([configuration.md](configuration.md#the-dashboard-on-a-managed-network)). **Not yet tried:** a
+real RTL-SDR stick on a computer that is not a Pi, and any ARM board that is not one.
+
+One thing to set on such a computer. The agent takes any request that comes from the computer's
+own address for the base station itself — its screen, or the `rpi-alert` command — and lets it
+change the settings with no password. On a Pi, whose only browser shows the dashboard, that is
+right. On a computer where somebody browses the web it is not: a web page in that browser can
+point a name of its own at the computer's own address and be taken for the base station. So on a
+PC, **turn `web.behindProxy` on**, with or without a proxy
+(`rpi-alert config set web.behindProxy true`, or `web_behind_proxy = yes` in
+`/etc/rpi-alert.conf`): the agent then lets in only a request that asks for the computer by its own
+name (`localhost`, `127.0.0.1`), from a page of that name. It is off as it comes, as on every
+RPi ALERT before 0.24; while it is off, the agent's log says when it lets in a request that asked
+for a name the computer does not go by.
+
 ## RTL-SDR sticks
 
 Any RTL2832U stick works through `librtlsdr`'s `rtl_sdr`; the agent decodes the IQ with MegaNet's

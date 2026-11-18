@@ -9,6 +9,9 @@
 # The flasher page writes this file for you:
 #   https://cdomotor-g.github.io/RPi_ALERT/
 #
+# On a computer with no such partition (not a Raspberry Pi), the same file is
+# /etc/rpi-alert.conf, put there as root.
+#
 # Lines starting with # are ignored. Everything can also be set later on the
 # Pi's web page (http://rpi-alert.local/) or with `rpi-alert setup` over SSH.
 
@@ -76,6 +79,28 @@ request_token = yes
 
 # ── Web page password (stored hashed; removed from the card) ───────────────
 #web_password = choose-something
+
+# ── The web page on an organisation's network ───────────────────────────────
+# Each is as before until it is set, and none can be changed from another
+# computer's browser. docs/configuration.md, "The dashboard on a managed
+# network", has what each does. They exist from RPi ALERT 0.24: an earlier
+# version, if one is ever put back by hand, ignores all four.
+# The address the web page listens on. 127.0.0.1: this computer only — off the
+# network; `rpi-alert` over SSH still reaches it. all: every address, as when
+# this line is absent.
+#web_bind = 127.0.0.1
+# More names the web page answers to: the one your DNS gives this base station.
+#web_hosts = bs01.council.example
+# yes: a reverse proxy on this computer publishes the web page over HTTPS. It
+# must add X-Forwarded-For to every request it passes on, and pass the
+# browser's Host on unchanged. A proxy that adds no such header lets anybody
+# who asks it for "localhost" in as the base station itself: check it from
+# another computer, as docs/configuration.md says, before relying on it.
+# Also yes, with no proxy at all, on a computer where somebody browses the web.
+#web_behind_proxy = yes
+# all: nothing is shown without the web page password. settings (as when this
+# line is absent): looking needs none, the settings do.
+#web_require_login = all
 
 # ── Getting in later: SSH ───────────────────────────────────────────────────
 # Every RPi ALERT has the maintenance account "alert": no password, SSH keys

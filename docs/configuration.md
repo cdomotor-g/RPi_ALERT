@@ -7,7 +7,7 @@ mode 0600 because it holds the ingest token):
 |---|---|
 | **The web page** — `http://rpi-alert.local/` or the Pi's own screen | everyone; every setting is there |
 | **`rpi-alert` over SSH** (PuTTY on Windows) | headless, scripted |
-| **`rpi-alert.conf`** on the SD card's boot partition | setting a card up before the Pi ever boots |
+| **`rpi-alert.conf`** on the SD card's boot partition (on a computer with none: `/etc/rpi-alert.conf`) | setting a card up before the Pi ever boots |
 | editing `config.json` | not needed; the others validate what they are given |
 
 ## The web page
@@ -235,7 +235,250 @@ administrator signed in to MegaNet anywhere approves the request on MegaNet's **
 itself) always may. From other computers: anyone, until a web password is set — the page says so
 in a banner — then only someone who has logged in. The ingest token is never sent back out, to
 anyone; the page shows `mgn_ab…wxyz`. Where a receiver is (it may be someone's house) is hidden
-from visitors who are not logged in.
+from visitors who are not logged in. Four settings narrow this for a base station on an
+organisation's network: the next section.
+
+"The Pi itself" means any request that comes from the computer's own address (`127.0.0.1`). That
+is right for a Pi whose only browser is its own screen. **On a computer where somebody browses the
+web, or where a proxy of any kind runs, turn `web.behindProxy` on** (next section), even with no
+proxy in front: as it comes, a web page in a browser on that computer whose name has been pointed
+at `127.0.0.1` is taken for the base station itself and can change its settings, and so is every
+caller of a proxy that does not send `X-Forwarded-For`. Where the agent can tell such a request
+from its own — it asks for a name the base station does not go by, or carries another of a proxy's
+headers — it says so in the log (`was taken for the base station itself … turn it on`); it cannot
+always tell.
+
+## The dashboard on a managed network
+
+Four settings (0.24) for a base station on an organisation's own network — a council's, an
+agency's — where somebody whose job it is asks what listens, who is let in and what is on record.
+Each is as it was before 0.24 until it is set. Each is set **on the base station itself** — in
+`rpi-alert.conf`, with `rpi-alert config set` over SSH, or in `config.json` — never from another
+computer's browser, even logged in, and never from Flood-Net: a login from the network must not be
+a way to open what the owner closed.
+
+**Two limits, before anything else.**
+
+- **`web.behindProxy` rests on the proxy doing its part.** The agent treats what a reverse proxy
+  passes on as a visitor's only when the proxy adds `X-Forwarded-For` to every request. A proxy
+  that adds no such header lets anybody who asks it for `localhost` in as the base station itself —
+  the settings, the password, a reboot. The agent cannot see this from where it sits. After
+  setting it up, run the check under [What the proxy has to do](#what-the-proxy-has-to-do), from
+  another computer.
+- **These four settings exist only from 0.24.** An earlier version ignores them: if a base
+  station is put back to 0.23 or older by hand, the dashboard is again on every address, with
+  nothing asked before it is read, and a proxy's callers are taken for the base station itself.
+  The updater's own way back after a failed update only ever returns to the version that was
+  running, so it cannot take a base station that runs 0.24 back past it.
+
+| Setting | In `rpi-alert.conf` | As it comes | Set |
+|---|---|---|---|
+| `web.bind` | `web_bind = 127.0.0.1` | empty: every address the computer has | the dashboard answers on that one address, and to the computer itself |
+| `web.hosts` | `web_hosts = bs01.council.example` | none | the dashboard also answers to these names |
+| `web.behindProxy` | `web_behind_proxy = yes` | `false` | a reverse proxy on the same computer publishes the dashboard: what it passes on is never taken for the base station itself |
+| `web.requireLogin` | `web_require_login = all` | `settings` | `all`: nothing is read without a login |
+
+```
+rpi-alert config set web.bind 127.0.0.1          then: sudo systemctl restart rpi-alert
+rpi-alert config set web.hosts bs01.council.example      several with commas between; none for none
+rpi-alert config set web.behindProxy true
+rpi-alert config set web.requireLogin all
+```
+
+`web.bind` is taken when the agent starts; the other three hold from the next request.
+
+**Where it listens (`web.bind`).** Left empty, the dashboard answers on every address the computer
+has, as before. Given an address, it answers on that address and on `127.0.0.1` — where the
+`rpi-alert` command, the Pi's own screen and the updater ask — and nowhere else, so
+`web.bind = 127.0.0.1` keeps it off the network altogether. It is one address, as numbers (IPv4 or
+IPv6; never `0.0.0.0` or `::`, which mean every address). An address the computer does not have — not yet, because the network has not given it, or
+ever, because it was mistyped — does not stop the agent receiving and sending. The dashboard is
+then on `127.0.0.1` alone, the log
+says so (`cannot listen on http://10.0.0.5/ (EADDRNOTAVAIL: this machine does not have that
+address) — the dashboard is on this machine only (127.0.0.1) until it can`), and the agent asks for
+the address again every 30 seconds and takes it when it is there. It never falls back to every
+address. To open a dashboard that is on `127.0.0.1` alone from your own computer, go through SSH:
+`ssh -L 8080:127.0.0.1:80 alert@<base station>`, then `http://localhost:8080/` (whoever has a shell
+on the base station is let in without the password, as on its own screen) — or publish it with a
+reverse proxy, below.
+
+**The names it answers to (`web.hosts`).** The dashboard refuses a request for a name it does not
+know (`unrecognised Host header`), so that a web page somewhere else cannot point a name of its own
+at the base station and read it through your browser. It knows its addresses, `localhost`, any
+`.local` name and the computer's own host name. `web.hosts` adds up to 16 more: the name your DNS
+gives it. Whole names, no wildcards.
+
+**Behind a reverse proxy (`web.behindProxy`).** The dashboard is plain HTTP. For HTTPS with your
+organisation's certificate, put a reverse proxy on the same computer, set `web.bind = 127.0.0.1` so
+that the proxy is the only way in from the network, and turn this on. It matters because the agent
+takes a request from the computer's own address (`127.0.0.1`, `::1`) for the base station itself —
+its screen, or the `rpi-alert` command — and lets it in with no password; and through a proxy on
+the same computer, every caller arrives from that address. With `web.behindProxy` on:
+
+- A request that carries `X-Forwarded-For`, `Forwarded`, `X-Real-IP` or any other header a proxy
+  adds (`Via`, `X-Forwarded-Proto`, `X-Forwarded-Host`, …) is never the base station itself —
+  whatever the header says, however it is spelt, empty or sent twice — and neither is anything
+  that follows it on the same connection.
+- The caller's address — in the log, and for the limits on logins and live streams — is the last
+  one in `X-Forwarded-For`: the one the proxy itself saw. That header is believed only because the
+  request came from the computer's own address; sent straight from the network it is ignored.
+- When the proxy says the caller came over HTTPS (`X-Forwarded-Proto: https`), the login's cookie
+  is marked `Secure`.
+- A request from the computer's own address with none of those headers is still the base station
+  itself — that is how `rpi-alert` and the updater ask — as long as it asks for `127.0.0.1`,
+  `localhost` or `::1` by name, in HTTP/1.1, and, when a browser sent it, from a page of that name.
+  Every program and every user on the computer itself can send that, as before: who has a shell
+  there has the base station anyway.
+- A request with more than 64 header lines is never the base station itself, with this setting on
+  or off: the `rpi-alert` command sends about seven and a browser about twenty. (Node.js 18 and 20
+  read only the first thousand or so header lines of a request, so a caller who sent that many
+  could push the header a proxy adds after them out of sight; the agent now reads them all, and
+  this rule holds whatever Node.js does.)
+
+<a id="what-the-proxy-has-to-do"></a>What the proxy has to do — **the agent cannot do this part
+for it**:
+
+1. **Add `X-Forwarded-For` to every request it passes on**, on every route, the live stream
+   (`/api/events`) included. A proxy that adds nothing sends, for a caller who asks it for
+   `localhost`, exactly what the `rpi-alert` command sends, and that caller is let in as the base
+   station itself. The agent catches what it can of this — a request for another name, one a
+   browser sent from a page of another name, one in HTTP/1.0 — treats it as a visitor's and says so
+   in the log (`carried none of a reverse proxy's headers … Treated as a visitor`), but somebody who
+   sets out to can get past all three.
+2. **Pass the browser's `Host` on unchanged**, and list that name in `web.hosts`. A change is only
+   accepted from the page it came from: the `Origin` the browser sends must match the `Host` the
+   agent sees, so a proxy that puts its own target in `Host` gets `cross-site request refused` on
+   every login.
+3. **Connect to `127.0.0.1` (or `::1`) on the same computer.** From anywhere else — another
+   computer, a container with an address of its own — its callers are all visitors, which is safe,
+   but `X-Forwarded-For` is not believed, so they share one address: one lock-out, and one
+   allowance of live streams, between them.
+4. Send `X-Forwarded-Proto`, so that the cookie is `Secure`; and leave `/api/events` unbuffered
+   (the agent asks nginx for that itself, with `X-Accel-Buffering: no`).
+
+Tried against the agent on 11 and 18 November 2026 (Ubuntu 24.04's packages), and nginx in the
+tests where it is installed:
+
+- **nginx 1.24** adds no such header unless told to, and puts its own target in `Host`. As it
+  comes, its callers are visitors only because it also speaks HTTP/1.0 to the agent — do not rely
+  on that. Its three lines:
+
+  ```nginx
+  location / {
+      proxy_pass http://127.0.0.1:8080;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  ```
+
+  A `location` with a `proxy_set_header` of its own drops the ones set outside it: repeat all three
+  in each. One that did not (`/api/events`, passed on in HTTP/1.1) gave the live stream to anybody.
+- **Caddy 2.6** does all of it as it comes: `reverse_proxy 127.0.0.1:8080`. It puts its headers
+  after the caller's own, which is where the thousand header lines above came in: against a 0.24
+  agent on Node.js 18, 1,100 of them from another computer are answered `log in first`, and a wrong
+  password sent that way is logged with the caller's own address.
+- **HAProxy 2.8** passes `Host` on but adds no header unless told to: `option forwardfor`, and
+  `http-request set-header X-Forwarded-Proto https`. Without them, a caller who asked for
+  `localhost` was let in as the base station itself.
+
+Then check it, from another computer: `curl -s https://bs01.council.example/api/status` must say
+`"local":false` (or, with a login for everything, `log in first`), and none of these three may
+show the settings — the agent's answer is `log in first`; to the second and third the proxy may
+give one of its own:
+
+```
+curl -s https://bs01.council.example/api/config
+curl -s -H 'Host: localhost' https://bs01.council.example/api/config
+curl -s -H 'Host: localhost' $(printf -- '-H D:x %.0s' $(seq 1100)) https://bs01.council.example/api/config
+```
+
+(The third sends 1,100 header lines first.) The agent says the second of these in its own log when
+the setting is turned on, and `rpi-alert config set web.behindProxy true` prints it. If the proxy
+answers on port 80 itself, move the agent off it: `rpi-alert config set web.port 8080`.
+
+**A login for everything (`web.requireLogin`).** `settings`, as before: looking needs no password —
+the status (without where the base station is, or its addresses), the readings, the graphs, the
+live stream and the station search answer anyone — and the settings need one. `all`: none of them
+answers without a login (`401`, `log in first`), nor does any other route; only the page itself,
+which is the same in every copy of RPi ALERT and holds no data, and the login are served, and the
+page asks for the password before it shows anything. The `rpi-alert` command and the Pi's own
+screen still need none. A live stream lasts as long as the login it was opened with: logged out, a
+new password, or seven days, and it ends. With no password set there is no login to give, so nobody
+is let in from another computer (the agent makes a password the first time it starts, shown by
+`rpi-alert status`).
+
+**Logins on record.** Every login attempt is a line in the agent's log, as a warning — in
+`journalctl -u rpi-alert`, on the Log tab and in the log Flood-Net can ask for — with the caller's
+address and never anything that was typed. So is a change of the password, and the login that is
+handed out with the new one:
+
+```
+WARN  [web] login accepted from 10.20.0.15
+WARN  [web] login refused from 10.20.0.15: wrong password (1 in a row)
+WARN  [web] login refused from 10.20.0.15: wrong password (5 in a row; locked out for 30 s)
+WARN  [web] login refused from 10.20.0.15: locked out for another 27 s after 5 wrong passwords — not checked
+WARN  [web] login refused from 10.20.0.15: 12 more tries while locked out — not checked
+WARN  [web] login accepted from 203.0.113.7 (through the proxy)
+WARN  [web] login refused from 10.20.0.15: cross-site request — the password was not looked at
+WARN  [web] login refused from 10.20.0.15: unrecognised Host header — the password was not looked at
+WARN  [web] login refused from 10.20.0.15: a request that could not be read (bad JSON) — the password was not looked at
+WARN  [web] login refused: 40 more tries in the last minute with cross-site request, from 10.20.0.15, 10.20.0.16 — not looked at
+WARN  [web] password changed from 10.20.0.15
+WARN  [web] login accepted from 10.20.0.15 (new password)
+WARN  [web] password removed from 127.0.0.1
+```
+
+The three "not looked at" lines are login attempts the agent refuses before it reads a password:
+one sent from another site's page, one that asks for a name the base station does not go by, and
+one whose content cannot be read. Something sent as a password that is not text is a wrong
+password, counted like any other.
+
+Two kinds of line stand for several, so that nobody can fill the log and push the lines that
+matter out of it: a locked-out address's tries, and the attempts refused unread — the first is a
+line, the rest of that minute a count (with the first few addresses they came from). A request
+that cannot be read at all — a broken address or cookie — is answered `400` and is no line; and if
+a request makes the agent itself stumble, the first is logged in full and the rest of that minute
+as a count. The agent sends its log nowhere by itself: forwarding the journal to your own collector
+is the operating system's job (`systemd-journal-upload`, rsyslog).
+
+**How wrong passwords are limited.** By address, and only so: the first four wrong passwords from
+an address cost nothing; from the fifth, each locks that address out for 30 seconds longer than the
+one before (30 s, 60 s, 90 s, …) up to 15 minutes, during which nothing from it is checked — the
+right password is refused too. A right password from that address clears its count; so does an
+hour with no wrong password from it and no lock on it, and a restart of the agent. (Before 0.24
+the lock grew without end and a count was kept until the agent restarted, so one wrong password a
+month later could still lock an address out for half an hour.) There is no limit across addresses:
+somebody with many addresses gets four tries from each, held back only by the work of checking a
+password (scrypt). The counts are in memory, for the 5,000 addresses counted most recently. The
+password itself is 6 characters or more — ten letters and digits, when the agent made it.
+Callers who share one address share its lock-out: an office behind one address, or a proxy that
+does not say whom it forwards for — one of them guessing keeps the others out, the right password
+included, for as long as the guessing goes on. The `rpi-alert` command on the base station is never
+locked out. On a network where that is not enough, keep the dashboard off it (`web.bind`) or put it
+behind a proxy that limits requests itself.
+
+**A setting that cannot be read.** A slip in `config.json` must not open what it was written to
+close, so for `web.bind`, `web.behindProxy` and `web.requireLogin` the agent takes the cautious
+value (`127.0.0.1`, `true`, `all`) where it cannot read what was meant, and its log says so when it
+starts (`settings file has problems …`, `settings file is not valid JSON …`):
+
+- A value that makes no sense — an address mistyped, `"yes"` for `true` — or the setting under
+  another spelling with the right one absent (`require_login`, `behindproxy`): that setting is the
+  cautious value. Any other key under `web` that the agent does not know is named in the log and
+  ignored.
+- `"web": "off"`, or anything else where the group of settings in `{ }` belongs: all three are the
+  cautious values. (The same slip in another group — `"meganet": "off"` — costs that group its
+  settings and leaves the rest of the file alone.)
+- A file that cannot be read as JSON at all — a comma too many, a comment, half a file: every
+  setting starts from as it comes, as before 0.24 (the token and the password are lost with it; the
+  file is kept as `config.json.bad`), **except** those of the three that the file's text shows it
+  set to something other than as it comes. A file that never set them leaves them as they come.
+- A file that is there and cannot be opened (a link, another user's file): all three are the
+  cautious values, since what it set cannot be known.
+
+A setting that is not there at all is as it comes. The cautious values keep the dashboard on the
+computer itself until the file is put right: `rpi-alert` over SSH still reaches it.
 
 ## The command line
 
@@ -248,6 +491,7 @@ rpi-alert request-token          ask MegaNet for the token: a code and a QR code
 rpi-alert token [mgn_…]          check a token against MegaNet and save it
 rpi-alert config get [key]       e.g. rpi-alert config get receivers.sdr
 rpi-alert config set key value   e.g. rpi-alert config set receivers.sdr.freqHz 151525000
+                                 (web.bind, web.hosts, web.behindProxy, web.requireLogin: above)
 rpi-alert sdr                    the RTL-SDR sticks: number, name, channels, USB port, state
 rpi-alert sdr 1                  one stick: where it is tuned, and each channel with its receiver id
 rpi-alert sdr 2 freq 151.525     one stick's own setting: freq (the channels it hears, MHz), format, gain (dB or auto),
@@ -277,6 +521,18 @@ sudo systemctl restart rpi-alert
 renamed `rpi-alert.conf.applied` with secrets blanked; results in `rpi-alert-boot.log`.
 Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.conf.example).
 
+**A computer with no boot partition** (0.24) — one that is not a Raspberry Pi — reads the same
+file from **`/etc/rpi-alert.conf`**, when no boot partition holds one: at boot, or at once with
+`sudo rpi-alert import-boot-config`. It is root's file, in `/etc` beside the agent's folder
+`/etc/rpi-alert` and not in it, because it is applied as root and can give the `alert` account a
+key or a password, and the agent — the part that faces the network — can write in its own folder:
+a file there is never applied. Put it there as root (`sudo install -m 600 my-settings
+/etc/rpi-alert.conf`): it is applied only when it is a plain file that belongs to root and that
+nobody else can write — not a link, not another user's, not writable by its group or by everybody
+— and otherwise left where it is, with the reason in the journal. Once applied it becomes
+`/etc/rpi-alert.conf.applied` (root's, secrets blanked); what happened is in
+`journalctl -u rpi-alert-boot-config`.
+
 | Key | Value | Setting |
 |---|---|---|
 | `token` | `mgn_…` | `meganet.token` |
@@ -301,6 +557,10 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `audio_device`, `audio_volume` | ALSA name; 0–100 | `audio.*` |
 | `kiosk` | auto / on / off | `kiosk.mode` |
 | `web_password` | text | stored hashed (scrypt) |
+| `web_bind` | an address, `localhost`, or `all` | `web.bind` (0.24): the address the dashboard listens on — [on a managed network](#the-dashboard-on-a-managed-network) |
+| `web_hosts` | names, or none | `web.hosts`: more names the dashboard answers to |
+| `web_behind_proxy` | yes / no | `web.behindProxy`: a reverse proxy on the same computer publishes the dashboard |
+| `web_require_login` | all / settings | `web.requireLogin`: `all` — nothing is read without a login |
 | `meganet`, `send_receptions` | yes / no | `meganet.enabled`, `meganet.receptions` |
 | `timezone` | e.g. Australia/Brisbane | system time zone |
 | `hostname` | e.g. mt-stuart-base | system hostname (after a reboot) |
@@ -355,6 +615,10 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 | `receivers.sdrDevices[]` | — | Each stick's own settings: `{ key, name, enabled, freqHz, format, moreChannels, sampleRate, sampleRateMin, sampleRateMax, gainDb, ppm, biasTee, squelchDb }`, `key` being the stick's as the Receivers page and `rpi-alert sdr` show it (`sdr-serial:00000001`, `sdr-port:1-1.4`); a setting left out is the shared one (`moreChannels: []` is none). A stick given a `freqHz` of its own while on MegaNet's channels keeps them around it, as above (a stick on 162 MHz: none fit, so that channel alone). Entries 0.4 wrote by `{ serial }` alone still apply, to every stick with that serial |
 | `audio.enabled`, `audio.mode`, `audio.device`, `audio.volume` | true, auto, default, 80 | The chirps |
 | `web.port` | 80 | The dashboard (8080 if 80 is refused) |
+| `web.bind` | empty | 0.24: the one address the dashboard listens on, beside `127.0.0.1`; empty is every address. Taken when the agent starts. [On a managed network](#the-dashboard-on-a-managed-network), as the three below |
+| `web.hosts` | `[]` | Up to 16 more names the dashboard answers to, beside its addresses, `localhost`, `.local` names and the host name |
+| `web.behindProxy` | false | A reverse proxy on the same computer publishes the dashboard: a request it passed on is never the base station itself, and its caller's address is the one the proxy saw |
+| `web.requireLogin` | `settings` | `settings`: looking needs no login, the settings do. `all`: nothing is read without one |
 | `kiosk.mode` | auto | auto: full-screen dashboard while a monitor is connected and the Pi has ≥ 900 MB |
 | `system.timezone` | — | Set from the page; an ERT-A2's ALERT2 frame times are local (off the air they are UTC) |
 | `remote.mode` | manage | manage · report · off — what MegaNet's Base Stations tab may do. Set only on the Pi: MegaNet cannot change it |
@@ -366,4 +630,5 @@ Example with every key: [os/boot/rpi-alert.conf.example](../os/boot/rpi-alert.co
 
 Environment variables (for development and tests): `RPI_ALERT_CONFIG`, `RPI_ALERT_DATA`,
 `RPI_ALERT_DEV`, `RPI_ALERT_SYSFS`, `RPI_ALERT_PRIV`, `RPI_ALERT_ASSUME_CLOCK=1`,
-`RPI_ALERT_LOG_LEVEL=debug`, `RPI_ALERT_PORT` (the CLI).
+`RPI_ALERT_LOG_LEVEL=debug`, `RPI_ALERT_PORT` (the CLI), `RPI_ALERT_BOOT_DIRS` and
+`RPI_ALERT_ETC_CONF` (where `rpi-alert.conf` is looked for).

@@ -37,6 +37,7 @@ itself after an unplug or a power cut.
 | **Screen, keyboard, mouse** | Plug in a monitor and the dashboard comes up full screen (cage + Chromium); unplug it and the kiosk stops. Everything is settable from it: *Show the settings*, at its foot, unfolds them. |
 | **No network at all** | Its own Wi-Fi network comes up after three minutes with none — join **RPi-ALERT-…** from a phone and open `http://10.42.0.1/` — and gives way the moment Ethernet or a known Wi-Fi network is there. |
 | **Headless** | The same dashboard on `http://rpi-alert.local/` from any computer on the network, `rpi-alert setup` / `status` / `top` over SSH (PuTTY), or an `rpi-alert.conf` file dropped on the SD card's boot partition. |
+| **On an organisation's network** | Four settings (0.24) for a base station on a council's or an agency's own network, each as before until it is set, and each set only on the base station itself: the dashboard kept to one address or off the network (`web.bind`), answering to the name your DNS gives it (`web.hosts`), behind a reverse proxy that gives it HTTPS (`web.behindProxy`), and asking for a login before anything is read (`web.requireLogin`). Every login attempt, accepted or refused, and every change of the password is a line in the log with the caller's address. [docs/configuration.md](docs/configuration.md#the-dashboard-on-a-managed-network) |
 | **Managed from MegaNet** | Checks in with MegaNet's **Base Stations** tab once a minute — MegaNet never connects to it — so its health is on one list with every other base station, and an administrator can change its settings, restart it, install updates and read its log from there — and see a waterfall of what its sticks hear, from a spectrum row a stick sent with each check-in. Never the token, where readings go, the web password or SSH keys; `report` or `off` on the Pi narrows or ends it. [docs/remote-management.md](docs/remote-management.md) |
 | **Getting in, years later** | The same maintenance account on every Pi, **`alert`**, with no password: SSH keys only, each a person's, listed on the Pi — from the SD card, a team's GitHub accounts, or MegaNet's team keys. Nobody leaves with the only password. Locked out? `alert_password` on the SD card. [docs/access.md](docs/access.md) |
 | **Chirps** | A speaker on the audio jack plays each burst: an SDR's real demodulated audio, or a re-synthesised ALERT burst for radios and ERT-A2s. |
@@ -81,6 +82,8 @@ with a key you gave it on the set-up page. Details: [docs/install.md](docs/insta
 | 1, 2, Zero, Zero W | 32-bit | — too slow; radios and ERT-A2 only | — | Pi 1/2 ✓ |
 
 Hardware notes, including the RTL-SDR V4 and power supplies: [docs/hardware.md](docs/hardware.md).
+Not a Raspberry Pi? The agent itself runs on any Debian or Ubuntu computer:
+[docs/hardware.md](docs/hardware.md#computers-that-are-not-a-raspberry-pi).
 
 ## The repository
 

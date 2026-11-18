@@ -6,7 +6,8 @@ walks through the first two and writes the card's settings for you.
 ## What you need
 
 - A Raspberry Pi (a **Pi 4** is the recommended base station; see [hardware.md](hardware.md)),
-  its proper power supply, and a microSD card of 8 GB or more.
+  its proper power supply, and a microSD card of 8 GB or more. (The three routes below are for a
+  Pi. For another computer: [hardware.md](hardware.md#computers-that-are-not-a-raspberry-pi).)
 - A receiver: an RTL-SDR stick with a VHF antenna, a Quansheng UV-K5 V3/UV-K1 on the ALERT
   receiver firmware (USB-C cable), or an ELPRO ERT-A2 (USB-serial cable to its RS-232 port,
   or its USB port).

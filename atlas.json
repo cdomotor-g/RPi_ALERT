@@ -31,13 +31,13 @@
   },
   "status": {
     "phase": "beta",
-    "updated": "2026-11-11",
-    "summary": "Version 0.23 gets a base station back online by itself: when no Flood-Net door answers it finds out what kind of trouble it is, joins its Wi-Fi again by name, renews the connection, restarts its networking and, as the last resort, reboots the Pi — each reboot in one outage after a longer wait — and keeps a record of every outage that survives the reboot and goes to Flood-Net's Base Stations tab. The agent's main loop has a watchdog of its own, a refused token is tried again every quarter of an hour, and a request can no longer hang. Out of one base station cut off for a night on 10 November 2026. 18 Bateson runs one RTL-SDR stick with five channels; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
+    "updated": "2026-11-18",
+    "summary": "Version 0.24 is for a base station on an organisation's own network, where somebody asks what listens, who is let in and what is on record: the dashboard can be kept to one address or off the network, answer to the name the organisation's DNS gives it, sit behind a reverse proxy that gives it HTTPS, and ask for a login before anything is read — four settings, each as before until it is set and each set only on the base station itself — and every login attempt is a line in the log with the caller's address. The agent no longer names the Pi's Wi-Fi device, reads its settings file from /etc/rpi-alert.conf where there is no boot partition, and trusts the clock in a container: it runs on any Debian or Ubuntu computer, where open-ALERT's firmware layer is the supported way to install it. 0.23 gets a base station back online by itself when it loses touch with Flood-Net. 18 Bateson runs one RTL-SDR stick with five channels; the bench test with a V4 stick, a Quansheng radio and an ERT-A2 has not been done.",
     "now": [
+      "v0.24.0: on a managed network — the dashboard on one address or off the network, under the name DNS gives it, behind a reverse proxy, a login for everything; every login attempt and change of password in the log; Wi-Fi on whichever device the computer has; /etc/rpi-alert.conf; the clock in a container",
       "v0.23.1: gets back online by itself — rejoin Wi-Fi, renew, restart networking, reboot as the last resort; a record of every outage; the agent's own watchdog; a slow database is waited out, not treated as an outage",
       "v0.22.2: security fixes — root never follows a link in the agent's directories; signed-only rollback; no automatic downgrade; GPS time bounded",
       "v0.22.0: a 288 kHz window; the Overview's plots at the top",
-      "v0.21.0: the web page — settings folded into the Overview's cards, a tab for each kind of log, the last 10 bursts",
       "Next CPU step: wake the around-bursts watch for the weakest bursts and check again; Check to compare ALERT2 too; Compare light at 18 Bateson (#3; MegaNet #259)"
     ],
     "next": [
@@ -57,7 +57,7 @@
       "Read-only root file system; GPS-disciplined time with chrony",
       "Record the next N seconds; a searchable readings table; listen from a phone",
       "Upload Flood-Net's station table to a Quansheng radio from the Overview",
-      "Cellular backhaul, UPS HAT status, HTTPS for the web page"
+      "Cellular backhaul, UPS HAT status, HTTPS in the agent itself (0.24: behind a reverse proxy)"
     ],
     "blocked": [
       {

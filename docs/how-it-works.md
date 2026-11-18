@@ -37,7 +37,7 @@ Chromium. The image turns off Bluetooth and triggerhappy, and caps the journal a
 | Piece | What it is |
 |---|---|
 | `rpi-alert.service` | The agent, as user `rpi-alert` (groups dialout, plugdev, audio, video), port 80 through `CAP_NET_BIND_SERVICE`. `Restart=always`. A main loop that hangs is killed and restarted after three minutes (0.23): the agent asks systemd for a watchdog itself (`WATCHDOG_USEC=` over the notify socket, `NotifyAccess=all`) and feeds it every half minute — so where the message cannot get through, no watchdog is armed, rather than one that kills a healthy agent. |
-| `rpi-alert-boot-config.service` | Applies `rpi-alert.conf` from the boot partition before the agent starts. |
+| `rpi-alert-boot-config.service` | Applies `rpi-alert.conf` from the boot partition before the agent starts — or, where no boot partition holds one (0.24), root's `/etc/rpi-alert.conf`. |
 | `rpi-alert-kiosk.service` | cage + Chromium on tty7, started and stopped *by the agent* as a monitor is connected and disconnected (`/sys/class/drm/*/status`), so a headless Pi spends no memory on it. |
 | `/opt/rpi-alert/libexec/rpi-alert-priv` | The only thing the agent may run as root (sudoers): a fixed list of verbs — kiosk, reboot, Wi-Fi, hostname, time zone, set the clock from GPS, updates, SSH access status and settings — each argument checked. |
 | Files root touches | `/etc/rpi-alert` and `/var/lib/rpi-alert` belong to the agent's user, so root — the SD card's settings at boot, the installer, `sudo rpi-alert` — reads and writes there only through [`safe-fs.js`](../agent/lib/safe-fs.js): never through a link, always a fresh file renamed into place. What root alone reads is root's: the Bluetooth GPS's settings in `/etc/rpi-alert-btgps.conf`, the update's outcome in `/var/lib/rpi-alert-update/status.json` (readable by all; the agent reads it itself). |
@@ -246,6 +246,12 @@ the root helper) and remembers both in `/var/lib/rpi-alert/clock.json`. It is wh
 survey with no internet and no GPS time what it hears across a power cut. The Quansheng radio's own
 clock is set from the Pi's once it is trusted.
 
+Where systemd does not run the computer — a container, whose host keeps the time — there is nobody
+to ask, and the clock is taken to be right. Since 0.24 that holds when systemd's tools are installed
+there too (no `/run/systemd/system`): before, `timedatectl` was found, could only fail, and every
+reading was held for a clock nobody would vouch for. `RPI_ALERT_ASSUME_CLOCK=1` says the same by
+hand.
+
 A GPS's time is believed only when it is plausible, because a receiver can be wrong (GPS
 week-rollover bugs read about 20 years back) or a device on a serial port can lie. The sentence must
 carry its checksum and a valid fix, with every date and time field in range; the time must not be
@@ -278,8 +284,22 @@ restarts; updates; the log. Nothing listens for MegaNet. [remote-management.md](
   It is made on the Pi (when it asks MegaNet for one) and MegaNet only ever stores its hash.
 - The web page: the Pi's own screen and shell are trusted; from the network, a password once set
   (scrypt-hashed; sessions are HttpOnly SameSite=Strict cookies; changes must be JSON — which a
-  cross-site form cannot send — and same-origin; login attempts are rate-limited). It is plain HTTP
-  on the local network, like any router's set-up page; do not expose port 80 to the internet.
+  cross-site form cannot send — and same-origin). Wrong passwords are counted for each address: from
+  the fifth, that address is locked out, for longer each time, up to a quarter of an hour; there is
+  no limit across addresses. Every login attempt, accepted or refused, and every change of the
+  password is a line in the log with the caller's address (0.24).
+  It is plain HTTP on the local network, like any router's set-up page; do not expose port 80 to
+  the internet.
+- On an organisation's network (0.24), four settings, each as before until set and each set only
+  on the base station itself: `web.bind` keeps the web page to one address, or off the network;
+  `web.hosts` names it; `web.behindProxy` puts it behind a reverse proxy that gives it HTTPS, and
+  stops what the proxy passes on being taken for the Pi's own screen — as long as the proxy adds
+  its header to every request, which has to be checked once from another computer;
+  `web.requireLogin` asks for a login before anything is read. What the proxy must do, and how
+  wrong passwords are limited: [configuration.md](configuration.md#the-dashboard-on-a-managed-network).
+- "The Pi itself" is any request from the computer's own address. On a computer where somebody
+  browses the web, `web.behindProxy` belongs on even with no proxy: it is what stops a web page in
+  that browser being taken for the Pi's own screen ([hardware.md](hardware.md#computers-that-are-not-a-raspberry-pi)).
 - A token is a credential for the whole network's write access (MegaNet's docs say so). Revoke it on
   MegaNet's Admin tab the day the Pi leaves your control.
 

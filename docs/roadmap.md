@@ -193,7 +193,25 @@ filters the stick's whole stream on its own (one stick, several channels, is don
   its monotonic times, and the network's own readings of the same stations, at the same values, say
   when that was — a match of a dozen frames at one consistent offset would place the lot, where today
   they are dropped.
-- **HTTPS** for the web page (self-signed, or via MegaNet).
+- **HTTPS** for the web page in the agent itself (self-signed, or via Flood-Net). Since 0.24 a
+  reverse proxy on the same computer can give it HTTPS (`web.behindProxy`).
+- **On an organisation's network, further** (done in 0.24: the dashboard's address, names, a
+  reverse proxy in front of it, a login for everything, every login attempt in the log —
+  [configuration.md](configuration.md#the-dashboard-on-a-managed-network)). Left from the same
+  review of what an IT security reviewer would ask (November 2026): a door of its own for the
+  reverse proxy — a second port on which nothing is ever taken for the base station itself — so
+  that it no longer rests on the proxy adding its header on every route; the stricter test of
+  "this machine itself" that `web.behindProxy` brings (its own name asked for, from a page of that
+  name, no header of a proxy's) as what every base station does, not only one that turned it on —
+  0.24 leaves it off as it comes, so that nothing changes on a running Pi, and says in the log when
+  it would have made a difference; a limit on wrong passwords
+  across addresses, not only for each; `os/install.sh` options (or a second, small installer) that
+  leave out the `alert` account and its sudo rule, the hourly key fetch, the cap on the whole
+  system's journal and Avahi; the `rtl-sdr-blog` build pinned to a version, or dropped where the
+  distribution's own library knows the V4; a web proxy for the agent's own requests (it does not
+  honour `HTTPS_PROXY` as shipped); a check-in that says how the base station is without its
+  addresses, accounts and key fingerprints; and "this Pi" in the page's and the command's words on
+  a computer that is not one.
 
 ## MegaNet side
 
